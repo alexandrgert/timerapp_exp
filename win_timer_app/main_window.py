@@ -266,11 +266,13 @@ class TaskRow(QFrame):
 
         if task.status == TaskStatus.COMPLETED:
             resume_button = QPushButton("Возобновить")
+            resume_button.setObjectName("resumeButton")
             resume_button.clicked.connect(lambda: self.resume_requested.emit(task.id))
             controls.addWidget(resume_button)
         else:
             start_text = "Стоп" if task.status == TaskStatus.RUNNING else "Старт"
             start_button = QPushButton(start_text)
+            start_button.setObjectName("stopButton" if task.status == TaskStatus.RUNNING else "startButton")
             if task.status == TaskStatus.RUNNING:
                 start_button.clicked.connect(lambda: self.stop_requested.emit(task.id))
             else:
@@ -278,6 +280,7 @@ class TaskRow(QFrame):
             controls.addWidget(start_button)
 
             complete_button = QPushButton("Завершить")
+            complete_button.setObjectName("completeButton")
             complete_button.clicked.connect(lambda: self.complete_requested.emit(task.id))
             controls.addWidget(complete_button)
 
@@ -506,6 +509,9 @@ class MainWindow(QMainWindow):
                 background: #f3f4f6;
                 color: #14161b;
             }
+            QLabel {
+                background: transparent;
+            }
             QMainWindow {
                 background: #eef1f4;
             }
@@ -526,6 +532,11 @@ class MainWindow(QMainWindow):
                 border-radius: 34px;
                 border: 1px solid rgba(255, 255, 255, 0.08);
             }
+            QFrame#timerCard[active="true"] {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 #0f1613, stop:0.45 #163125, stop:1 #254439);
+                border: 1px solid rgba(139, 214, 167, 0.22);
+            }
             QFrame#focusCard {
                 background: rgba(255, 255, 255, 0.06);
                 border: 1px solid rgba(255, 255, 255, 0.08);
@@ -545,6 +556,33 @@ class MainWindow(QMainWindow):
                 background: #151923;
                 color: white;
                 border: none;
+            }
+            QPushButton#startButton {
+                background: #e6f6ea;
+                border: 1px solid #c5e8cf;
+                color: #2d6b40;
+            }
+            QPushButton#startButton:hover {
+                background: #ddf1e3;
+            }
+            QPushButton#stopButton {
+                background: #fde8e8;
+                border: 1px solid #f4c5c5;
+                color: #9b3c3c;
+            }
+            QPushButton#stopButton:hover {
+                background: #fbdede;
+            }
+            QPushButton#resumeButton {
+                background: #e8f0fd;
+                border: 1px solid #c7d9f8;
+                color: #3f6499;
+            }
+            QPushButton#resumeButton:hover {
+                background: #dfe9fb;
+            }
+            QPushButton#completeButton:hover {
+                background: #f5f7fb;
             }
             QPushButton#ghostButton {
                 background: transparent;
@@ -578,7 +616,7 @@ class MainWindow(QMainWindow):
                 font-weight: 700;
             }
             QLabel#summaryLabel, QLabel#descriptionLabel, QLabel#timeLabel {
-                color: #596273;
+                color: #14161b;
             }
             QLabel#timerHeading {
                 background: transparent;
@@ -660,6 +698,10 @@ class MainWindow(QMainWindow):
     def _refresh_active_panel(self) -> None:
         active = self.controller.active_task()
         if not active:
+            self.timer_card.setProperty("active", False)
+            self.style().unpolish(self.timer_card)
+            self.style().polish(self.timer_card)
+            self.timer_card.update()
             self.active_task_name.setText("Нет активной задачи")
             self.hours_display.setText("00")
             self.minutes_display.setText("00")
@@ -672,6 +714,10 @@ class MainWindow(QMainWindow):
         hours = total // 3600
         minutes = (total % 3600) // 60
         seconds = total % 60
+        self.timer_card.setProperty("active", True)
+        self.style().unpolish(self.timer_card)
+        self.style().polish(self.timer_card)
+        self.timer_card.update()
         self.hours_display.setText(f"{hours:02d}")
         self.minutes_display.setText(f"{minutes:02d}")
         self.seconds_display.setText(f"{seconds:02d}")
