@@ -448,6 +448,13 @@ class SessionEditDialog(QDialog):
         layout.setContentsMargins(18, 18, 18, 18)
         layout.setSpacing(14)
 
+        select_all_row = QHBoxLayout()
+        self.select_all_checkbox = QCheckBox("Выделить всё")
+        self.select_all_checkbox.toggled.connect(self._toggle_select_all)
+        select_all_row.addWidget(self.select_all_checkbox)
+        select_all_row.addStretch(1)
+        layout.addLayout(select_all_row)
+
         self.table = QTableWidget(0, 4)
         self.table.setHorizontalHeaderLabels(["", "Начало", "Окончание", "Длительность"])
         self.table.verticalHeader().setVisible(False)
@@ -502,7 +509,19 @@ class SessionEditDialog(QDialog):
         item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
         return item
 
+    def _toggle_select_all(self, checked: bool) -> None:
+        state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
+        self.table.blockSignals(True)
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, 0)
+            if item:
+                item.setCheckState(state)
+        self.table.blockSignals(False)
+
     def _reload(self) -> None:
+        self.select_all_checkbox.blockSignals(True)
+        self.select_all_checkbox.setChecked(False)
+        self.select_all_checkbox.blockSignals(False)
         self.table.blockSignals(True)
         self.table.setRowCount(0)
         for session in self.task.sessions:
