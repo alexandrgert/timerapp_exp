@@ -114,6 +114,17 @@ class AppController:
         if active and active.active_session():
             self.next_reminder_at = datetime.now() + self._reminder_interval_td()
 
+    def bitrix_webhook(self) -> str:
+        bitrix = self.state.ui.get("bitrix")
+        if not isinstance(bitrix, dict):
+            return ""
+        return str(bitrix.get("webhook_url", "") or "").strip()
+
+    def set_bitrix_webhook(self, url: str) -> None:
+        bitrix = self.state.ui.setdefault("bitrix", {})
+        bitrix["webhook_url"] = (url or "").strip()
+        self.save()
+
     def all_tasks(self) -> list[Task]:
         self.ensure_rollover()
         return sorted(self.state.tasks, key=lambda task: (task.day, task.created_at), reverse=True)

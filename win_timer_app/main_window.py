@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from PySide6.QtCore import QDateTime, QEvent, QTimer, Qt, Signal
+from PySide6.QtCore import QDateTime, QEvent, QThread, QTimer, Qt, Signal
 from PySide6.QtGui import QAction, QCloseEvent, QFont, QIcon
 from PySide6.QtWidgets import (
     QApplication,
@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .bitrix import Bitrix24Client, looks_like_webhook
 from .controller import AppController, format_day_label, format_duration
 from .models import Task, TaskStatus
 
@@ -143,12 +144,32 @@ class CreateTaskDialog(QDialog):
         self.accept()
 
 
+class _CallableThread(QThread):
+    """Runs a callable off the UI thread and reports the outcome via signals."""
+
+    succeeded = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, fn, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._fn = fn
+
+    def run(self) -> None:
+        try:
+            result = self._fn()
+        except Exception as exc:  # surfaced to the user as a status message
+            self.failed.emit(str(exc))
+            return
+        self.succeeded.emit(result)
+
+
 class SettingsDialog(QDialog):
     def __init__(self, controller: AppController, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.controller = controller
         self.setWindowTitle("Настройки")
-        self.resize(440, 200)
+        self.resize(520, 300)
+        self._test_thread: _CallableThread | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
@@ -167,7 +188,29 @@ class SettingsDialog(QDialog):
         self.reminder_spin.setSuffix(" мин")
         self.reminder_spin.setValue(controller.reminder_interval_minutes())
         form.addRow("Интервал напоминания", self.reminder_spin)
+
+        self.webhook_edit = QLineEdit()
+        self.webhook_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self.webhook_edit.setPlaceholderText("https://портал.bitrix24.ru/rest/1/токен/")
+        self.webhook_edit.setText(controller.bitrix_webhook())
+        form.addRow("URL вебхука Битрикс24", self.webhook_edit)
         layout.addLayout(form)
+
+        webhook_controls = QHBoxLayout()
+        self.show_webhook_checkbox = QCheckBox("Показать")
+        self.show_webhook_checkbox.toggled.connect(self._toggle_webhook_echo)
+        webhook_controls.addWidget(self.show_webhook_checkbox)
+        webhook_controls.addStretch(1)
+        self.test_button = QPushButton("Проверить соединение")
+        self.test_button.clicked.connect(self._test_connection)
+        webhook_controls.addWidget(self.test_button)
+        layout.addLayout(webhook_controls)
+
+        self.webhook_status = QLabel("")
+        self.webhook_status.setWordWrap(True)
+        layout.addWidget(self.webhook_status)
+
+        layout.addStretch(1)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -175,6 +218,57 @@ class SettingsDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+
+    def _toggle_webhook_echo(self, shown: bool) -> None:
+        self.webhook_edit.setEchoMode(
+            QLineEdit.EchoMode.Normal if shown else QLineEdit.EchoMode.Password
+        )
+
+    def _test_connection(self) -> None:
+        url = self.webhook_edit.text().strip()
+        if not looks_like_webhook(url):
+            self._set_status("✗ Похоже на неверный формат URL (ожидается …/rest/…)", ok=False)
+            return
+        self.test_button.setEnabled(False)
+        self._set_status("Проверяю…", ok=None)
+
+        self._test_thread = _CallableThread(
+            lambda: Bitrix24Client(url).test_connection(), self
+        )
+        self._test_thread.succeeded.connect(self._on_test_ok)
+        self._test_thread.failed.connect(self._on_test_failed)
+        self._test_thread.finished.connect(lambda: self.test_button.setEnabled(True))
+        self._test_thread.start()
+
+    def _on_test_ok(self, profile: object) -> None:
+        name = ""
+        if isinstance(profile, dict):
+            name = " ".join(
+                str(profile.get(key, "")).strip() for key in ("NAME", "LAST_NAME")
+            ).strip()
+        suffix = f": {name}" if name else ""
+        self._set_status(f"✓ Подключение успешно{suffix}", ok=True)
+
+    def _on_test_failed(self, message: str) -> None:
+        self._set_status(f"✗ Не удалось подключиться: {message}", ok=False)
+
+    def _set_status(self, text: str, ok: bool | None) -> None:
+        color = {True: "#2d6b40", False: "#9b3c3c", None: "#5f6b7c"}[ok]
+        self.webhook_status.setText(text)
+        self.webhook_status.setStyleSheet(f"color: {color}; background: transparent;")
+
+    def _await_test_thread(self) -> None:
+        thread = self._test_thread
+        if thread is not None and thread.isRunning():
+            thread.wait(5000)
+
+    def accept(self) -> None:
+        self._await_test_thread()
+        super().accept()
+
+    def reject(self) -> None:
+        self._await_test_thread()
+        super().reject()
 
 
 class SessionEditDialog(QDialog):
@@ -1085,6 +1179,7 @@ class MainWindow(QMainWindow):
         dialog = SettingsDialog(self.controller, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.controller.set_reminder_interval_minutes(dialog.reminder_spin.value())
+            self.controller.set_bitrix_webhook(dialog.webhook_edit.text())
 
     def _open_create_dialog(self) -> None:
         self.create_dialog.open_clean()
