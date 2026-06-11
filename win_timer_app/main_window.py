@@ -2,11 +2,24 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from PySide6.QtCore import QDateTime, QEvent, QThread, QTimer, Qt, QUrl, Signal
+from PySide6.QtCore import (
+    QDate,
+    QDateTime,
+    QEvent,
+    QStringListModel,
+    QThread,
+    QTimer,
+    Qt,
+    QUrl,
+    Signal,
+)
 from PySide6.QtGui import QAction, QCloseEvent, QDesktopServices, QFont, QIcon
 from PySide6.QtWidgets import (
     QApplication,
+    QButtonGroup,
     QCheckBox,
+    QCompleter,
+    QDateEdit,
     QDateTimeEdit,
     QDialog,
     QDialogButtonBox,
@@ -34,7 +47,7 @@ from PySide6.QtWidgets import (
 )
 
 from .bitrix import Bitrix24Client, entity_url, looks_like_webhook
-from .controller import AppController, format_day_label, format_duration
+from .controller import AppController, format_day_label, format_duration, format_hm
 from .models import Task, TaskStatus
 
 
@@ -88,13 +101,17 @@ class CreateTaskCard(QFrame):
 
 
 class CreateTaskDialog(QDialog):
-    create_requested = Signal(str, str, bool)
+    create_requested = Signal(dict)
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, controller: AppController, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self.controller = controller
         self.setWindowTitle("Новая задача")
         self.setModal(True)
-        self.resize(460, 300)
+        self.resize(460, 380)
+        self._company_id: str | None = None
+        self._company_by_title: dict[str, str] = {}
+        self._company_thread: _CallableThread | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
@@ -110,8 +127,30 @@ class CreateTaskDialog(QDialog):
 
         self.description_edit = QPlainTextEdit()
         self.description_edit.setPlaceholderText("Краткое описание (необязательно)")
-        self.description_edit.setFixedHeight(100)
+        self.description_edit.setFixedHeight(90)
         layout.addWidget(self.description_edit)
+
+        self.portal_checkbox = QCheckBox("Создать задачу в Битрикс24")
+        self.portal_checkbox.toggled.connect(self._toggle_portal)
+        layout.addWidget(self.portal_checkbox)
+
+        self.company_edit = QLineEdit()
+        self.company_edit.setPlaceholderText("Компания (поиск от 3 символов)")
+        self.company_edit.setEnabled(False)
+        self._company_model = QStringListModel(self)
+        completer = QCompleter(self)
+        completer.setModel(self._company_model)
+        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        completer.activated[str].connect(self._on_company_selected)
+        self.company_edit.setCompleter(completer)
+        self.company_edit.textEdited.connect(self._on_company_text)
+        layout.addWidget(self.company_edit)
+
+        self._company_timer = QTimer(self)
+        self._company_timer.setSingleShot(True)
+        self._company_timer.setInterval(300)
+        self._company_timer.timeout.connect(self._run_company_search)
 
         buttons = QHBoxLayout()
         buttons.setSpacing(10)
@@ -130,10 +169,51 @@ class CreateTaskDialog(QDialog):
     def open_clean(self) -> None:
         self.title_edit.clear()
         self.description_edit.clear()
+        self.portal_checkbox.setChecked(False)
+        self.company_edit.clear()
+        self._company_id = None
+        self._company_by_title = {}
         self.show()
         self.raise_()
         self.activateWindow()
         self.title_edit.setFocus()
+
+    def _toggle_portal(self, checked: bool) -> None:
+        self.company_edit.setEnabled(checked)
+        if not checked:
+            self.company_edit.clear()
+            self._company_id = None
+
+    def _on_company_text(self, text: str) -> None:
+        self._company_id = None  # text changed by hand -> require re-pick
+        if len(text.strip()) >= 3:
+            self._company_timer.start()
+        else:
+            self._company_timer.stop()
+
+    def _run_company_search(self) -> None:
+        text = self.company_edit.text().strip()
+        if len(text) < 3:
+            return
+        webhook = self.controller.bitrix_webhook()
+        if not looks_like_webhook(webhook):
+            return
+        client = Bitrix24Client(webhook)
+        self._company_thread = _CallableThread(lambda q=text: client.search_companies(q), self)
+        self._company_thread.succeeded.connect(self._on_companies)
+        self._company_thread.failed.connect(lambda message: None)
+        self._company_thread.start()
+
+    def _on_companies(self, companies: object) -> None:
+        companies = companies if isinstance(companies, list) else []
+        self._company_by_title = {
+            c["title"]: c["id"] for c in companies if isinstance(c, dict) and c.get("title")
+        }
+        self._company_model.setStringList(list(self._company_by_title.keys()))
+        self.company_edit.completer().complete()
+
+    def _on_company_selected(self, title: str) -> None:
+        self._company_id = self._company_by_title.get(title)
 
     def _emit_request(self, start_now: bool) -> None:
         title = self.title_edit.text().strip()
@@ -141,8 +221,87 @@ class CreateTaskDialog(QDialog):
         if not title:
             self.title_edit.setFocus()
             return
-        self.create_requested.emit(title, description, start_now)
+        company_id = None
+        if self.portal_checkbox.isChecked():
+            company_id = self._company_id or self._company_by_title.get(
+                self.company_edit.text().strip()
+            )
+        self.create_requested.emit(
+            {
+                "title": title,
+                "description": description,
+                "start_now": start_now,
+                "on_portal": self.portal_checkbox.isChecked(),
+                "company_id": company_id,
+            }
+        )
         self.accept()
+
+
+_CAL_ICON_PATH: str | None = None
+
+
+def _calendar_icon_path() -> str:
+    """Draw a small calendar icon to a PNG once and return its path (for QSS)."""
+    global _CAL_ICON_PATH
+    if _CAL_ICON_PATH:
+        return _CAL_ICON_PATH
+    import os
+    import tempfile
+
+    from PySide6.QtCore import QPointF, QRectF
+    from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
+
+    path = os.path.join(tempfile.gettempdir(), "tasktimer_calendar.png")
+    scale = 2
+    pixmap = QPixmap(24 * scale, 24 * scale)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.scale(scale, scale)
+    pen = QPen(QColor("#5f6b7c"))
+    pen.setWidthF(1.8)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    painter.setPen(pen)
+    painter.drawRoundedRect(QRectF(3, 5, 18, 16), 2.5, 2.5)
+    painter.drawLine(QPointF(3, 9.5), QPointF(21, 9.5))
+    painter.drawLine(QPointF(8, 2.5), QPointF(8, 6.5))
+    painter.drawLine(QPointF(16, 2.5), QPointF(16, 6.5))
+    painter.end()
+    pixmap.save(path, "PNG")
+    _CAL_ICON_PATH = path
+    return path
+
+
+def _style_calendar_field(widget) -> None:
+    """Give a QDateEdit/QDateTimeEdit a calendar icon and rounded right corners."""
+    name = widget.objectName() or "calendarField"
+    widget.setObjectName(name)
+    icon = _calendar_icon_path().replace("\\", "/")
+    widget.setStyleSheet(
+        f"""
+        #{name} {{
+            background: white;
+            border: 1px solid rgba(20, 22, 27, 0.12);
+            border-radius: 12px;
+            padding: 6px 10px;
+        }}
+        #{name}::drop-down {{
+            subcontrol-origin: padding;
+            subcontrol-position: center right;
+            width: 30px;
+            border: none;
+            background: transparent;
+            border-top-right-radius: 12px;
+            border-bottom-right-radius: 12px;
+        }}
+        #{name}::down-arrow {{
+            image: url("{icon}");
+            width: 16px;
+            height: 16px;
+        }}
+        """
+    )
 
 
 class _CallableThread(QThread):
@@ -291,13 +450,17 @@ class SessionEditDialog(QDialog):
 
         form = QFormLayout()
         self.start_edit = QDateTimeEdit()
+        self.start_edit.setObjectName("historyStart")
         self.start_edit.setDisplayFormat("dd.MM.yyyy HH:mm:ss")
         self.start_edit.setCalendarPopup(True)
+        _style_calendar_field(self.start_edit)
         form.addRow("Начало", self.start_edit)
 
         self.end_edit = QDateTimeEdit()
+        self.end_edit.setObjectName("historyEnd")
         self.end_edit.setDisplayFormat("dd.MM.yyyy HH:mm:ss")
         self.end_edit.setCalendarPopup(True)
+        _style_calendar_field(self.end_edit)
         form.addRow("Окончание", self.end_edit)
         layout.addLayout(form)
 
@@ -406,8 +569,11 @@ class TaskRow(QFrame):
     resume_requested = Signal(str)
     history_requested = Signal(str)
     delete_requested = Signal(str)
+    plan_toggle_requested = Signal(str)
 
-    def __init__(self, controller: AppController, task: Task) -> None:
+    def __init__(
+        self, controller: AppController, task: Task, reference_date: str | None = None
+    ) -> None:
         super().__init__()
         self.setObjectName("taskRow")
         layout = QVBoxLayout(self)
@@ -421,10 +587,13 @@ class TaskRow(QFrame):
         title_block.setSpacing(2)
 
         title_label = QLabel(task.title)
+        title_font = title_label.font()
+        base_size = title_font.pointSize()
+        title_font.setPointSize((base_size if base_size > 0 else 10) + 2)
+        title_font.setBold(True)
         if task.status == TaskStatus.COMPLETED:
-            font = title_label.font()
-            font.setStrikeOut(True)
-            title_label.setFont(font)
+            title_font.setStrikeOut(True)
+        title_label.setFont(title_font)
         title_block.addWidget(title_label)
 
         if task.description:
@@ -435,7 +604,14 @@ class TaskRow(QFrame):
 
         top.addLayout(title_block, 1)
 
-        time_label = QLabel(f"Затрачено: {controller.task_elapsed_text(task)}")
+        reference = reference_date or controller.today_str()
+        period_label = (
+            "Сегодня" if reference == controller.today_str() else format_day_label(reference)
+        )
+        time_label = QLabel(
+            f"{period_label}: {format_hm(controller.today_seconds(task, reference))} · "
+            f"Всего: {format_hm(task.total_seconds(datetime.now()))}"
+        )
         time_label.setObjectName("timeLabel")
         top.addWidget(time_label)
 
@@ -475,6 +651,12 @@ class TaskRow(QFrame):
             complete_button.clicked.connect(lambda: self.complete_requested.emit(task.id))
             controls.addWidget(complete_button)
 
+        in_plan = controller.in_today_plan(task)
+        plan_button = QPushButton("Убрать из плана" if in_plan else "В план")
+        plan_button.setObjectName("ghostButton")
+        plan_button.clicked.connect(lambda: self.plan_toggle_requested.emit(task.id))
+        controls.addWidget(plan_button)
+
         controls.addStretch(1)
 
         portal_url = entity_url(controller.bitrix_webhook(), task.bitrix)
@@ -488,43 +670,6 @@ class TaskRow(QFrame):
             controls.addWidget(open_button)
 
         layout.addLayout(controls)
-
-
-class DaySection(QFrame):
-    start_requested = Signal(str)
-    stop_requested = Signal(str)
-    complete_requested = Signal(str)
-    resume_requested = Signal(str)
-    history_requested = Signal(str)
-    delete_requested = Signal(str)
-
-    def __init__(self, controller: AppController, day: str, tasks: list[Task]) -> None:
-        super().__init__()
-        self.setObjectName("dayCard")
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(18, 18, 18, 18)
-        layout.setSpacing(14)
-
-        header = QHBoxLayout()
-        title = QLabel(format_day_label(day))
-        title.setObjectName("sectionTitle")
-        header.addWidget(title)
-
-        total = QLabel(f"Всего затрачено: {format_duration(controller.day_total_seconds(day))}")
-        total.setObjectName("summaryLabel")
-        header.addWidget(total)
-        header.addStretch(1)
-        layout.addLayout(header)
-
-        for task in tasks:
-            row = TaskRow(controller, task)
-            row.start_requested.connect(self.start_requested.emit)
-            row.stop_requested.connect(self.stop_requested.emit)
-            row.complete_requested.connect(self.complete_requested.emit)
-            row.resume_requested.connect(self.resume_requested.emit)
-            row.history_requested.connect(self.history_requested.emit)
-            row.delete_requested.connect(self.delete_requested.emit)
-            layout.addWidget(row)
 
 
 class FloatingTimer(QWidget):
@@ -842,13 +987,17 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.controller = controller
         self.app = app
+        self._current_view = "plan"
+        self._selected_date: str | None = None
+        self._portal_sync_queue: list = []
+        self._portal_sync_busy = False
         self.tray_available = QSystemTrayIcon.isSystemTrayAvailable()
         self.app_icon = self.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon)
         self.setWindowIcon(self.app_icon)
         self.setWindowTitle("Task Timer")
         self.resize(980, 680)
         self.setMinimumSize(800, 600)
-        self.create_dialog = CreateTaskDialog(self)
+        self.create_dialog = CreateTaskDialog(self.controller, self)
         self.create_dialog.create_requested.connect(self._create_task)
         self._mini_task_id: str | None = None
         self.floating = FloatingTimer()
@@ -904,7 +1053,7 @@ class MainWindow(QMainWindow):
         top_actions = QHBoxLayout()
         top_actions.setSpacing(12)
 
-        section_title = QLabel("Задачи по дням")
+        section_title = QLabel("Задачи")
         section_title.setObjectName("sectionTitle")
         top_actions.addWidget(section_title)
         top_actions.addStretch(1)
@@ -919,12 +1068,43 @@ class MainWindow(QMainWindow):
         top_actions.addWidget(add_button)
         left_column.addLayout(top_actions)
 
-        filter_row = QHBoxLayout()
-        self.open_only_checkbox = QCheckBox("Только незавершенные")
-        self.open_only_checkbox.toggled.connect(self._toggle_open_only)
-        filter_row.addWidget(self.open_only_checkbox)
-        filter_row.addStretch(1)
-        left_column.addLayout(filter_row)
+        view_row = QHBoxLayout()
+        view_row.setSpacing(6)
+        self.view_group = QButtonGroup(self)
+        self.view_group.setExclusive(False)  # refresh_ui controls highlight (date mode = none)
+        self._view_buttons: dict[str, QPushButton] = {}
+        for key, label in (
+            ("plan", "План на сегодня"),
+            ("in_progress", "В работе"),
+            ("all", "Все задачи"),
+        ):
+            button = QPushButton(label)
+            button.setObjectName("segmentButton")
+            button.setCheckable(True)
+            button.clicked.connect(lambda checked=False, view=key: self._set_view(view))
+            self.view_group.addButton(button)
+            self._view_buttons[key] = button
+            view_row.addWidget(button)
+
+        self.date_edit = QDateEdit()
+        self.date_edit.setObjectName("dateFilter")
+        self.date_edit.setCalendarPopup(True)
+        self.date_edit.setDisplayFormat("dd.MM.yyyy")
+        self.date_edit.setFixedWidth(140)
+        self.date_edit.setToolTip("Показать задачи с затраченным временем за выбранный день")
+        _style_calendar_field(self.date_edit)
+        self.date_edit.blockSignals(True)
+        self.date_edit.setDate(QDate.currentDate())
+        self.date_edit.blockSignals(False)
+        self.date_edit.dateChanged.connect(self._set_date)
+        self.date_edit.calendarWidget().clicked.connect(self._set_date)
+        view_row.addWidget(self.date_edit)
+
+        view_row.addStretch(1)
+        self.today_total_label = QLabel("")
+        self.today_total_label.setObjectName("summaryLabel")
+        view_row.addWidget(self.today_total_label)
+        left_column.addLayout(view_row)
 
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
@@ -1208,6 +1388,21 @@ class MainWindow(QMainWindow):
                 background: rgba(21, 25, 35, 0.08);
                 color: #14161b;
             }
+            QPushButton#segmentButton {
+                background: rgba(21, 25, 35, 0.06);
+                color: #5f6b7c;
+                border: none;
+                border-radius: 12px;
+                padding: 8px 16px;
+                font-weight: 600;
+            }
+            QPushButton#segmentButton:checked {
+                background: #151923;
+                color: white;
+            }
+            QPushButton#segmentButton:hover:!checked {
+                background: rgba(21, 25, 35, 0.12);
+            }
             QPushButton#presetButton {
                 min-width: 0;
                 padding: 10px 0;
@@ -1288,9 +1483,19 @@ class MainWindow(QMainWindow):
         )
 
     def refresh_ui(self) -> None:
-        self.open_only_checkbox.blockSignals(True)
-        self.open_only_checkbox.setChecked(self.controller.filter_open_only())
-        self.open_only_checkbox.blockSignals(False)
+        for key, button in self._view_buttons.items():
+            button.setChecked(key == self._current_view)
+
+        reference_date = self._selected_date if self._current_view == "date" else None
+        if reference_date:
+            self.today_total_label.setText(
+                f"За {format_day_label(reference_date)} всего: "
+                f"{format_hm(self.controller.today_total_seconds(reference_date))}"
+            )
+        else:
+            self.today_total_label.setText(
+                f"Сегодня всего: {format_hm(self.controller.today_total_seconds())}"
+            )
 
         while self.days_layout.count():
             item = self.days_layout.takeAt(0)
@@ -1298,17 +1503,45 @@ class MainWindow(QMainWindow):
             if widget is not None:
                 widget.deleteLater()
 
-        for day, tasks in self.controller.tasks_by_day(open_only=self.controller.filter_open_only()):
-            section = DaySection(self.controller, day, tasks)
-            section.start_requested.connect(self._start_task)
-            section.stop_requested.connect(self._stop_task)
-            section.complete_requested.connect(self._confirm_complete_task)
-            section.resume_requested.connect(self._resume_task)
-            section.history_requested.connect(self._open_history)
-            section.delete_requested.connect(self._confirm_delete_task)
-            self.days_layout.addWidget(section)
+        if self._current_view == "plan":
+            tasks = self.controller.tasks_today_plan()
+        elif self._current_view == "in_progress":
+            tasks = self.controller.tasks_in_progress()
+        elif self._current_view == "date":
+            tasks = self.controller.tasks_on_date(reference_date)
+        else:
+            tasks = self.controller.tasks_all()
+
+        if not tasks:
+            hint = QLabel(self._empty_hint())
+            hint.setObjectName("descriptionLabel")
+            hint.setWordWrap(True)
+            self.days_layout.addWidget(hint)
+        else:
+            for task in tasks:
+                row = TaskRow(self.controller, task, reference_date=reference_date)
+                row.start_requested.connect(self._start_task)
+                row.stop_requested.connect(self._stop_task)
+                row.complete_requested.connect(self._confirm_complete_task)
+                row.resume_requested.connect(self._resume_task)
+                row.history_requested.connect(self._open_history)
+                row.delete_requested.connect(self._confirm_delete_task)
+                row.plan_toggle_requested.connect(self._toggle_plan)
+                self.days_layout.addWidget(row)
         self.days_layout.addStretch(1)
         self._refresh_active_panel()
+
+    def _empty_hint(self) -> str:
+        if self._current_view == "plan":
+            return (
+                "В плане на сегодня пусто. Добавь задачи кнопкой «В план» "
+                "во вкладках «В работе» или «Все задачи»."
+            )
+        if self._current_view == "in_progress":
+            return "Нет незавершённых задач."
+        if self._current_view == "date" and self._selected_date:
+            return f"Нет задач с затраченным временем за {format_day_label(self._selected_date)}."
+        return "Пока нет задач."
         self._refresh_focus_panel()
 
     def _refresh_active_panel(self) -> None:
@@ -1376,12 +1609,60 @@ class MainWindow(QMainWindow):
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.refresh_ui()
 
-    def _create_task(self, title: str, description: str, start_now: bool) -> None:
-        self.controller.create_task(title, description, start_now=start_now)
+    def _create_task(self, payload: dict) -> None:
+        title = payload.get("title", "")
+        description = payload.get("description", "")
+        start_now = payload.get("start_now", False)
+        task = self.controller.create_task(title, description, start_now=start_now)
+        self.refresh_ui()
+        if payload.get("on_portal"):
+            self._create_portal_task_for(task.id, title, description, payload.get("company_id"))
+
+    def _create_portal_task_for(self, task_id, title, description, company_id) -> None:
+        webhook = self.controller.bitrix_webhook()
+        if not looks_like_webhook(webhook):
+            QMessageBox.warning(
+                self, "Битрикс24",
+                "Укажите URL вебхука в настройках, чтобы создавать задачи на портале.",
+            )
+            return
+
+        def work():
+            client = Bitrix24Client(webhook)
+            return client.create_portal_task(
+                title, description, client.current_user_id(), company_id
+            )
+
+        self._create_thread = _CallableThread(work, self)
+        self._create_thread.succeeded.connect(
+            lambda portal_id: self._on_portal_task_created(task_id, portal_id)
+        )
+        self._create_thread.failed.connect(
+            lambda message: QMessageBox.warning(
+                self, "Битрикс24", f"Не удалось создать задачу на портале: {message}"
+            )
+        )
+        self._create_thread.start()
+
+    def _on_portal_task_created(self, task_id, portal_id) -> None:
+        self.controller.link_bitrix(task_id, {"source": "task", "id": str(portal_id)})
         self.refresh_ui()
 
-    def _toggle_open_only(self, checked: bool) -> None:
-        self.controller.set_filter_open_only(checked)
+    def _set_view(self, view: str) -> None:
+        self._current_view = view
+        self.refresh_ui()
+
+    def _set_date(self, qdate: QDate) -> None:
+        self._selected_date = qdate.toString("yyyy-MM-dd")
+        self._current_view = "date"
+        self.refresh_ui()
+
+    def _toggle_plan(self, task_id: str) -> None:
+        task = self.controller.find_task(task_id)
+        if self.controller.in_today_plan(task):
+            self.controller.remove_from_plan(task_id)
+        else:
+            self.controller.add_to_plan(task_id)
         self.refresh_ui()
 
     def _start_focus_timer(self, minutes: int) -> None:
@@ -1420,13 +1701,56 @@ class MainWindow(QMainWindow):
         if answer == QMessageBox.StandardButton.Yes:
             self.controller.complete_task(task_id)
             self.refresh_ui()
+            self._sync_portal_completion(self.controller.find_task(task_id), complete=True)
             self._show_tray_message("Задача завершена", task.title, QSystemTrayIcon.MessageIcon.Information, 4000)
 
     def _resume_task(self, task_id: str) -> None:
         self.controller.resume_completed_task(task_id)
         self.refresh_ui()
         task = self.controller.find_task(task_id)
+        self._sync_portal_completion(task, complete=False)
         self._show_tray_message("Задача возобновлена", task.title, QSystemTrayIcon.MessageIcon.Information, 4000)
+
+    def _sync_portal_completion(self, task: Task, complete: bool) -> None:
+        """Queue a complete/renew of the linked Bitrix24 task.
+
+        Operations are serialized (one at a time, in action order) so that, e.g.,
+        complete→resume→complete always leaves the portal task in the last state.
+        """
+        link = task.bitrix if task else None
+        if not (isinstance(link, dict) and link.get("source") == "task" and link.get("id")):
+            return
+        webhook = self.controller.bitrix_webhook()
+        if not looks_like_webhook(webhook):
+            return
+        self._portal_sync_queue.append((link["id"], complete, webhook))
+        self._process_portal_sync_queue()
+
+    def _process_portal_sync_queue(self) -> None:
+        if self._portal_sync_busy or not self._portal_sync_queue:
+            return
+        portal_id, complete, webhook = self._portal_sync_queue.pop(0)
+        self._portal_sync_busy = True
+
+        def work():
+            client = Bitrix24Client(webhook)
+            if complete:
+                client.complete_portal_task(portal_id)
+            else:
+                client.renew_portal_task(portal_id)
+
+        self._portal_sync_thread = _CallableThread(work, self)
+        self._portal_sync_thread.failed.connect(
+            lambda message: QMessageBox.warning(
+                self, "Битрикс24", f"Не удалось синхронизировать задачу на портале: {message}"
+            )
+        )
+        self._portal_sync_thread.finished.connect(self._on_portal_sync_done)
+        self._portal_sync_thread.start()
+
+    def _on_portal_sync_done(self) -> None:
+        self._portal_sync_busy = False
+        self._process_portal_sync_queue()
 
     def _open_history(self, task_id: str) -> None:
         task = self.controller.find_task(task_id)
