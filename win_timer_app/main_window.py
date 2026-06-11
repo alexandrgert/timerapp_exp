@@ -595,6 +595,23 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.tabs)
         self.tabs.addTab(self._build_tasks_tab(), "Задачи")
         self.tabs.addTab(self._build_focus_tab(), "Фокус")
+        self.tabs.setCornerWidget(
+            self._build_settings_button(), Qt.Corner.TopRightCorner
+        )
+
+    def _build_settings_button(self) -> QWidget:
+        button = QPushButton("⚙")
+        button.setObjectName("settingsButton")
+        button.setToolTip("Настройки")
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        button.setFixedSize(34, 34)
+        button.clicked.connect(self._open_settings)
+
+        container = QWidget()
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 14, 0)
+        layout.addWidget(button)
+        return container
 
     def _build_tasks_tab(self) -> QWidget:
         root = QWidget()
@@ -897,6 +914,18 @@ class MainWindow(QMainWindow):
             }
             QPushButton#deleteGhostButton:hover {
                 background: rgba(21, 25, 35, 0.05);
+            }
+            QPushButton#settingsButton {
+                background: transparent;
+                border: none;
+                border-radius: 17px;
+                padding: 0;
+                font-size: 18px;
+                color: #5f6b7c;
+            }
+            QPushButton#settingsButton:hover {
+                background: rgba(21, 25, 35, 0.08);
+                color: #14161b;
             }
             QPushButton#presetButton {
                 min-width: 0;
