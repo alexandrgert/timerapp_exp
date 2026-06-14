@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from win_timer_app.models import Session, Task, TaskStatus, make_id
+from timerapp_ag.models import Session, Task, TaskStatus, make_id
 
 
 def test_make_id_is_unique() -> None:

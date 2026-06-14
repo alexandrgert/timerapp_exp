@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import os
 from datetime import date, datetime, time, timedelta
 
+from .bitrix_config import BitrixPortalConfig, merge_portal_config
 from .models import Session, Task, TaskStatus, make_id
 from .storage import Storage
 
@@ -18,6 +20,7 @@ class AppController:
         self.pending_confirmation_deadline: datetime | None = None
         self.next_reminder_at: datetime | None = None
         self._migrate()
+        self._apply_env_bitrix_webhook()
         self.ensure_plan_rollover()
         self.state.ui.setdefault("reminder_interval_minutes", 40)
         self._rebuild_runtime_state()
@@ -150,6 +153,14 @@ class AppController:
         if active and active.active_session():
             self.next_reminder_at = datetime.now() + self._reminder_interval_td()
 
+    def _apply_env_bitrix_webhook(self) -> None:
+        """Use BITRIX24_HOOK_URL from the environment when settings are empty."""
+        if self.bitrix_webhook():
+            return
+        env_url = (os.environ.get("BITRIX24_HOOK_URL") or "").strip()
+        if env_url:
+            self.set_bitrix_webhook(env_url)
+
     def bitrix_webhook(self) -> str:
         bitrix = self.state.ui.get("bitrix")
         if not isinstance(bitrix, dict):
@@ -159,6 +170,16 @@ class AppController:
     def set_bitrix_webhook(self, url: str) -> None:
         bitrix = self.state.ui.setdefault("bitrix", {})
         bitrix["webhook_url"] = (url or "").strip()
+        self.save()
+
+    def bitrix_portal_config(self) -> BitrixPortalConfig:
+        bitrix = self.state.ui.get("bitrix")
+        stored = bitrix.get("portal") if isinstance(bitrix, dict) else None
+        return merge_portal_config(stored)
+
+    def set_bitrix_portal_config(self, config: BitrixPortalConfig) -> None:
+        bitrix = self.state.ui.setdefault("bitrix", {})
+        bitrix["portal"] = config.to_dict()
         self.save()
 
     def all_tasks(self) -> list[Task]:
@@ -262,14 +283,6 @@ class AppController:
     def link_bitrix(self, task_id: str, link: dict) -> None:
         """Attach a Bitrix entity link to a task and persist."""
         self.find_task(task_id).bitrix = link
-        self.save()
-
-    def mark_sessions_transferred(self, task_id: str, session_ids, record_id) -> None:
-        """Mark given sessions as transferred to Bitrix with the created record id."""
-        ids = set(session_ids)
-        for session in self.find_task(task_id).sessions:
-            if session.id in ids:
-                session.bitrix_record_id = str(record_id)
         self.save()
 
     def import_bitrix_items(self, items: list[dict]) -> tuple[int, int]:

@@ -1,0 +1,12 @@
+# Шаблон desktop-файла. При сборке .deb генерируется в build_deb.sh
+# с Name=TaskTimer link B24 <версия> из pyproject.toml / VERSION=.
+
+[Desktop Entry]
+Type=Application
+Name=TaskTimer link B24
+Comment=Desktop task timer with Bitrix24 integration
+Exec=tasktimer-link-b24
+Icon=tasktimer-link-b24
+Terminal=false
+Categories=Office;Utility;
+StartupWMClass=tasktimer-link-b24

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from win_timer_app.models import Session, Task, TaskStatus
-from win_timer_app.storage import AppState, Storage
+from timerapp_ag.models import Session, Task, TaskStatus
+from timerapp_ag.storage import AppState, Storage
 
 
 def test_load_missing_file_returns_empty_state(tmp_path: Path) -> None:

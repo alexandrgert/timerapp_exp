@@ -23,7 +23,6 @@ class Session:
     id: str
     started_at: str
     ended_at: str | None = None
-    bitrix_record_id: str | None = None  # id записи в Битрикс, если интервал передан
 
     @property
     def start_dt(self) -> datetime:
@@ -42,7 +41,6 @@ class Session:
             "id": self.id,
             "started_at": self.started_at,
             "ended_at": self.ended_at,
-            "bitrix_record_id": self.bitrix_record_id,
         }
 
     @classmethod
@@ -51,7 +49,6 @@ class Session:
             id=data["id"],
             started_at=data["started_at"],
             ended_at=data.get("ended_at"),
-            bitrix_record_id=data.get("bitrix_record_id"),
         )
 
 

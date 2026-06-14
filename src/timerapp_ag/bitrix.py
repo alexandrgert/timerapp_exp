@@ -9,6 +9,12 @@ import asyncio
 import re
 import warnings
 
+from .bitrix_config import (
+    BitrixPortalConfig,
+    discover_portal_config,
+    merge_portal_config,
+)
+
 # https://portal.bitrix24.ru/rest/<user_id>/<token>/
 _WEBHOOK_RE = re.compile(r"^https://[^/\s]+/rest/\d+/[^/\s]+/?$")
 
@@ -22,13 +28,12 @@ class Bitrix24Error(Exception):
     """Raised for configuration problems with the Bitrix24 client."""
 
 
-# Smart-process (СПА) "Реестр проектов".
-PROJECTS_ENTITY_TYPE_ID = 150
-# Smart-process (СПА) журнала работ (запись о затраченном времени по проекту).
-WORKLOG_ENTITY_TYPE_ID = 1092
-
-
-def entity_url(webhook_url: str, link: dict | None) -> str | None:
+def entity_url(
+    webhook_url: str,
+    link: dict | None,
+    *,
+    projects_entity_type_id: int | None = None,
+) -> str | None:
     """Build the portal URL for an imported entity from the webhook + link.
 
     ``link`` is the task's stored ``{"source", "id"}``. Returns ``None`` if the
@@ -45,7 +50,8 @@ def entity_url(webhook_url: str, link: dict | None) -> str | None:
         return None
     source = link.get("source")
     if source == "project":
-        return f"{base}/crm/type/{PROJECTS_ENTITY_TYPE_ID}/details/{item_id}/"
+        entity_type_id = projects_entity_type_id or BitrixPortalConfig().projects_entity_type_id
+        return f"{base}/crm/type/{entity_type_id}/details/{item_id}/"
     if source == "task":
         return f"{base}/company/personal/user/{user_id}/tasks/task/view/{item_id}/"
     return None
@@ -73,53 +79,28 @@ def _default_factory(webhook_url: str):
     return Bitrix(webhook_url)
 
 
-def _default_post(webhook_url: str, method: str, payload: dict):
-    """Direct JSON POST to a REST method (preserves int/float types).
-
-    fast-bitrix24's call() batches requests, and batch serialization turns
-    values into query-string strings — which methods like task.elapseditem.add
-    (strict about integer types) reject. A JSON body keeps types intact.
-    """
-    import json
-    import urllib.error
-    import urllib.request
-
-    url = webhook_url.rstrip("/") + "/" + method
-    data = json.dumps(payload).encode("utf-8")
-    request = urllib.request.Request(
-        url, data=data, headers={"Content-Type": "application/json"}, method="POST"
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            body = json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        try:
-            body = json.loads(exc.read().decode("utf-8"))
-        except Exception:
-            raise RuntimeError(f"HTTP {exc.code} {exc.reason}") from None
-    if isinstance(body, dict) and body.get("error"):
-        raise RuntimeError(body.get("error_description") or body.get("error"))
-    return body.get("result") if isinstance(body, dict) else body
-
-
 class Bitrix24Client:
-    def __init__(self, webhook_url: str, *, client_factory=None, post_func=None) -> None:
+    def __init__(
+        self,
+        webhook_url: str,
+        *,
+        portal_config: BitrixPortalConfig | dict | None = None,
+        client_factory=None,
+    ) -> None:
         url = (webhook_url or "").strip()
         if not looks_like_webhook(url):
             raise Bitrix24Error("Некорректный URL вебхука")
         self._webhook_url = url
+        if isinstance(portal_config, BitrixPortalConfig):
+            self._portal_config = portal_config
+        else:
+            self._portal_config = merge_portal_config(portal_config)
         self._factory = client_factory or _default_factory
-        self._post_func = post_func or _default_post
         self._bx = None
 
-    def _post(self, method: str, payload: dict):
-        """Single write request via direct JSON POST, token stripped from errors."""
-        try:
-            return self._post_func(self._webhook_url, method, payload)
-        except Bitrix24Error:
-            raise
-        except Exception as exc:
-            raise Bitrix24Error(self._sanitize(str(exc))) from None
+    @property
+    def portal_config(self) -> BitrixPortalConfig:
+        return self._portal_config
 
     def _client(self):
         if self._bx is None:
@@ -175,13 +156,27 @@ class Bitrix24Client:
         """Return the id of the webhook's user (from ``profile``)."""
         return int(self._profile().get("ID"))
 
+    def discover_portal_config(self) -> BitrixPortalConfig:
+        """Detect SPA projects registry and filter fields from the portal."""
+        return discover_portal_config(
+            list_types=lambda: self._safe_get_all(
+                "crm.type.list", {"select": ["id", "entityTypeId", "title", "code"]}
+            )
+            or [],
+            list_fields=lambda entity_type_id: self._safe_call(
+                "crm.item.fields", {"entityTypeId": entity_type_id}
+            ),
+            preferred_registry_title=self._portal_config.projects_registry_title,
+        )
+
     def _final_project_stage_ids(self) -> set:
-        """Stage ids of СПА 150 that are final (won/lost), by stage semantics.
+        """Stage ids of the projects SPA that are final (won/lost), by stage semantics.
 
         Mirrors the portal's "В работе" view: active = any stage whose
         ``SEMANTICS`` is not ``'S'`` (success) or ``'F'`` (fail).
         """
-        prefix = f"DYNAMIC_{PROJECTS_ENTITY_TYPE_ID}_STAGE_"
+        entity_type_id = self._portal_config.projects_entity_type_id
+        prefix = f"DYNAMIC_{entity_type_id}_STAGE_"
         statuses = self._safe_get_all(
             "crm.status.list", {"select": ["STATUS_ID", "ENTITY_ID", "SEMANTICS"]}
         ) or []
@@ -193,19 +188,20 @@ class Bitrix24Client:
         }
 
     def list_projects(self, user_id) -> list[dict]:
-        """Active projects (СПА 150) where the user is main executor or supporter.
+        """Active projects where the user is main executor or supporter.
 
         Bitrix filters can't OR across fields, so we query each field and merge.
         "Active" means the project's stage is not final (won/lost) — matching the
         portal's "В работе" filter — rather than the unrelated "Проект сдан" flag.
         """
+        entity_type_id = self._portal_config.projects_entity_type_id
         final_stages = self._final_project_stage_ids()
         found: dict[str, str] = {}
-        for field in ("ufCrm16MainIspolnitel", "ufCrm16Supporters"):
+        for field in self._portal_config.projects_executor_fields:
             items = self._safe_get_all(
                 "crm.item.list",
                 {
-                    "entityTypeId": PROJECTS_ENTITY_TYPE_ID,
+                    "entityTypeId": entity_type_id,
                     "filter": {field: user_id},
                     "select": ["id", "title", "stageId"],
                 },
@@ -265,33 +261,6 @@ class Bitrix24Client:
         result = self._safe_call("tasks.task.add", {"fields": fields})
         task = result.get("task", result) if isinstance(result, dict) else {}
         return str(task.get("id"))
-
-    def add_project_time(
-        self, project_id, date_iso: str, hours: float, comment: str, responsible_id
-    ) -> str:
-        """Create a worklog item (СПА 1092) for a project. Returns the new item id."""
-        fields = {
-            "parentId150": int(project_id),
-            "assignedById": int(responsible_id),
-            "ufCrm88HoursWork": float(hours),
-            "ufCrm88CommentWork": comment,
-            "ufCrm88DateWork": date_iso,
-        }
-        result = self._post(
-            "crm.item.add", {"entityTypeId": WORKLOG_ENTITY_TYPE_ID, "fields": fields}
-        )
-        item = result.get("item", result) if isinstance(result, dict) else {}
-        return str(item.get("id"))
-
-    def add_task_time(self, task_id, seconds: int, comment: str) -> str:
-        """Log elapsed time on a Bitrix24 task (task.elapseditem.add). Returns record id."""
-        result = self._post(
-            "task.elapseditem.add",
-            {"taskId": int(task_id), "arFields": {"SECONDS": int(seconds), "COMMENT_TEXT": comment}},
-        )
-        if isinstance(result, dict):
-            return str(result.get("id"))
-        return str(result)
 
     def complete_portal_task(self, task_id) -> None:
         """Mark a Bitrix24 task as completed (tasks.task.complete)."""

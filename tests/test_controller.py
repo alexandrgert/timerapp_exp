@@ -4,14 +4,14 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from win_timer_app.controller import (
+from timerapp_ag.controller import (
     AppController,
     format_day_label,
     format_duration,
     format_hm,
 )
-from win_timer_app.models import TaskStatus
-from win_timer_app.storage import Storage
+from timerapp_ag.models import TaskStatus
+from timerapp_ag.storage import Storage
 
 
 # ---------------------------------------------------------------------------

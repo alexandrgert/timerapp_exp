@@ -1,0 +1,38 @@
+---
+description: TaskTimer — semver в pyproject.toml перед сборкой .deb
+globs: projects/timerapp_ag/**/*
+alwaysApply: false
+---
+
+# timerapp_ag: версия и сборка .deb
+
+## Источник версии
+
+Единственный источник — **`projects/timerapp_ag/pyproject.toml`** → `[project].version`.
+
+Не полагаться на `VERSION=…` для релизов (только для разовых тестов upgrade/downgrade).
+
+## Автоподнятие при `./build_deb.sh`
+
+Перед сборкой вызывается `scripts/bump_version.py`:
+
+| Тип | Когда | Пример |
+|-----|--------|--------|
+| **`patch`** (по умолчанию) | багфиксы, мелкие правки | 0.2.0 → 0.2.1 |
+| **`minor`** | новые фичи, заметные изменения UX/Б24 | 0.1.0 → 0.2.0 |
+| **`major`** | ломающие изменения формата данных/API | 0.2.3 → 1.0.0 |
+
+```bash
+# мелкие правки (default)
+./projects/timerapp_ag/build_deb.sh
+
+# новые фичи
+BUMP=minor ./projects/timerapp_ag/build_deb.sh
+```
+
+Без изменения версии (пересборка той же): `NO_BUMP=1 ./build_deb.sh`  
+Фиксированная версия для теста: `NO_BUMP=1 VERSION=0.2.0 ./build_deb.sh`
+
+## Агент
+
+После **фич** перед сборкой `.deb` — **`BUMP=minor`**. После **фиксов** — достаточно `./build_deb.sh` (`patch`).

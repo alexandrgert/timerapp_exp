@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import pytest
 
-from win_timer_app.bitrix import (
+from timerapp_ag.bitrix import (
     Bitrix24Client,
     Bitrix24Error,
     entity_url,
     looks_like_webhook,
 )
-from win_timer_app.controller import AppController
+from timerapp_ag.bitrix_config import BitrixPortalConfig
+from timerapp_ag.controller import AppController
 
 
 class FakeBx:
@@ -115,7 +116,9 @@ def test_real_client_constructs_in_worker_thread_without_event_loop():
 
 # --- controller persistence --------------------------------------------------
 
-def test_bitrix_webhook_defaults_empty(controller):
+def test_bitrix_webhook_defaults_empty(storage, monkeypatch):
+    monkeypatch.delenv("BITRIX24_HOOK_URL", raising=False)
+    controller = AppController(storage)
     assert controller.bitrix_webhook() == ""
 
 
@@ -129,6 +132,22 @@ def test_bitrix_webhook_persists_across_reload(storage):
     first.set_bitrix_webhook("https://acme.bitrix24.ru/rest/1/abc/")
     second = AppController(storage)
     assert second.bitrix_webhook() == "https://acme.bitrix24.ru/rest/1/abc/"
+
+
+def test_bitrix_portal_config_defaults_and_persists(storage):
+    controller = AppController(storage)
+    assert controller.bitrix_portal_config().projects_entity_type_id == 150
+    custom = BitrixPortalConfig(projects_entity_type_id=177, projects_executor_fields=("ufX",))
+    controller.set_bitrix_portal_config(custom)
+    reloaded = AppController(storage)
+    assert reloaded.bitrix_portal_config().projects_entity_type_id == 177
+    assert reloaded.bitrix_portal_config().projects_executor_fields == ("ufX",)
+
+
+def test_env_webhook_used_when_settings_empty(storage, monkeypatch):
+    monkeypatch.setenv("BITRIX24_HOOK_URL", "https://acme.bitrix24.ru/rest/9/envtoken/")
+    controller = AppController(storage)
+    assert controller.bitrix_webhook() == "https://acme.bitrix24.ru/rest/9/envtoken/"
 
 
 # --- import: projects & tasks listing -----------------------------------------
@@ -154,6 +173,31 @@ def _routed(router):
 def test_current_user_id_from_profile():
     client = _routed(lambda m, p: {"ID": "7", "NAME": "X"} if m == "profile" else [])
     assert client.current_user_id() == 7
+
+
+def test_list_projects_uses_portal_config_entity_and_fields():
+    captured: list[tuple[str, dict]] = []
+
+    class Bx:
+        def get_all(self, method, params=None):
+            captured.append((method, params or {}))
+            if method == "crm.status.list":
+                return []
+            return [{"id": 9, "title": "P", "stageId": "NEW"}]
+
+    config = BitrixPortalConfig(
+        projects_entity_type_id=177,
+        projects_executor_fields=("ufCrm18Main",),
+    )
+    client = Bitrix24Client(
+        "https://acme.bitrix24.ru/rest/1/abc/",
+        portal_config=config,
+        client_factory=lambda u: Bx(),
+    )
+    projects = client.list_projects(7)
+    assert projects == [{"id": "9", "title": "P"}]
+    list_calls = [params for method, params in captured if method == "crm.item.list"]
+    assert list_calls == [{"entityTypeId": 177, "filter": {"ufCrm18Main": 7}, "select": ["id", "title", "stageId"]}]
 
 
 def test_list_projects_merges_dedupes_and_excludes_final_stages():
@@ -239,41 +283,6 @@ def test_create_portal_task_returns_id_and_binds_company():
     assert params["fields"]["UF_CRM_TASK"] == ["CO_10"]
 
 
-def test_add_project_time_builds_worklog_item():
-    captured = {}
-
-    def poster(url, method, payload):
-        captured.update(method=method, payload=payload)
-        return {"item": {"id": 555}}
-
-    client = Bitrix24Client("https://acme.bitrix24.ru/rest/1/abc/", post_func=poster)
-    assert client.add_project_time("5566", "2026-06-11", 2.5, "Работа", 1) == "555"
-    assert captured["method"] == "crm.item.add"
-    payload = captured["payload"]
-    assert payload["entityTypeId"] == 1092
-    fields = payload["fields"]
-    assert fields["parentId150"] == 5566  # ids cast to int (Bitrix is strict)
-    assert fields["assignedById"] == 1
-    assert fields["ufCrm88HoursWork"] == 2.5
-    assert fields["ufCrm88CommentWork"] == "Работа"
-    assert fields["ufCrm88DateWork"] == "2026-06-11"
-
-
-def test_add_task_time_builds_elapseditem():
-    captured = {}
-
-    def poster(url, method, payload):
-        captured.update(method=method, payload=payload)
-        return 777
-
-    client = Bitrix24Client("https://acme.bitrix24.ru/rest/1/abc/", post_func=poster)
-    assert client.add_task_time("50032", 9000, "Работа") == "777"
-    assert captured["method"] == "task.elapseditem.add"
-    payload = captured["payload"]
-    assert payload["taskId"] == 50032  # int, sent as JSON (not stringified by batch)
-    assert payload["arFields"] == {"SECONDS": 9000, "COMMENT_TEXT": "Работа"}
-
-
 def test_complete_portal_task_calls_complete():
     fake = CallBx(result={"task": {"id": 1}})
     client = Bitrix24Client("https://acme.bitrix24.ru/rest/1/abc/", client_factory=lambda u: fake)
@@ -304,7 +313,11 @@ def test_link_bitrix_sets_and_persists(storage):
 
 
 def test_entity_url_for_project_points_to_smart_process_item():
-    url = entity_url("https://webmens.bitrix24.ru/rest/1/abc/", {"source": "project", "id": "5566"})
+    url = entity_url(
+        "https://webmens.bitrix24.ru/rest/1/abc/",
+        {"source": "project", "id": "5566"},
+        projects_entity_type_id=150,
+    )
     assert url == "https://webmens.bitrix24.ru/crm/type/150/details/5566/"
 
 

@@ -1,77 +1,132 @@
-# TaskTimer
+# TaskTimer link B24
 
-Десктопный таймер задач на Python + [PySide6](https://doc.qt.io/qtforpython/) (Qt). Помогает вести задачи по дням, засекать затраченное на каждую время и не выпадать из фокуса. Основная цель — Windows (собирается в один `TaskTimer.exe`), но приложение кроссплатформенное и запускается также на macOS и Linux.
+Десктопный таймер задач на Python + [PySide6](https://doc.qt.io/qtforpython/) с интеграцией **Битрикс24**: импорт проектов (СПА) и задач, создание задач на портале, синхронизация завершения.
+
+**Fork** проекта [lukoyanov-aa/win-timer-app-v1](https://github.com/lukoyanov-aa/win-timer-app-v1). От upstream: пакет переименован `win_timer_app` → `timerapp_ag`, добавлена интеграция Bitrix24, Linux `.deb`, single-instance, semver bump при сборке.
+
+Инструкция для пользователей — [`ИНСТРУКЦИЯ.md`](ИНСТРУКЦИЯ.md). Сборка `.exe` — [`README-DISTRIBUTION.txt`](README-DISTRIBUTION.txt).
 
 ## Возможности
 
-- **Задачи по дням.** Создавайте задачи, запускайте таймер «Старт», ставьте на паузу «Стоп». Справа видна текущая активная задача и накопленное за сегодня время.
-- **Завершение и возобновление.** Завершённые задачи можно открыть заново или спрятать фильтром «Только незавершённые».
-- **Напоминание «продолжать?»** Через заданный интервал (по умолчанию 40 минут) приложение спрашивает, работаете ли вы ещё над задачей. Если не ответить — таймер остановится. Интервал меняется в *Настройки → Параметры…*
-- **История времени.** У каждой задачи есть история интервалов: просмотр, ручная правка, добавление записи за прошедшее время, удаление.
-- **Режим концентрации.** Отдельная вкладка «Фокус» с обратным отсчётом (5–40 мин) — напоминание сосредоточиться, не привязанное к задаче.
-- **Трей и плавающий виджет.** Окно сворачивается в системный трей. В свёрнутом состоянии поверх всех окон появляется маленький полупрозрачный виджет с текущей задачей и временем, с кнопками старт/стоп; его можно перетаскивать, двойной щелчок разворачивает окно.
+- Три вида списка: **план на сегодня**, **в работе**, **все задачи**; фильтр по дате учёта времени.
+- Таймер по задачам, история интервалов, напоминание «продолжать?», режим **Фокус** (обратный отсчёт).
+- Системный трей и плавающий виджет активной задачи.
+- **Битрикс24**: импорт проектов/задач, «Открыть в Б24», создание задачи с привязкой к компании, автозавершение на портале.
+- Настройки СПА «Реестр проектов» — в UI (**Определить с портала**) или в `ui.bitrix.portal` в `data.json`.
 
-## Требования
+Спецификация модели «план на день»: [`docs/superpowers/specs/2026-06-11-task-views-and-plan-design.md`](docs/superpowers/specs/2026-06-11-task-views-and-plan-design.md).
 
-- Python **3.10+** (PySide6 6.11 не поддерживает Python 3.9)
-- PySide6 6.11.0 (см. [`requirements.txt`](requirements.txt))
-
-## Запуск из исходников
-
-**Windows (PowerShell):**
-
-```powershell
-python -m venv .venv
-.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-python app.py
-```
-
-**macOS / Linux:**
+## Быстрый старт
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-python app.py
+git clone https://github.com/alexandrgert/timer-app.git
+cd timer-app
+python -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -e . -r requirements-dev.txt
+cp .env.example .env        # подставьте BITRIX24_HOOK_URL
+./run.sh
 ```
 
-Точка входа — [`app.py`](app.py), которая вызывает `win_timer_app.main:main`.
+Или после установки:
 
-## Сборка `TaskTimer.exe` (Windows)
-
-В репозитории есть готовый PyInstaller-спек [`TaskTimer.spec`](TaskTimer.spec) и скрипт сборки:
-
-```powershell
-.\build_exe.ps1
+```bash
+timerapp
 ```
-
-Скрипт ставит зависимости (`requirements.txt` + [`requirements-build.txt`](requirements-build.txt)) и запускает PyInstaller. Результат — один файл `dist\TaskTimer.exe` без консоли; Python на целевой машине не нужен. Подробности для конечных пользователей — в [`README-DISTRIBUTION.txt`](README-DISTRIBUTION.txt).
 
 ## Тесты
-
-Логика покрыта тестами на pytest (модели, хранилище, контроллер):
 
 ```bash
 pip install -r requirements-dev.txt
 pytest
 ```
 
-## Структура проекта
+## Сборка TaskTimer.exe (Windows)
 
-```
-app.py                      # точка входа
-win_timer_app/
-  main.py                   # инициализация QApplication и главного окна
-  controller.py             # бизнес-логика: задачи, сессии, таймеры, напоминания (AppController)
-  main_window.py            # весь UI: главное окно, диалоги, трей, плавающий виджет
-  models.py                 # модели данных: Task, Session, TaskStatus
-  storage.py                # загрузка/сохранение состояния в JSON
-tests/                      # pytest: test_models, test_storage, test_controller
-TaskTimer.spec              # конфигурация сборки PyInstaller
-build_exe.ps1               # скрипт сборки exe
+```powershell
+.\build_exe.ps1
 ```
 
-## Хранение данных
+Результат: `dist\TaskTimer.exe`.
 
-Задачи и настройки сохраняются автоматически в `data.json` в пользовательском каталоге приложения (через `QStandardPaths.AppDataLocation`; на Windows — в профиле пользователя). Если каталог недоступен для записи, используется запасной вариант — `./.localdata/data.json` рядом с приложением.
+## Сборка .deb (Linux amd64)
+
+Требования: `dpkg-deb`, venv с зависимостями проекта, PyInstaller из `requirements-build.txt`.
+
+Версия — в **`pyproject.toml`**, при сборке **автоматически поднимается** (semver):
+
+| Команда | Когда |
+|---------|--------|
+| `./build_deb.sh` | мелкие правки → **patch** (0.1.0 → 0.1.1) |
+| `BUMP=minor ./build_deb.sh` | новые фичи → **minor** (0.1.0 → 0.2.0) |
+| `BUMP=major ./build_deb.sh` | ломающие изменения |
+| `NO_BUMP=1 ./build_deb.sh` | пересборка без смены версии |
+
+```bash
+chmod +x build_deb.sh
+./build_deb.sh
+```
+
+Результат: `dist/tasktimer-link-b24-<версия>-amd64.deb`. В меню — «TaskTimer link B24»; версия — в заголовке окна.
+
+Установка:
+
+```bash
+sudo dpkg -i dist/tasktimer-link-b24-<версия>-amd64.deb
+sudo apt-get install -f
+tasktimer-link-b24
+```
+
+Upgrade/downgrade: более новая версия ставится поверх старой; downgrade блокируется (`preinst`) — сначала `sudo apt remove tasktimer-link-b24`.
+
+Ручной bump без сборки: `python scripts/bump_version.py minor`
+
+### Releases
+
+Готовые `.deb` можно прикреплять к [GitHub Releases](https://github.com/alexandrgert/timer-app/releases) этого репозитория.
+
+## Зависимости
+
+| Пакет | Назначение |
+|-------|------------|
+| `PySide6` | UI (Qt) |
+| `fast-bitrix24` | пакетные вызовы REST при импорте |
+| `python-dotenv` | загрузка `.env` |
+
+## Структура
+
+```
+app.py                 # обёртка для запуска
+run.sh                 # запуск из venv проекта
+src/timerapp_ag/
+  main.py              # точка входа
+  env_loader.py        # загрузка .env
+  controller.py        # бизнес-логика, план на день, Б24
+  main_window.py       # UI
+  models.py            # Task, Session
+  storage.py           # data.json (AppData / .localdata)
+  bitrix.py            # клиент Битрикс24
+  bitrix_config.py     # СПА реестра проектов
+tests/
+docs/superpowers/specs/
+```
+
+## Битрикс24
+
+- **Вебхук** — `BITRIX24_HOOK_URL` в `.env` в корне репозитория (или `~/.config/tasktimer/.env` / `%APPDATA%\TaskTimer\.env`).
+- **Права вебхука**: `task`, `crm`, `user`.
+- **Реестр проектов** — смарт-процесс на портале (по умолчанию entityTypeId 150, «Реестр проектов»); поля исполнителя определяются автоматически или через **Настройки → Определить с портала**.
+
+## Данные
+
+Задачи и настройки — в `data.json` в каталоге приложения Qt (`AppDataLocation`); при недоступности — `.localdata/data.json` в каталоге проекта.
+
+## Отличия от upstream
+
+| | [lukoyanov-aa/win-timer-app-v1](https://github.com/lukoyanov-aa/win-timer-app-v1) | этот fork |
+|--|--|--|
+| Пакет | `win_timer_app` | `timerapp_ag` |
+| Bitrix24 | нет | импорт/создание задач, СПА |
+| Linux | нет | `.deb` amd64 |
+| Single instance | нет | да |
+| Название продукта | TaskTimer | TaskTimer link B24 |

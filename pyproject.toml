@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "timerapp-ag"
+version = "0.2.2"
+description = "Десктопный таймер задач с интеграцией Битрикс24"
+requires-python = ">=3.10"
+dependencies = [
+    "PySide6==6.11.0",
+    "fast-bitrix24>=1.8",
+    "python-dotenv>=1.0",
+]
+
+[project.scripts]
+timerapp = "timerapp_ag.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

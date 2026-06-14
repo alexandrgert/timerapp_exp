@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-from datetime import datetime
-
-from win_timer_app.controller import AppController
-from win_timer_app.models import Session, Task, TaskStatus, make_id
-from win_timer_app.storage import AppState
+from timerapp_ag.controller import AppController
+from timerapp_ag.models import Session, Task, TaskStatus, make_id
+from timerapp_ag.storage import AppState
 
 
 def _sess(day: str, start="10:00:00", end="11:00:00") -> Session:
@@ -45,17 +43,6 @@ def test_created_and_imported_tasks_land_in_today_plan(controller):
     assert controller.in_today_plan(created)
     controller.import_bitrix_items([{"source": "project", "id": "1", "title": "Проект"}])
     assert "Проект" in {t.title for t in controller.tasks_today_plan()}
-
-
-def test_mark_sessions_transferred_persists(storage):
-    controller = AppController(storage)
-    task = controller.create_task("T")
-    s1 = controller.add_session(task.id, datetime(2026, 6, 11, 10, 0, 0), datetime(2026, 6, 11, 11, 0, 0))
-    s2 = controller.add_session(task.id, datetime(2026, 6, 11, 12, 0, 0), datetime(2026, 6, 11, 12, 30, 0))
-    controller.mark_sessions_transferred(task.id, [s1.id], "999")
-    reloaded = {s.id: s for s in AppController(storage).find_task(task.id).sessions}
-    assert reloaded[s1.id].bitrix_record_id == "999"
-    assert reloaded[s2.id].bitrix_record_id is None
 
 
 def test_tasks_on_date_lists_only_tasks_worked_that_day(controller):

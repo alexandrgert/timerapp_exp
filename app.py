@@ -1,4 +1,4 @@
-from win_timer_app.main import main
+from timerapp_ag.main import main
 
 
 if __name__ == "__main__":

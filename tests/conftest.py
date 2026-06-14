@@ -1,11 +1,25 @@
 from __future__ import annotations
 
+import os
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+import sys
 from pathlib import Path
 
 import pytest
+from PySide6.QtWidgets import QApplication
 
-from win_timer_app.controller import AppController
-from win_timer_app.storage import Storage
+from timerapp_ag.controller import AppController
+from timerapp_ag.storage import Storage
+
+
+@pytest.fixture(scope="session")
+def qapp():
+    app = QApplication.instance()
+    if app is None:
+        app = QApplication(sys.argv)
+    yield app
 
 
 @pytest.fixture

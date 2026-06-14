@@ -1,1 +1,0 @@
-"""Windows timer app package."""

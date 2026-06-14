@@ -24,7 +24,7 @@
 
 ## Модель данных
 
-`win_timer_app/models.py` — `Task`:
+`timerapp_ag/models.py` — `Task`:
 
 - **Добавить** `planned_days: list[str]` — ISO-даты дней, когда задача в плане.
   По умолчанию `[]`. Сериализуется в `to_dict`/`from_dict`.
