@@ -236,7 +236,8 @@ def test_focus_timer_stop(controller: AppController) -> None:
 
 def test_focus_timer_finishes_and_reports_duration(controller: AppController) -> None:
     controller.start_focus_timer(10)
-    controller._focus_timer()["ends_at"] = (datetime.now() - timedelta(seconds=1)).isoformat()
+    timer = controller.state.ui["focus_timer"]
+    timer["ends_at"] = (datetime.now() - timedelta(seconds=1)).isoformat()
     status, payload = controller.check_focus_timer()
     assert status == "finished"
     assert payload == 10

@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import os
-import sys
 from pathlib import Path
 from typing import Optional
+
+from .platform_paths import user_env_path
 
 try:
     from dotenv import load_dotenv
@@ -48,19 +49,6 @@ def _is_project_root(path: Path) -> bool:
     return path.is_dir() and (path / "pyproject.toml").is_file()
 
 
-def user_config_env_path() -> Optional[Path]:
-    """Пользовательский .env вне репозитория (prod / установленный .deb)."""
-    if sys.platform == "win32":
-        appdata = os.environ.get("APPDATA", "").strip()
-        if appdata:
-            return Path(appdata) / "TaskTimer" / ".env"
-        return None
-    xdg_config = os.environ.get("XDG_CONFIG_HOME", "").strip()
-    if xdg_config:
-        return Path(xdg_config) / "tasktimer" / ".env"
-    return Path.home() / ".config" / "tasktimer" / ".env"
-
-
 def load_env() -> None:
     """
     Порядок (последующие слои перекрывают предыдущие):
@@ -73,6 +61,6 @@ def load_env() -> None:
     if root_env.is_file():
         load_dotenv(root_env, override=False)
 
-    user_env = user_config_env_path()
-    if user_env is not None and user_env.is_file():
+    user_env = user_env_path()
+    if user_env.is_file():
         load_dotenv(user_env, override=True)

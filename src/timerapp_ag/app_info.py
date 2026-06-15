@@ -7,6 +7,7 @@ from pathlib import Path
 
 APP_TITLE_BASE = "TaskTimer link B24"
 DESKTOP_FILE_NAME = "tasktimer-link-b24"
+STORAGE_ORG = "timerapp"
 
 
 def app_install_dir() -> Path:

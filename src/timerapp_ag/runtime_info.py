@@ -8,7 +8,8 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 from .app_info import app_install_dir, resolve_app_version_label
-from .env_loader import find_project_root, user_config_env_path
+from .env_loader import find_project_root
+from .platform_paths import user_env_path
 
 
 def _qt_versions() -> tuple[str, str]:
@@ -36,7 +37,7 @@ def build_about_report(*, stored_webhook: str = "", data_path: Path | str | None
     dev_root = find_project_root()
     dev_mode = (dev_root / "pyproject.toml").is_file()
     root_env = dev_root / ".env" if dev_mode else None
-    user_env = user_config_env_path()
+    user_env = user_env_path()
     data_file = Path(data_path) if data_path is not None else None
     qt_version, pyside_version = _qt_versions()
     bitrix_status = "настроен" if bitrix_webhook_configured(stored_webhook=stored_webhook) else "не настроен"
@@ -68,8 +69,6 @@ def build_about_report(*, stored_webhook: str = "", data_path: Path | str | None
             lines.append(f"  .env в репозитории: {_env_file_label(root_env)} ({root_env})")
     if user_env is not None:
         lines.append(f"  Пользовательский .env: {_env_file_label(user_env)} ({user_env})")
-    else:
-        lines.append("  Пользовательский .env: недоступен")
     lines.extend(
         [
             f"  Вебхук Битрикс24: {bitrix_status}",

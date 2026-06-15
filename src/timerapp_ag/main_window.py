@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import sys
+import time
+from collections.abc import Callable
 from datetime import datetime
 
 from PySide6.QtCore import (
@@ -57,6 +59,72 @@ from .app_info import resolve_app_title
 from .controller import AppController, format_day_label, format_duration, format_hm
 from .models import Task, TaskStatus
 from .runtime_info import build_about_report
+from .webdav_config import WebDavConfig, load_webdav_config
+from .webdav_sync import SyncOutcome, pull_and_merge, push_local, save_webdav_settings, test_webdav_connection
+
+_TRAY_TOOLTIP_FLOATING_AUTO = object()
+TRAY_ACTIVATION_DEBOUNCE_SECONDS = 0.35
+
+
+def format_tray_tooltip(
+    *,
+    window_visible: bool,
+    app_title: str,
+    task_titles: list[str],
+) -> str:
+    """Tray hover text: app name when the window is open, one line per task when hidden."""
+    if window_visible:
+        return app_title
+    if task_titles:
+        return "\n".join(task_titles)
+    return "Нет активных таймеров"
+
+
+def tray_tooltip_task_titles(
+    *,
+    running_task_titles: list[str],
+    floating_task: Task | None,
+) -> list[str]:
+    """Running tasks plus paused mini-widget task (without duplicates)."""
+    titles = list(running_task_titles)
+    if floating_task is not None and floating_task.title not in titles:
+        titles.append(floating_task.title)
+    return titles
+
+
+def resolve_floating_task(
+    *,
+    active: Task | None,
+    tracked_task_id: str | None,
+    find_task: Callable[[str], Task],
+) -> tuple[Task | None, str | None]:
+    """Task for the mini-widget: running, paused, or None if completed / untracked."""
+    if active is not None:
+        return active, active.id
+    if tracked_task_id is None:
+        return None, None
+    try:
+        task = find_task(tracked_task_id)
+    except KeyError:
+        return None, None
+    if task.status == TaskStatus.COMPLETED:
+        return None, None
+    if task.status in (TaskStatus.RUNNING, TaskStatus.PAUSED):
+        return task, tracked_task_id
+    return None, None
+
+
+def main_window_is_open(*, is_visible: bool, is_minimized: bool) -> bool:
+    return is_visible and not is_minimized
+
+
+def tray_activation_is_debounced(
+    *,
+    now: float,
+    last_at: float,
+    debounce_seconds: float = TRAY_ACTIVATION_DEBOUNCE_SECONDS,
+) -> bool:
+    return last_at > 0.0 and (now - last_at) < debounce_seconds
 
 
 def bitrix_client(controller: AppController, webhook: str | None = None) -> Bitrix24Client:
@@ -379,21 +447,32 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self.controller = controller
         self.setWindowTitle("Настройки")
-        self.resize(560, 460)
+        self.resize(620, 540)
         self._test_thread: _CallableThread | None = None
         self._discover_thread: _CallableThread | None = None
+        self._webdav_test_thread: _CallableThread | None = None
+        self._webdav_sync_thread: _CallableThread | None = None
         portal = controller.bitrix_portal_config()
+        webdav = load_webdav_config()
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(12)
+
+        tabs = QTabWidget()
+        layout.addWidget(tabs, 1)
+
+        general_tab = QWidget()
+        general_layout = QVBoxLayout(general_tab)
+        general_layout.setContentsMargins(0, 12, 0, 0)
+        general_layout.setSpacing(12)
 
         hint = QLabel(
             "Через указанное время после старта таймера или после ответа «Продолжить» "
             "приложение снова спросит, продолжать ли работу над задачей."
         )
         hint.setWordWrap(True)
-        layout.addWidget(hint)
+        general_layout.addWidget(hint)
 
         form = QFormLayout()
         self.reminder_spin = QSpinBox()
@@ -407,7 +486,13 @@ class SettingsDialog(QDialog):
         self.webhook_edit.setPlaceholderText("https://портал.bitrix24.ru/rest/1/токен/")
         self.webhook_edit.setText(controller.bitrix_webhook())
         form.addRow("URL вебхука Битрикс24", self.webhook_edit)
-        layout.addLayout(form)
+
+        webhook_hint = QLabel(
+            "Вебхук хранится локально в ~/.config/tasktimer/bitrix.json и не попадает в облако при WebDAV-синхронизации."
+        )
+        webhook_hint.setWordWrap(True)
+        general_layout.addWidget(webhook_hint)
+        general_layout.addLayout(form)
 
         webhook_controls = QHBoxLayout()
         self.show_webhook_checkbox = QCheckBox("Показать")
@@ -417,18 +502,18 @@ class SettingsDialog(QDialog):
         self.test_button = QPushButton("Проверить соединение")
         self.test_button.clicked.connect(self._test_connection)
         webhook_controls.addWidget(self.test_button)
-        layout.addLayout(webhook_controls)
+        general_layout.addLayout(webhook_controls)
 
         self.webhook_status = QLabel("")
         self.webhook_status.setWordWrap(True)
-        layout.addWidget(self.webhook_status)
+        general_layout.addWidget(self.webhook_status)
 
         portal_hint = QLabel(
             "Параметры реестра проектов на портале. Можно определить автоматически "
             "после проверки соединения."
         )
         portal_hint.setWordWrap(True)
-        layout.addWidget(portal_hint)
+        general_layout.addWidget(portal_hint)
 
         portal_form = QFormLayout()
         self.registry_title_edit = QLineEdit()
@@ -444,20 +529,84 @@ class SettingsDialog(QDialog):
         self.executor_fields_edit.setPlaceholderText("ufCrm16MainIspolnitel, ufCrm16Supporters")
         self.executor_fields_edit.setText(", ".join(portal.projects_executor_fields))
         portal_form.addRow("Поля фильтра (через запятую)", self.executor_fields_edit)
-        layout.addLayout(portal_form)
+        general_layout.addLayout(portal_form)
 
         discover_row = QHBoxLayout()
         discover_row.addStretch(1)
         self.discover_button = QPushButton("Определить с портала")
         self.discover_button.clicked.connect(self._discover_portal)
         discover_row.addWidget(self.discover_button)
-        layout.addLayout(discover_row)
+        general_layout.addLayout(discover_row)
 
         self.portal_status = QLabel("")
         self.portal_status.setWordWrap(True)
-        layout.addWidget(self.portal_status)
+        general_layout.addWidget(self.portal_status)
+        general_layout.addStretch(1)
+        tabs.addTab(general_tab, "Битрикс24")
 
-        layout.addStretch(1)
+        webdav_tab = QWidget()
+        webdav_layout = QVBoxLayout(webdav_tab)
+        webdav_layout.setContentsMargins(0, 12, 0, 0)
+        webdav_layout.setSpacing(12)
+
+        webdav_hint = QLabel(
+            "Синхронизация data.json по WebDAV (Nextcloud, Яндекс.Диск WebDAV и др.). "
+            "Пароль хранится локально в ~/.config/tasktimer/webdav.json и не попадает в облако."
+        )
+        webdav_hint.setWordWrap(True)
+        webdav_layout.addWidget(webdav_hint)
+
+        self.webdav_enabled_checkbox = QCheckBox("Включить синхронизацию WebDAV")
+        self.webdav_enabled_checkbox.setChecked(webdav.enabled)
+        webdav_layout.addWidget(self.webdav_enabled_checkbox)
+
+        webdav_form = QFormLayout()
+        self.webdav_url_edit = QLineEdit()
+        self.webdav_url_edit.setPlaceholderText("https://cloud.example.com/remote.php/dav/files/user/")
+        self.webdav_url_edit.setText(webdav.url)
+        webdav_form.addRow("URL WebDAV", self.webdav_url_edit)
+
+        self.webdav_username_edit = QLineEdit()
+        self.webdav_username_edit.setText(webdav.username)
+        webdav_form.addRow("Имя пользователя", self.webdav_username_edit)
+
+        self.webdav_password_edit = QLineEdit()
+        self.webdav_password_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self.webdav_password_edit.setText(webdav.password)
+        webdav_form.addRow("Пароль", self.webdav_password_edit)
+
+        self.webdav_remote_path_edit = QLineEdit()
+        self.webdav_remote_path_edit.setPlaceholderText("tasktimer/data.json")
+        self.webdav_remote_path_edit.setText(webdav.remote_path)
+        webdav_form.addRow("Путь к файлу на сервере", self.webdav_remote_path_edit)
+        webdav_layout.addLayout(webdav_form)
+
+        self.webdav_sync_startup_checkbox = QCheckBox("Скачивать и объединять при запуске")
+        self.webdav_sync_startup_checkbox.setChecked(webdav.sync_on_startup)
+        webdav_layout.addWidget(self.webdav_sync_startup_checkbox)
+
+        self.webdav_sync_shutdown_checkbox = QCheckBox("Загружать на сервер при выходе")
+        self.webdav_sync_shutdown_checkbox.setChecked(webdav.sync_on_shutdown)
+        webdav_layout.addWidget(self.webdav_sync_shutdown_checkbox)
+
+        webdav_controls = QHBoxLayout()
+        webdav_controls.addStretch(1)
+        self.webdav_test_button = QPushButton("Проверить WebDAV")
+        self.webdav_test_button.clicked.connect(self._test_webdav)
+        webdav_controls.addWidget(self.webdav_test_button)
+        self.webdav_pull_button = QPushButton("Скачать и объединить")
+        self.webdav_pull_button.clicked.connect(self._webdav_pull_now)
+        webdav_controls.addWidget(self.webdav_pull_button)
+        self.webdav_push_button = QPushButton("Загрузить сейчас")
+        self.webdav_push_button.clicked.connect(self._webdav_push_now)
+        webdav_controls.addWidget(self.webdav_push_button)
+        webdav_layout.addLayout(webdav_controls)
+
+        self.webdav_status = QLabel(self._webdav_status_text(webdav))
+        self.webdav_status.setWordWrap(True)
+        webdav_layout.addWidget(self.webdav_status)
+        webdav_layout.addStretch(1)
+        tabs.addTab(webdav_tab, "WebDAV")
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -545,6 +694,120 @@ class SettingsDialog(QDialog):
             or BitrixPortalConfig().projects_registry_title,
         )
 
+    def webdav_config(self) -> WebDavConfig:
+        current = load_webdav_config()
+        return WebDavConfig(
+            enabled=self.webdav_enabled_checkbox.isChecked(),
+            url=self.webdav_url_edit.text().strip(),
+            username=self.webdav_username_edit.text().strip(),
+            password=self.webdav_password_edit.text(),
+            remote_path=self.webdav_remote_path_edit.text().strip() or current.remote_path,
+            sync_on_startup=self.webdav_sync_startup_checkbox.isChecked(),
+            sync_on_shutdown=self.webdav_sync_shutdown_checkbox.isChecked(),
+            last_sync_at=current.last_sync_at,
+            last_error=current.last_error,
+        )
+
+    @staticmethod
+    def _webdav_status_text(config: WebDavConfig) -> str:
+        if config.last_sync_at:
+            base = f"Последняя синхронизация: {config.last_sync_at}"
+        else:
+            base = "Синхронизация ещё не выполнялась"
+        if config.last_error:
+            return f"{base}\nПоследняя ошибка: {config.last_error}"
+        return base
+
+    def _set_webdav_status(self, text: str, ok: bool | None) -> None:
+        color = {True: "#2d6b40", False: "#9b3c3c", None: "#5f6b7c"}[ok]
+        self.webdav_status.setText(text)
+        self.webdav_status.setStyleSheet(f"color: {color}; background: transparent;")
+
+    def _test_webdav(self) -> None:
+        config = self.webdav_config()
+        if not config.is_configured():
+            self._set_webdav_status("✗ Укажите URL и имя пользователя", ok=False)
+            return
+        self.webdav_test_button.setEnabled(False)
+        self._set_webdav_status("Проверяю WebDAV…", ok=None)
+        self._webdav_test_thread = _CallableThread(lambda: test_webdav_connection(config), self)
+        self._webdav_test_thread.succeeded.connect(
+            lambda message: self._set_webdav_status(f"✓ {message}", ok=True)
+        )
+        self._webdav_test_thread.failed.connect(
+            lambda message: self._set_webdav_status(f"✗ {message}", ok=False)
+        )
+        self._webdav_test_thread.finished.connect(lambda: self.webdav_test_button.setEnabled(True))
+        self._webdav_test_thread.start()
+
+    def _webdav_pull_now(self) -> None:
+        config = self.webdav_config()
+        if not config.is_configured():
+            self._set_webdav_status("✗ Укажите URL и имя пользователя", ok=False)
+            return
+        self._set_webdav_buttons_enabled(False)
+        self._set_webdav_status("Скачиваю и объединяю…", ok=None)
+
+        def work() -> SyncOutcome:
+            return pull_and_merge(self.controller.storage, config, require_enabled=False)
+
+        self._webdav_sync_thread = _CallableThread(work, self)
+        self._webdav_sync_thread.succeeded.connect(self._on_webdav_pull_ok)
+        self._webdav_sync_thread.failed.connect(
+            lambda message: self._set_webdav_status(f"✗ {message}", ok=False)
+        )
+        self._webdav_sync_thread.finished.connect(self._on_webdav_sync_finished)
+        self._webdav_sync_thread.start()
+
+    def _webdav_push_now(self) -> None:
+        config = self.webdav_config()
+        if not config.is_configured():
+            self._set_webdav_status("✗ Укажите URL и имя пользователя", ok=False)
+            return
+        self.controller.save()
+        self._set_webdav_buttons_enabled(False)
+        self._set_webdav_status("Загружаю на сервер…", ok=None)
+
+        def work() -> SyncOutcome:
+            return push_local(self.controller.storage, config, require_enabled=False)
+
+        self._webdav_sync_thread = _CallableThread(work, self)
+        self._webdav_sync_thread.succeeded.connect(self._on_webdav_push_ok)
+        self._webdav_sync_thread.failed.connect(
+            lambda message: self._set_webdav_status(f"✗ {message}", ok=False)
+        )
+        self._webdav_sync_thread.finished.connect(self._on_webdav_sync_finished)
+        self._webdav_sync_thread.start()
+
+    def _on_webdav_pull_ok(self, outcome: object) -> None:
+        self.controller.reload_state_from_storage()
+        sync_outcome = outcome if isinstance(outcome, SyncOutcome) else SyncOutcome()
+        task_count = len(sync_outcome.state.tasks) if sync_outcome.state else len(self.controller.state.tasks)
+        message = f"✓ Объединено, задач в базе: {task_count}"
+        if sync_outcome.notice:
+            message = f"{message}. {sync_outcome.notice}"
+        self._set_webdav_status(message, ok=True)
+        parent = self.parent()
+        if isinstance(parent, MainWindow):
+            parent.refresh_ui()
+
+    def _on_webdav_push_ok(self, outcome: object) -> None:
+        self.controller.reload_state_from_storage()
+        sync_outcome = outcome if isinstance(outcome, SyncOutcome) else SyncOutcome()
+        if sync_outcome.notice:
+            self._set_webdav_status(f"✓ {sync_outcome.notice}", ok=True)
+        else:
+            self._set_webdav_status("✓ База загружена на WebDAV", ok=True)
+
+    def _on_webdav_sync_finished(self) -> None:
+        self._set_webdav_buttons_enabled(True)
+        self.webdav_status.setText(self._webdav_status_text(load_webdav_config()))
+
+    def _set_webdav_buttons_enabled(self, enabled: bool) -> None:
+        self.webdav_test_button.setEnabled(enabled)
+        self.webdav_pull_button.setEnabled(enabled)
+        self.webdav_push_button.setEnabled(enabled)
+
     def _set_status(self, text: str, ok: bool | None) -> None:
         color = {True: "#2d6b40", False: "#9b3c3c", None: "#5f6b7c"}[ok]
         self.webhook_status.setText(text)
@@ -556,7 +819,12 @@ class SettingsDialog(QDialog):
         self.portal_status.setStyleSheet(f"color: {color}; background: transparent;")
 
     def _await_worker_threads(self) -> None:
-        for thread in (self._test_thread, self._discover_thread):
+        for thread in (
+            self._test_thread,
+            self._discover_thread,
+            self._webdav_test_thread,
+            self._webdav_sync_thread,
+        ):
             if thread is not None and thread.isRunning():
                 thread.wait(5000)
 
@@ -879,7 +1147,7 @@ class TaskRow(QFrame):
 
 
 class FloatingTimer(QWidget):
-    """Small always-on-top translucent widget shown while a task runs in the tray."""
+    """Small always-on-top widget shown in the tray for the current or last task."""
 
     stop_requested = Signal()
     start_requested = Signal()
@@ -1206,6 +1474,8 @@ class MainWindow(QMainWindow):
         self.create_dialog = CreateTaskDialog(self.controller, self)
         self.create_dialog.create_requested.connect(self._create_task)
         self._mini_task_id: str | None = None
+        self._tray_collapsed = False
+        self._last_tray_activation_at = 0.0
         self.floating = FloatingTimer()
         self.floating.stop_requested.connect(self._floating_stop)
         self.floating.start_requested.connect(self._floating_start)
@@ -1220,6 +1490,15 @@ class MainWindow(QMainWindow):
         self.clock_timer.setInterval(1000)
         self.clock_timer.timeout.connect(self._tick)
         self.clock_timer.start()
+        QTimer.singleShot(500, self._show_startup_notices)
+
+    def _show_startup_notices(self) -> None:
+        notice = self.controller.webdav_startup_notice
+        if not notice:
+            return
+        icon = QSystemTrayIcon.MessageIcon.Warning if "не удалось" in notice.lower() else QSystemTrayIcon.MessageIcon.Information
+        self._show_tray_message("TaskTimer link B24", notice, icon=icon, timeout=8000)
+        self.controller.webdav_startup_notice = None
 
     def _build_ui(self) -> None:
         self.tabs = QTabWidget()
@@ -1440,6 +1719,10 @@ class MainWindow(QMainWindow):
         settings_action.triggered.connect(self._open_settings)
         settings_menu.addAction(settings_action)
 
+        merge_legacy_action = QAction("Объединить базы старых версий…", self)
+        merge_legacy_action.triggered.connect(self._merge_legacy_bases)
+        settings_menu.addAction(merge_legacy_action)
+
         exit_action = QAction("Выход", self)
         exit_action.setShortcut("Ctrl+Q")
         exit_action.triggered.connect(self._request_exit)
@@ -1476,6 +1759,7 @@ class MainWindow(QMainWindow):
         self.tray.setContextMenu(tray_menu)
         self.tray.activated.connect(self._handle_tray_activation)
         self.tray.show()
+        self._update_tray_tooltip()
 
     def _apply_styles(self) -> None:
         self.app.setFont(QFont("Segoe UI", 10))
@@ -1780,6 +2064,7 @@ class MainWindow(QMainWindow):
                 self.days_layout.addWidget(row)
         self.days_layout.addStretch(1)
         self._refresh_active_panel()
+        self._refresh_focus_panel()
 
     def _empty_hint(self) -> str:
         if self._current_view == "plan":
@@ -1792,7 +2077,6 @@ class MainWindow(QMainWindow):
         if self._current_view == "date" and self._selected_date:
             return f"Нет задач с затраченным временем за {format_day_label(self._selected_date)}."
         return "Пока нет задач."
-        self._refresh_focus_panel()
 
     def _refresh_active_panel(self) -> None:
         active = self.controller.active_task()
@@ -1855,6 +2139,15 @@ class MainWindow(QMainWindow):
             self.controller.set_reminder_interval_minutes(dialog.reminder_spin.value())
             self.controller.set_bitrix_webhook(dialog.webhook_edit.text())
             self.controller.set_bitrix_portal_config(dialog.portal_config())
+            save_webdav_settings(dialog.webdav_config())
+            self.refresh_ui()
+
+    def _merge_legacy_bases(self) -> None:
+        from .legacy_merge_ui import offer_legacy_merge_manual
+
+        if offer_legacy_merge_manual(self, resolve_app_title(), self.controller.storage):
+            self.controller.reload_state_from_storage()
+            self.refresh_ui()
 
     def _open_create_dialog(self) -> None:
         self.create_dialog.open_clean()
@@ -1937,12 +2230,16 @@ class MainWindow(QMainWindow):
     def _start_task(self, task_id: str) -> None:
         self.controller.start_task(task_id)
         self.refresh_ui()
+        self._track_floating_task(task_id)
+        self._update_tray_tooltip()
         task = self.controller.find_task(task_id)
         self._show_tray_message("Таймер запущен", task.title, QSystemTrayIcon.MessageIcon.Information, 4000)
 
     def _stop_task(self, task_id: str) -> None:
         task = self.controller.stop_task(task_id)
         self.refresh_ui()
+        self._track_floating_task(task_id)
+        self._update_tray_tooltip()
         self._show_tray_message("Таймер остановлен", task.title, QSystemTrayIcon.MessageIcon.Information, 4000)
 
     def _confirm_complete_task(self, task_id: str) -> None:
@@ -1956,12 +2253,17 @@ class MainWindow(QMainWindow):
         if answer == QMessageBox.StandardButton.Yes:
             self.controller.complete_task(task_id)
             self.refresh_ui()
+            self._mini_task_id = None
+            self.floating.hide()
+            self._update_tray_tooltip()
             self._sync_portal_completion(self.controller.find_task(task_id), complete=True)
             self._show_tray_message("Задача завершена", task.title, QSystemTrayIcon.MessageIcon.Information, 4000)
 
     def _resume_task(self, task_id: str) -> None:
         self.controller.resume_completed_task(task_id)
         self.refresh_ui()
+        self._track_floating_task(task_id)
+        self._update_tray_tooltip()
         task = self.controller.find_task(task_id)
         self._sync_portal_completion(task, complete=False)
         self._show_tray_message("Задача возобновлена", task.title, QSystemTrayIcon.MessageIcon.Information, 4000)
@@ -2023,6 +2325,9 @@ class MainWindow(QMainWindow):
         )
         if answer == QMessageBox.StandardButton.Yes:
             self.controller.delete_task(task_id)
+            if self._mini_task_id == task_id:
+                self._mini_task_id = None
+                self.floating.hide()
             self.refresh_ui()
 
     def _stop_active(self) -> None:
@@ -2052,6 +2357,7 @@ class MainWindow(QMainWindow):
                 6000,
             )
         self._update_floating()
+        self._update_tray_tooltip()
         if focus_status == "finished":
             QApplication.beep()
             QApplication.beep()
@@ -2101,42 +2407,80 @@ class MainWindow(QMainWindow):
         if self.tray_available and self.tray.isVisible():
             self.tray.showMessage(title, text, icon, timeout)
 
+    def _update_tray_tooltip(
+        self,
+        floating_task: Task | None | object = _TRAY_TOOLTIP_FLOATING_AUTO,
+    ) -> None:
+        if not self.tray_available:
+            return
+        running_titles = [task.title for task in self.controller.running_tasks()]
+        display_task: Task | None = None
+        if not self.isVisible():
+            if floating_task is _TRAY_TOOLTIP_FLOATING_AUTO:
+                display_task, tracked_id = self._floating_task_state()
+                self._mini_task_id = tracked_id
+            else:
+                display_task = floating_task  # type: ignore[assignment]
+        task_titles = tray_tooltip_task_titles(
+            running_task_titles=running_titles,
+            floating_task=display_task,
+        )
+        self.tray.setToolTip(
+            format_tray_tooltip(
+                window_visible=self.isVisible(),
+                app_title=resolve_app_title(),
+                task_titles=task_titles,
+            )
+        )
+
+    def _floating_task_state(self) -> tuple[Task | None, str | None]:
+        return resolve_floating_task(
+            active=self.controller.active_task(),
+            tracked_task_id=self._mini_task_id,
+            find_task=self.controller.find_task,
+        )
+
+    def _resolve_floating_task(self) -> Task | None:
+        task, tracked_id = self._floating_task_state()
+        self._mini_task_id = tracked_id
+        return task
+
     def _hide_to_tray(self) -> None:
         if not self.tray_available or not self.tray.isVisible():
             return
+        if self._tray_collapsed and not self.isVisible():
+            return
+        self._tray_collapsed = True
         self.hide()
-        self._show_floating()
-        self._show_tray_message(
-            "Приложение свернуто",
-            "Таймер продолжает работать в системном трее.",
-            QSystemTrayIcon.MessageIcon.Information,
-            4000,
-        )
+        task = self._show_floating()
+        self._update_tray_tooltip(floating_task=task)
+        if task is not None and task.status == TaskStatus.RUNNING and task.active_session() is not None:
+            elapsed = format_duration(task.total_seconds(datetime.now()))
+            self._show_tray_message(
+                task.title,
+                f"Таймер: {elapsed}. Приложение свернуто в трей.",
+                QSystemTrayIcon.MessageIcon.Information,
+                4000,
+            )
 
-    def _show_floating(self) -> None:
-        active = self.controller.active_task()
-        if active is not None:
-            self._mini_task_id = active.id
-        if self._mini_task_id is None:
-            return
-        try:
-            self.controller.find_task(self._mini_task_id)
-        except KeyError:
-            self._mini_task_id = None
-            return
+    def _track_floating_task(self, task_id: str) -> None:
+        """Remember which task the tray mini-widget should display."""
+        self._mini_task_id = task_id
+
+    def _show_floating(self) -> Task | None:
+        task = self._resolve_floating_task()
+        if task is None:
+            self.floating.hide()
+            return None
         self.floating.show_at_default_corner()
         self._update_floating()
+        return task
 
     def _update_floating(self) -> None:
         if not self.floating.isVisible():
             return
-        if self._mini_task_id is None:
-            self.floating.hide()
-            return
-        try:
-            task = self.controller.find_task(self._mini_task_id)
-        except KeyError:
-            self._mini_task_id = None
+        task = self._resolve_floating_task()
+        if task is None:
             self.floating.hide()
             return
         running = task.status == TaskStatus.RUNNING and task.active_session() is not None
@@ -2144,16 +2488,18 @@ class MainWindow(QMainWindow):
         self.floating.update_view(task.title, elapsed, running)
 
     def _floating_stop(self) -> None:
-        if self._mini_task_id is None:
+        task = self._resolve_floating_task()
+        if task is None:
             return
-        self.controller.stop_task(self._mini_task_id)
+        self.controller.stop_task(task.id)
         self.refresh_ui()
         self._update_floating()
 
     def _floating_start(self) -> None:
-        if self._mini_task_id is None:
+        task = self._resolve_floating_task()
+        if task is None:
             return
-        self.controller.start_task(self._mini_task_id)
+        self.controller.start_task(task.id)
         self.refresh_ui()
         self._update_floating()
 
@@ -2210,12 +2556,28 @@ class MainWindow(QMainWindow):
         """Показать главное окно (повторный запуск, трей)."""
         self._restore_from_tray()
 
+    def _toggle_main_window_from_tray(self) -> None:
+        if main_window_is_open(is_visible=self.isVisible(), is_minimized=self.isMinimized()):
+            self._hide_to_tray()
+        else:
+            self._restore_from_tray()
+
     def _restore_from_tray(self) -> None:
+        self._tray_collapsed = False
         self.floating.hide()
         self.showNormal()
         self.raise_()
         self.activateWindow()
+        self._update_tray_tooltip()
 
     def _handle_tray_activation(self, reason: QSystemTrayIcon.ActivationReason) -> None:
-        if reason == QSystemTrayIcon.ActivationReason.Trigger:
-            self._restore_from_tray()
+        if reason not in {
+            QSystemTrayIcon.ActivationReason.Trigger,
+            QSystemTrayIcon.ActivationReason.DoubleClick,
+        }:
+            return
+        now = time.monotonic()
+        if tray_activation_is_debounced(now=now, last_at=self._last_tray_activation_at):
+            return
+        self._last_tray_activation_at = now
+        self._toggle_main_window_from_tray()

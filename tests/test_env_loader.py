@@ -11,7 +11,7 @@ def test_load_env_reads_repo_dotenv(tmp_path: Path, monkeypatch) -> None:
     (tmp_path / ".env").write_text("BITRIX24_HOOK_URL=https://example.test/hook/\n", encoding="utf-8")
     monkeypatch.delenv("BITRIX24_HOOK_URL", raising=False)
     monkeypatch.setattr(env_loader, "find_project_root", lambda: tmp_path)
-    monkeypatch.setattr(env_loader, "user_config_env_path", lambda: None)
+    monkeypatch.setattr(env_loader, "user_env_path", lambda: tmp_path / "missing.env")
 
     env_loader.load_env()
 

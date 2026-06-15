@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/alexandrgert/timer-app/schemas/data.schema.json",
+  "title": "TaskTimer link B24 data.json",
+  "description": "Cross-platform sync contract for tasks, sessions and UI settings (schema v2). Secrets (webhook, WebDAV password) MUST NOT appear in this file.",
+  "type": "object",
+  "required": ["tasks", "ui"],
+  "additionalProperties": false,
+  "properties": {
+    "tasks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/task" }
+    },
+    "ui": { "$ref": "#/$defs/ui" }
+  },
+  "$defs": {
+    "isoDate": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "isoDateTime": {
+      "type": "string",
+      "minLength": 10
+    },
+    "taskStatus": {
+      "type": "string",
+      "enum": ["open", "running", "paused", "completed"]
+    },
+    "session": {
+      "type": "object",
+      "required": ["id", "started_at"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "started_at": { "$ref": "#/$defs/isoDateTime" },
+        "ended_at": {
+          "anyOf": [{ "$ref": "#/$defs/isoDateTime" }, { "type": "null" }]
+        }
+      }
+    },
+    "bitrixLink": {
+      "type": "object",
+      "required": ["source", "id"],
+      "additionalProperties": false,
+      "properties": {
+        "source": { "type": "string", "enum": ["task", "project"] },
+        "id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "task": {
+      "type": "object",
+      "required": ["id", "day", "title", "status", "sessions"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "day": { "$ref": "#/$defs/isoDate" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "status": { "$ref": "#/$defs/taskStatus" },
+        "sessions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/session" }
+        },
+        "created_at": { "$ref": "#/$defs/isoDateTime" },
+        "completed_at": {
+          "anyOf": [{ "$ref": "#/$defs/isoDateTime" }, { "type": "null" }]
+        },
+        "continuation_of": {
+          "anyOf": [{ "type": "string" }, { "type": "null" }]
+        },
+        "bitrix": {
+          "anyOf": [{ "$ref": "#/$defs/bitrixLink" }, { "type": "null" }]
+        },
+        "planned_days": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/isoDate" }
+        }
+      }
+    },
+    "focusTimer": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "selected_minutes": { "type": "integer", "minimum": 1 },
+        "duration_minutes": {
+          "anyOf": [{ "type": "integer", "minimum": 1 }, { "type": "null" }]
+        },
+        "ends_at": {
+          "anyOf": [{ "$ref": "#/$defs/isoDateTime" }, { "type": "null" }]
+        }
+      }
+    },
+    "bitrixPortal": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "projects_entity_type_id": { "type": "integer" },
+        "projects_executor_fields": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "projects_registry_title": { "type": "string" }
+      }
+    },
+    "bitrixUi": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "portal": { "$ref": "#/$defs/bitrixPortal" }
+      },
+      "not": {
+        "required": ["webhook_url"]
+      }
+    },
+    "ui": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": { "type": "integer", "minimum": 1 },
+        "plan_rollover_day": { "$ref": "#/$defs/isoDate" },
+        "filter_open_only": { "type": "boolean" },
+        "reminder_interval_minutes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1440
+        },
+        "focus_timer": { "$ref": "#/$defs/focusTimer" },
+        "bitrix": { "$ref": "#/$defs/bitrixUi" }
+      }
+    }
+  }
+}
