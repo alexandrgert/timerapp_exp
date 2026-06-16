@@ -589,6 +589,19 @@ class SettingsDialog(QDialog):
         self.webdav_sync_shutdown_checkbox.setChecked(webdav.sync_on_shutdown)
         webdav_layout.addWidget(self.webdav_sync_shutdown_checkbox)
 
+        self.webdav_shutdown_upload_only_checkbox = QCheckBox(
+            "При выходе только отправить локальную копию (без слияния с облаком)"
+        )
+        self.webdav_shutdown_upload_only_checkbox.setChecked(webdav.shutdown_upload_only)
+        webdav_layout.addWidget(self.webdav_shutdown_upload_only_checkbox)
+
+        upload_only_hint = QLabel(
+            "Если выключено — перед отправкой при выходе данные объединяются с сервером. "
+            "При конфликте при следующем запуске будет уведомление."
+        )
+        upload_only_hint.setWordWrap(True)
+        webdav_layout.addWidget(upload_only_hint)
+
         webdav_controls = QHBoxLayout()
         webdav_controls.addStretch(1)
         self.webdav_test_button = QPushButton("Проверить WebDAV")
@@ -704,8 +717,13 @@ class SettingsDialog(QDialog):
             remote_path=self.webdav_remote_path_edit.text().strip() or current.remote_path,
             sync_on_startup=self.webdav_sync_startup_checkbox.isChecked(),
             sync_on_shutdown=self.webdav_sync_shutdown_checkbox.isChecked(),
+            shutdown_upload_only=self.webdav_shutdown_upload_only_checkbox.isChecked(),
             last_sync_at=current.last_sync_at,
             last_error=current.last_error,
+            device_id=current.device_id,
+            last_remote_content_hash=current.last_remote_content_hash,
+            last_sync_had_conflict=current.last_sync_had_conflict,
+            pending_notice=current.pending_notice,
         )
 
     @staticmethod

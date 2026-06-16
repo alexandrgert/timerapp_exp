@@ -17,6 +17,7 @@ from .webdav_config import (
     mark_webdav_sync_error,
     mark_webdav_sync_ok,
     save_webdav_config,
+    save_webdav_pending_notice,
 )
 from .webdav_meta import RemoteSyncMeta, content_hash, meta_to_bytes, new_meta, parse_meta_bytes
 
@@ -226,6 +227,73 @@ def push_local(
     return SyncOutcome(state=merged, conflict_detected=conflict_detected, notice=notice)
 
 
+def push_local_upload_only(
+    storage: Storage,
+    config: WebDavConfig | None = None,
+    *,
+    require_enabled: bool = True,
+) -> SyncOutcome:
+    """Отправить локальный data.json без слияния с сервером (опция при выходе)."""
+    config = config or load_webdav_config()
+    if require_enabled and not config.enabled:
+        raise WebDavError("Синхронизация WebDAV отключена")
+    if not storage.path.is_file():
+        raise WebDavError("Локальный файл данных не найден")
+
+    client = WebDavClient(config)
+    conflict_detected = False
+
+    if client.exists():
+        remote_payload = client.download()
+        remote_meta = _read_remote_meta(client, config)
+        remote_hash = _remote_payload_hash(remote_payload, remote_meta)
+        if (
+            config.last_remote_content_hash
+            and remote_hash != config.last_remote_content_hash
+        ):
+            conflict_detected = True
+            logger.warning(
+                "WebDAV upload-only: remote changed since last sync (%s -> %s)",
+                config.last_remote_content_hash[:12],
+                remote_hash[:12],
+            )
+
+    payload = storage.path.read_bytes()
+    meta = _upload_payload(client, config, payload)
+    mark_webdav_sync_ok(config, remote_hash=meta.content_hash, had_conflict=conflict_detected)
+
+    notice = ""
+    if conflict_detected:
+        notice = (
+            "При выходе на сервер отправлена локальная копия без слияния; "
+            "в облаке была более новая версия."
+        )
+
+    return SyncOutcome(conflict_detected=conflict_detected, notice=notice)
+
+
+def _persist_shutdown_notice(outcome: SyncOutcome) -> None:
+    if outcome.notice and outcome.conflict_detected:
+        save_webdav_pending_notice(outcome.notice)
+
+
+def sync_webdav_on_shutdown(storage: Storage) -> SyncOutcome:
+    config = load_webdav_config()
+    if not config.enabled or not config.sync_on_shutdown:
+        return SyncOutcome()
+    try:
+        if config.shutdown_upload_only:
+            outcome = push_local_upload_only(storage, config, require_enabled=True)
+        else:
+            outcome = push_local(storage, config, require_enabled=True)
+        _persist_shutdown_notice(outcome)
+        return outcome
+    except WebDavError as exc:
+        logger.error("WebDAV shutdown sync failed: %s", exc)
+        mark_webdav_sync_error(config, str(exc))
+        return SyncOutcome(error=str(exc))
+
+
 def test_webdav_connection(config: WebDavConfig) -> str:
     client = WebDavClient(config)
     if client.exists():
@@ -242,18 +310,6 @@ def sync_webdav_on_startup(storage: Storage) -> SyncOutcome:
         return pull_and_merge(storage, config, require_enabled=True)
     except WebDavError as exc:
         logger.error("WebDAV startup sync failed: %s", exc)
-        mark_webdav_sync_error(config, str(exc))
-        return SyncOutcome(error=str(exc))
-
-
-def sync_webdav_on_shutdown(storage: Storage) -> SyncOutcome:
-    config = load_webdav_config()
-    if not config.enabled or not config.sync_on_shutdown:
-        return SyncOutcome()
-    try:
-        return push_local(storage, config, require_enabled=True)
-    except WebDavError as exc:
-        logger.error("WebDAV shutdown sync failed: %s", exc)
         mark_webdav_sync_error(config, str(exc))
         return SyncOutcome(error=str(exc))
 

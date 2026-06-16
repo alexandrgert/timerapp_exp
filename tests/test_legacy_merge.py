@@ -5,6 +5,8 @@ from pathlib import Path
 
 from timerapp_ag.legacy_merge import (
     find_legacy_merge_preview,
+    format_legacy_merge_details,
+    format_legacy_merge_summary,
     load_declined_fingerprint,
     mark_legacy_merge_declined,
     should_prompt_on_startup,
@@ -40,8 +42,11 @@ def test_find_legacy_merge_preview_detects_extra_sources(tmp_path: Path, monkeyp
     assert preview is not None
     assert preview.current_tasks == 1
     assert preview.merged_tasks == 2
+    assert preview.new_tasks_count == 1
     assert "Из 0.2.2" in preview.new_titles
+    assert "+1 новых задач" in format_legacy_merge_summary(preview)
     assert any("0.2.2" in label for label in preview.source_labels)
+    assert "0.2.2" in format_legacy_merge_details(preview)
 
 
 def test_find_legacy_merge_preview_none_when_equivalent(tmp_path: Path, monkeypatch) -> None:
@@ -97,3 +102,71 @@ def test_consolidate_legacy_data_files_merges_on_demand(tmp_path: Path, monkeypa
 
     assert {task.title for task in merged.tasks} == {"Текущая", "Из 0.2.2"}
     assert len(json.loads(primary.read_text(encoding="utf-8"))["tasks"]) == 2
+
+
+def test_find_legacy_merge_preview_reports_session_counters(tmp_path: Path, monkeypatch) -> None:
+    share_root = tmp_path / "share" / "timerapp"
+    primary = share_root / "TaskTimer link B24" / "data.json"
+    legacy = share_root / "TaskTimer link B24 0.2.2" / "data.json"
+    primary.parent.mkdir(parents=True)
+    legacy.parent.mkdir(parents=True)
+    primary.write_text(
+        json.dumps(
+            {
+                "tasks": [
+                    {
+                        "id": "t0",
+                        "day": "2026-06-15",
+                        "title": "Общая",
+                        "status": "open",
+                        "sessions": [
+                            {
+                                "id": "s1",
+                                "started_at": "2026-06-15T10:00:00",
+                                "ended_at": "2026-06-15T11:00:00",
+                            },
+                        ],
+                    },
+                ],
+            },
+        ),
+        encoding="utf-8",
+    )
+    legacy.write_text(
+        json.dumps(
+            {
+                "tasks": [
+                    {
+                        "id": "t0",
+                        "day": "2026-06-15",
+                        "title": "Общая",
+                        "status": "open",
+                        "sessions": [
+                            {
+                                "id": "s1",
+                                "started_at": "2026-06-15T10:00:00",
+                                "ended_at": "2026-06-15T11:00:00",
+                            },
+                            {
+                                "id": "s2",
+                                "started_at": "2026-06-15T12:00:00",
+                                "ended_at": None,
+                            },
+                        ],
+                    },
+                ],
+            },
+        ),
+        encoding="utf-8",
+    )
+
+    _isolate_legacy_discovery(monkeypatch, share_root)
+
+    preview = find_legacy_merge_preview(primary)
+
+    assert preview is not None
+    assert preview.new_tasks_count == 0
+    assert preview.enriched_tasks_count == 1
+    assert preview.extra_sessions_count == 1
+    assert "+1 сессий" in format_legacy_merge_summary(preview)
+    assert "Общая" in format_legacy_merge_details(preview)

@@ -7,7 +7,8 @@ from .legacy_merge import (
     LegacyMergePreview,
     clear_declined_fingerprint,
     find_legacy_merge_preview,
-    format_legacy_merge_message,
+    format_legacy_merge_details,
+    format_legacy_merge_summary,
     mark_legacy_merge_declined,
     should_prompt_on_startup,
 )
@@ -19,7 +20,13 @@ def offer_legacy_merge_on_startup(app_title: str, storage: Storage) -> bool:
     preview = find_legacy_merge_preview(storage.path)
     if preview is None or not should_prompt_on_startup(preview):
         return False
-    return _confirm_and_merge(None, app_title, storage, preview)
+    return _confirm_and_merge(
+        None,
+        app_title,
+        storage,
+        preview,
+        record_decline_on_cancel=True,
+    )
 
 
 def offer_legacy_merge_manual(parent, app_title: str, storage: Storage) -> bool:
@@ -32,7 +39,13 @@ def offer_legacy_merge_manual(parent, app_title: str, storage: Storage) -> bool:
             "Других баз задач от прежних версий не найдено.",
         )
         return False
-    return _confirm_and_merge(parent, app_title, storage, preview)
+    return _confirm_and_merge(
+        parent,
+        app_title,
+        storage,
+        preview,
+        record_decline_on_cancel=False,
+    )
 
 
 def _confirm_and_merge(
@@ -40,16 +53,22 @@ def _confirm_and_merge(
     app_title: str,
     storage: Storage,
     preview: LegacyMergePreview,
+    *,
+    record_decline_on_cancel: bool,
 ) -> bool:
-    answer = QMessageBox.question(
-        parent,
-        app_title,
-        format_legacy_merge_message(preview),
+    dialog = QMessageBox(parent)
+    dialog.setWindowTitle(app_title)
+    dialog.setText(format_legacy_merge_summary(preview))
+    dialog.setDetailedText(format_legacy_merge_details(preview))
+    dialog.setStandardButtons(
         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        QMessageBox.StandardButton.Yes,
     )
+    dialog.setDefaultButton(QMessageBox.StandardButton.Yes)
+    answer = dialog.exec()
+
     if answer != QMessageBox.StandardButton.Yes:
-        mark_legacy_merge_declined(preview)
+        if record_decline_on_cancel:
+            mark_legacy_merge_declined(preview)
         return False
     storage.consolidate_legacy_data_files()
     clear_declined_fingerprint()

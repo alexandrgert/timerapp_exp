@@ -10,7 +10,7 @@ from . import platform_paths
 from .domain.merge import states_equivalent
 from .domain.state import AppState
 from .secure_files import write_json_secrets
-from .storage import discover_data_files, merge_data_files
+from .storage import discover_legacy_data_files, merge_data_files
 
 
 @dataclass(frozen=True)
@@ -19,8 +19,13 @@ class LegacyMergePreview:
     source_paths: list[Path]
     current_tasks: int
     merged_tasks: int
+    new_tasks_count: int
+    enriched_tasks_count: int
+    extra_sessions_count: int
     new_titles: list[str]
+    enriched_titles: list[str]
     source_labels: list[str]
+    ui_diff_lines: list[str]
 
 
 def _legacy_merge_config_path() -> Path:
@@ -75,10 +80,63 @@ def _source_label(path: Path) -> str:
     return path.parent.name or path.name
 
 
+def _merge_stats(current: AppState, merged: AppState) -> tuple[int, int, int, list[str], list[str]]:
+    current_by_id = {task.id: task for task in current.tasks}
+    new_titles: list[str] = []
+    enriched_titles: list[str] = []
+    extra_sessions = 0
+
+    for task in merged.tasks:
+        existing = current_by_id.get(task.id)
+        if existing is None:
+            new_titles.append(task.title)
+            continue
+        added_sessions = len(task.sessions) - len(existing.sessions)
+        if added_sessions > 0 or task.title != existing.title:
+            enriched_titles.append(task.title)
+            if added_sessions > 0:
+                extra_sessions += added_sessions
+
+    return len(new_titles), len(enriched_titles), extra_sessions, new_titles, enriched_titles
+
+
+def _ui_diff_lines(current: AppState, merged: AppState) -> list[str]:
+    labels = {
+        "schema_version": "Версия схемы",
+        "plan_rollover_day": "День rollover плана",
+        "filter_open_only": "Фильтр только открытых",
+        "reminder_interval_minutes": "Интервал напоминания (мин)",
+    }
+    lines: list[str] = []
+    for key, label in labels.items():
+        if current.ui.get(key) != merged.ui.get(key):
+            lines.append(f"{label}: {current.ui.get(key)!r} → {merged.ui.get(key)!r}")
+
+    current_focus = current.ui.get("focus_timer")
+    merged_focus = merged.ui.get("focus_timer")
+    if isinstance(current_focus, dict) and isinstance(merged_focus, dict):
+        for key, label in (
+            ("selected_minutes", "Фокус: выбранные минуты"),
+            ("duration_minutes", "Фокус: длительность"),
+            ("ends_at", "Фокус: окончание"),
+        ):
+            if current_focus.get(key) != merged_focus.get(key):
+                lines.append(f"{label}: {current_focus.get(key)!r} → {merged_focus.get(key)!r}")
+    elif current_focus != merged_focus:
+        lines.append("Настройки фокус-таймера будут обновлены")
+
+    portal_current = (current.ui.get("bitrix") or {}).get("portal") if isinstance(current.ui.get("bitrix"), dict) else None
+    portal_merged = (merged.ui.get("bitrix") or {}).get("portal") if isinstance(merged.ui.get("bitrix"), dict) else None
+    if portal_current != portal_merged:
+        lines.append("Настройки портала Битрикс24 (ui.bitrix.portal) будут взяты из более полной базы")
+
+    return lines
+
+
 def find_legacy_merge_preview(primary: Path) -> LegacyMergePreview | None:
     """Если есть другие data.json, merge которых изменит текущую базу — вернуть preview."""
     primary = primary.resolve()
-    candidates = discover_data_files()
+    candidates = discover_legacy_data_files()
     if primary.is_file() and primary not in {item.resolve() for item in candidates}:
         candidates.append(primary)
 
@@ -92,15 +150,19 @@ def find_legacy_merge_preview(primary: Path) -> LegacyMergePreview | None:
     if states_equivalent(current, merged):
         return None
 
-    current_ids = {task.id for task in current.tasks}
-    new_titles = [task.title for task in merged.tasks if task.id not in current_ids][:5]
+    new_count, enriched_count, extra_sessions, new_titles, enriched_titles = _merge_stats(current, merged)
     return LegacyMergePreview(
         primary_path=primary,
         source_paths=others,
         current_tasks=len(current.tasks),
         merged_tasks=len(merged.tasks),
-        new_titles=new_titles,
+        new_tasks_count=new_count,
+        enriched_tasks_count=enriched_count,
+        extra_sessions_count=extra_sessions,
+        new_titles=new_titles[:5],
+        enriched_titles=enriched_titles[:5],
         source_labels=[_source_label(path) for path in others],
+        ui_diff_lines=_ui_diff_lines(current, merged),
     )
 
 
@@ -113,18 +175,51 @@ def mark_legacy_merge_declined(preview: LegacyMergePreview) -> None:
     save_declined_fingerprint(sources_fingerprint(preview.source_paths))
 
 
-def format_legacy_merge_message(preview: LegacyMergePreview) -> str:
+def format_legacy_merge_summary(preview: LegacyMergePreview) -> str:
     lines = [
         "Найдены базы задач от прежних версий или других каталогов установки.",
         "",
         f"Сейчас задач: {preview.current_tasks}",
         f"После объединения: {preview.merged_tasks}",
     ]
-    if preview.source_labels:
-        lines.extend(["", "Источники:"])
-        lines.extend(f"• {label}" for label in preview.source_labels[:5])
-    if preview.new_titles:
-        lines.extend(["", "Примеры задач, которые будут добавлены:"])
-        lines.extend(f"• {title}" for title in preview.new_titles)
-    lines.extend(["", "Объединить данные сейчас?"])
+    change_parts: list[str] = []
+    if preview.new_tasks_count:
+        change_parts.append(f"+{preview.new_tasks_count} новых задач")
+    if preview.extra_sessions_count:
+        change_parts.append(f"+{preview.extra_sessions_count} сессий у существующих задач")
+    elif preview.enriched_tasks_count:
+        change_parts.append(f"обновятся данные у {preview.enriched_tasks_count} задач")
+    if change_parts:
+        lines.append("Изменения: " + ", ".join(change_parts) + ".")
+    lines.extend(["", "Объединить данные сейчас?", "", "Нажмите «Показать подробности…» для полного списка."])
     return "\n".join(lines)
+
+
+def format_legacy_merge_details(preview: LegacyMergePreview) -> str:
+    lines: list[str] = []
+    if preview.source_labels:
+        lines.append("Источники:")
+        lines.extend(f"• {label}" for label in preview.source_labels)
+    if preview.new_titles:
+        lines.extend(["", "Новые задачи (примеры):"])
+        lines.extend(f"• {title}" for title in preview.new_titles)
+        if preview.new_tasks_count > len(preview.new_titles):
+            lines.append(f"… и ещё {preview.new_tasks_count - len(preview.new_titles)}")
+    if preview.enriched_titles:
+        lines.extend(["", "Обновятся существующие задачи (примеры):"])
+        lines.extend(f"• {title}" for title in preview.enriched_titles)
+        if preview.enriched_tasks_count > len(preview.enriched_titles):
+            lines.append(f"… и ещё {preview.enriched_tasks_count - len(preview.enriched_titles)}")
+    if preview.ui_diff_lines:
+        lines.extend(["", "Настройки интерфейса (ui):"])
+        lines.extend(f"• {item}" for item in preview.ui_diff_lines)
+    if not lines:
+        return "Дополнительных сведений нет."
+    return "\n".join(lines)
+
+
+def format_legacy_merge_message(preview: LegacyMergePreview) -> str:
+    """Полный текст (summary + details) для обратной совместимости."""
+    summary = format_legacy_merge_summary(preview)
+    details = format_legacy_merge_details(preview)
+    return f"{summary}\n\n---\n\n{details}"

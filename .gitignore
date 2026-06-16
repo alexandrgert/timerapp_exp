@@ -4,5 +4,12 @@ __pycache__/
 .localdata/
 build/
 dist/
+android/.android-sdk/
+android/.jdk17/
+android/.gradle/
+android/local.properties
+android/app/build/
+android/build/
+*.apk
 *.spec.bak
 src/*.egg-info/

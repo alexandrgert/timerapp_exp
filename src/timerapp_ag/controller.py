@@ -15,6 +15,7 @@ from .domain.constants import DEFAULT_REMINDER_INTERVAL_MINUTES, REMINDER_GRACE_
 from .domain.state import AppState
 from .models import Session, Task, TaskStatus
 from .storage import Storage
+from .webdav_config import consume_webdav_pending_notice
 from .webdav_sync import SyncOutcome, sync_webdav_on_startup
 
 
@@ -38,6 +39,13 @@ class AppController:
             self.webdav_startup_notice = f"WebDAV: не удалось синхронизировать при запуске — {outcome.error}"
         elif outcome.notice:
             self.webdav_startup_notice = f"WebDAV: {outcome.notice}"
+        pending = consume_webdav_pending_notice()
+        if pending:
+            pending_line = f"WebDAV: {pending}"
+            if self.webdav_startup_notice:
+                self.webdav_startup_notice = f"{self.webdav_startup_notice}\n{pending_line}"
+            else:
+                self.webdav_startup_notice = pending_line
         self._apply_env_bitrix_webhook()
         self.apply_loaded_state()
         self.state.ui.setdefault("reminder_interval_minutes", DEFAULT_REMINDER_INTERVAL_MINUTES)

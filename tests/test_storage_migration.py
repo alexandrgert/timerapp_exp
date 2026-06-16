@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from timerapp_ag.storage import Storage, merge_data_files, pick_best_data_file, stable_data_path
+from timerapp_ag.storage import Storage, discover_data_files, discover_legacy_data_files, merge_data_files, pick_best_data_file, stable_data_path
 
 
 def test_pick_best_data_file_prefers_more_tasks(tmp_path: Path) -> None:
@@ -96,6 +96,18 @@ def test_load_recovers_from_rolling_backup(tmp_path: Path) -> None:
     assert len(state.tasks) == 1
     assert state.tasks[0].title == "Восстановлено"
     assert json.loads(path.read_text(encoding="utf-8"))["tasks"][0]["title"] == "Восстановлено"
+
+
+def test_load_returns_empty_when_main_and_backup_corrupt(tmp_path: Path) -> None:
+    path = tmp_path / "data.json"
+    backup = tmp_path / "data.json.bak"
+    path.write_text("{ broken", encoding="utf-8")
+    backup.write_text("{ also broken", encoding="utf-8")
+
+    storage = Storage(path=path, migrate_legacy=False)
+    state = storage.load()
+
+    assert state.tasks == []
 
 
 def test_create_backup_writes_timestamped_copy(tmp_path: Path) -> None:

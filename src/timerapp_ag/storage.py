@@ -27,7 +27,7 @@ def _qt_data_path_if_exists() -> Path | None:
     return candidate.resolve() if candidate.is_file() else None
 
 
-def discover_data_files() -> list[Path]:
+def discover_data_files(*, include_qt_fallback: bool = True) -> list[Path]:
     """All known data.json files from current and legacy AppData folders."""
     files: list[Path] = []
     seen: set[Path] = set()
@@ -41,11 +41,17 @@ def discover_data_files() -> list[Path]:
             if candidate.is_file() and candidate not in seen:
                 seen.add(candidate)
                 files.append(candidate)
-    qt_path = _qt_data_path_if_exists()
-    if qt_path is not None and qt_path not in seen:
-        seen.add(qt_path)
-        files.append(qt_path)
+    if include_qt_fallback:
+        qt_path = _qt_data_path_if_exists()
+        if qt_path is not None and qt_path not in seen:
+            seen.add(qt_path)
+            files.append(qt_path)
     return files
+
+
+def discover_legacy_data_files() -> list[Path]:
+    """Каталоги установок в data_share_roots без Qt AppDataLocation (для legacy merge)."""
+    return discover_data_files(include_qt_fallback=False)
 
 
 def _load_state_from_file(path: Path) -> AppState | None:
@@ -117,7 +123,7 @@ class Storage:
         return self.load()
 
     def _consolidate_all_data_files(self) -> None:
-        candidates = list(discover_data_files())
+        candidates = list(discover_legacy_data_files())
         if self.path.exists() and self.path.resolve() not in {item.resolve() for item in candidates}:
             candidates.append(self.path)
         if not candidates:
@@ -178,6 +184,17 @@ class Storage:
             return
         shutil.copy2(self.path, self.rolling_backup_path)
 
+    def _load_from_rolling_backup(self) -> AppState | None:
+        if not self.rolling_backup_path.is_file():
+            return None
+        try:
+            data = json.loads(self.rolling_backup_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        state = AppState.from_dict(data)
+        self.save(state, update_rolling_backup=False)
+        return state
+
     def load(self) -> AppState:
         if self._migrate_legacy:
             self._consolidate_all_data_files()
@@ -185,12 +202,10 @@ class Storage:
             return AppState()
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            if self.rolling_backup_path.is_file():
-                data = json.loads(self.rolling_backup_path.read_text(encoding="utf-8"))
-                state = AppState.from_dict(data)
-                self.save(state, update_rolling_backup=False)
-                return state
+        except (OSError, json.JSONDecodeError):
+            restored = self._load_from_rolling_backup()
+            if restored is not None:
+                return restored
             return AppState()
         return AppState.from_dict(data)
 
@@ -215,6 +230,7 @@ __all__ = [
     "AppState",
     "Storage",
     "discover_data_files",
+    "discover_legacy_data_files",
     "merge_data_files",
     "pick_best_data_file",
     "stable_data_path",

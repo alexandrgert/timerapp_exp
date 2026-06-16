@@ -25,11 +25,13 @@ class WebDavConfig:
     remote_path: str = DEFAULT_REMOTE_PATH
     sync_on_startup: bool = True
     sync_on_shutdown: bool = True
+    shutdown_upload_only: bool = False
     last_sync_at: str | None = None
     last_error: str = ""
     device_id: str = ""
     last_remote_content_hash: str = ""
     last_sync_had_conflict: bool = False
+    pending_notice: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -40,11 +42,13 @@ class WebDavConfig:
             "remote_path": self.remote_path,
             "sync_on_startup": self.sync_on_startup,
             "sync_on_shutdown": self.sync_on_shutdown,
+            "shutdown_upload_only": self.shutdown_upload_only,
             "last_sync_at": self.last_sync_at,
             "last_error": self.last_error,
             "device_id": self.device_id,
             "last_remote_content_hash": self.last_remote_content_hash,
             "last_sync_had_conflict": self.last_sync_had_conflict,
+            "pending_notice": self.pending_notice,
         }
 
     @classmethod
@@ -59,11 +63,13 @@ class WebDavConfig:
             remote_path=str(data.get("remote_path") or DEFAULT_REMOTE_PATH).strip() or DEFAULT_REMOTE_PATH,
             sync_on_startup=bool(data.get("sync_on_startup", True)),
             sync_on_shutdown=bool(data.get("sync_on_shutdown", True)),
+            shutdown_upload_only=bool(data.get("shutdown_upload_only", False)),
             last_sync_at=data.get("last_sync_at"),
             last_error=str(data.get("last_error", "") or ""),
             device_id=str(data.get("device_id") or "").strip(),
             last_remote_content_hash=str(data.get("last_remote_content_hash") or "").strip(),
             last_sync_had_conflict=bool(data.get("last_sync_had_conflict", False)),
+            pending_notice=str(data.get("pending_notice") or "").strip(),
         )
 
     def is_configured(self) -> bool:
@@ -108,11 +114,13 @@ def apply_env_defaults(config: WebDavConfig) -> WebDavConfig:
         remote_path=config.remote_path if config.remote_path != DEFAULT_REMOTE_PATH else (remote_path or DEFAULT_REMOTE_PATH),
         sync_on_startup=config.sync_on_startup,
         sync_on_shutdown=config.sync_on_shutdown,
+        shutdown_upload_only=config.shutdown_upload_only,
         last_sync_at=config.last_sync_at,
         last_error=config.last_error,
         device_id=config.device_id,
         last_remote_content_hash=config.last_remote_content_hash,
         last_sync_had_conflict=config.last_sync_had_conflict,
+        pending_notice=config.pending_notice,
     )
 
 
@@ -154,3 +162,21 @@ def mark_webdav_sync_error(config: WebDavConfig, message: str) -> WebDavConfig:
     updated.last_error = message.strip()
     save_webdav_config(updated)
     return updated
+
+
+def save_webdav_pending_notice(message: str) -> None:
+    config = load_webdav_config()
+    updated = WebDavConfig.from_dict(config.to_dict())
+    updated.pending_notice = message.strip()
+    save_webdav_config(updated)
+
+
+def consume_webdav_pending_notice() -> str:
+    config = load_webdav_config()
+    notice = (config.pending_notice or "").strip()
+    if not notice:
+        return ""
+    updated = WebDavConfig.from_dict(config.to_dict())
+    updated.pending_notice = ""
+    save_webdav_config(updated)
+    return notice
