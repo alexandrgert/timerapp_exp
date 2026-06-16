@@ -36,20 +36,39 @@
 
 ## Как обновиться
 
-1. Скачайте пакет для Linux (64-bit):
+Скачайте сборку для своей платформы на [странице релиза v0.4.1](https://github.com/alexandrgert/timer-app/releases/tag/v0.4.1).
+Минимальные требования — [system-requirements.md](system-requirements.md).
 
-   [tasktimer-link-b24-0.4.1-amd64.deb](https://github.com/alexandrgert/timer-app/releases/download/v0.4.1/tasktimer-link-b24-0.4.1-amd64.deb)
+| Платформа | Файл | Установка |
+|-----------|------|-----------|
+| **Linux** (amd64) | [`.deb`](https://github.com/alexandrgert/timer-app/releases/download/v0.4.1/tasktimer-link-b24-0.4.1-amd64.deb) | `sudo dpkg -i …deb && sudo apt-get install -f` |
+| **Windows** (x64) | [`.exe`](https://github.com/alexandrgert/timer-app/releases/download/v0.4.1/tasktimer-link-b24-0.4.1-win64.exe) | запустить exe |
+| **macOS** 11+ | [`.zip`](https://github.com/alexandrgert/timer-app/releases/download/v0.4.1/) (arm64 / x86_64) | распаковать, перетащить `.app` в Программы |
+| **Android** 10+ | [`.apk`](https://github.com/alexandrgert/timer-app/releases/download/v0.4.1/tasktimer-link-b24-0.4.1-android.apk) | установить APK |
 
-2. Установите:
+### Linux
 
-   ```bash
-   sudo dpkg -i tasktimer-link-b24-0.4.1-amd64.deb
-   sudo apt-get install -f
-   ```
-
-3. Запустите **TaskTimer link B24** из меню или командой `tasktimer-link-b24`.
+```bash
+wget https://github.com/alexandrgert/timer-app/releases/download/v0.4.1/tasktimer-link-b24-0.4.1-amd64.deb
+sudo dpkg -i tasktimer-link-b24-0.4.1-amd64.deb
+sudo apt-get install -f
+tasktimer-link-b24
+```
 
 **Текущая база задач сохранится** при обновлении поверх установленной версии.
+
+---
+
+## Системные требования (кратко)
+
+| Платформа | ОС | Процессор |
+|-----------|-----|-----------|
+| Linux | Debian 11+ / Ubuntu 20.04+, glibc ≥ 2.31 | x86_64 |
+| Windows | 10 или 11, 64-bit | x64 (AMD64) |
+| macOS | 11 Big Sur+ | Intel или Apple Silicon |
+| Android | 10 (API 29)+ | arm64 / armeabi-v7a |
+
+Подробно: [system-requirements.md](system-requirements.md). ОЗУ: от 512 МБ; для Битрикс24 и WebDAV нужен интернет.
 
 ---
 

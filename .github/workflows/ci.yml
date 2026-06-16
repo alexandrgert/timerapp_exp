@@ -66,3 +66,49 @@ jobs:
           name: deb-amd64
           path: dist/tasktimer-link-b24-*-amd64.deb
           if-no-files-found: error
+
+  build-exe:
+    runs-on: windows-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Build win64 .exe
+        shell: pwsh
+        run: |
+          python -m venv .venv
+          $env:NO_BUMP = "1"
+          .\build_exe.ps1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: exe-win64
+          path: dist/tasktimer-link-b24-*-win64.exe
+          if-no-files-found: error
+
+  build-macos:
+    runs-on: macos-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Build macOS .app zip
+        run: |
+          python3 -m venv .venv
+          NO_BUMP=1 ./build_macos.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-zip
+          path: dist/tasktimer-link-b24-*-macos-*.zip
+          if-no-files-found: error

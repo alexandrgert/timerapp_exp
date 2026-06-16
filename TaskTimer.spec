@@ -1,21 +1,19 @@
 # -*- mode: python ; coding: utf-8 -*-
 # Сборка одного exe без collect_all PySide6 (меньше размер и время).
 
+import pathlib
+import runpy
+
+_spec_dir = pathlib.Path(SPECPATH)
+_hidden = runpy.run_path(str(_spec_dir / "packaging" / "pyinstaller_hiddenimports.py"))
+HIDDEN_IMPORTS = _hidden["HIDDEN_IMPORTS"]
+
 a = Analysis(
     ["app.py"],
     pathex=[],
     binaries=[],
     datas=[],
-    hiddenimports=[
-        "timerapp_ag.main",
-        "timerapp_ag.main_window",
-        "timerapp_ag.controller",
-        "timerapp_ag.storage",
-        "timerapp_ag.models",
-        "timerapp_ag.bitrix",
-        "timerapp_ag.bitrix_config",
-        "timerapp_ag.single_instance",
-    ],
+    hiddenimports=HIDDEN_IMPORTS,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

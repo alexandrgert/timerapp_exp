@@ -1,12 +1,14 @@
 # -*- mode: python ; coding: utf-8 -*-
-# Сборка каталога dist/TaskTimer/ для .deb (Linux amd64, onedir — надёжнее для Qt).
+# Сборка .app для macOS (onedir + BUNDLE).
 
+import os
 import pathlib
 import runpy
 
 _spec_dir = pathlib.Path(SPECPATH)
 _hidden = runpy.run_path(str(_spec_dir / "packaging" / "pyinstaller_hiddenimports.py"))
 HIDDEN_IMPORTS = _hidden["HIDDEN_IMPORTS"]
+APP_VERSION = os.environ.get("APP_VERSION", "0.0.0")
 
 a = Analysis(
     ["app.py"],
@@ -49,4 +51,16 @@ coll = COLLECT(
     upx=False,
     upx_exclude=[],
     name="TaskTimer",
+)
+
+app = BUNDLE(
+    coll,
+    name="TaskTimer link B24.app",
+    bundle_identifier="com.timerapp.linkb24",
+    info_plist={
+        "CFBundleShortVersionString": APP_VERSION,
+        "CFBundleVersion": APP_VERSION,
+        "CFBundleDisplayName": "TaskTimer link B24",
+        "NSHighResolutionCapable": True,
+    },
 )

@@ -18,7 +18,7 @@
 
 Спецификация модели «план на день»: [`docs/superpowers/specs/2026-06-11-task-views-and-plan-design.md`](docs/superpowers/specs/2026-06-11-task-views-and-plan-design.md).
 
-Документация: [архитектура](docs/architecture-cross-platform.md) · [схема данных](docs/data-schema.md) · [WebDAV (техн.)](docs/webdav-sync.md) · [релиз 0.4.1](docs/release-notes-v0.4.1.md)
+Документация: [архитектура](docs/architecture-cross-platform.md) · [схема данных](docs/data-schema.md) · [WebDAV (техн.)](docs/webdav-sync.md) · [системные требования](docs/system-requirements.md) · [релиз 0.4.1](docs/release-notes-v0.4.1.md)
 
 ## Быстрый старт
 
@@ -45,15 +45,21 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-## Сборка TaskTimer.exe (Windows)
+## Сборка дистрибутивов
+
+Минимальные требования для каждой платформы — [`docs/system-requirements.md`](docs/system-requirements.md).
+
+Версия — в **`pyproject.toml`**. При сборке можно автоматически поднять semver (`BUMP=patch|minor|major`) или зафиксировать (`NO_BUMP=1`).
+
+### Windows (`win64.exe`)
 
 ```powershell
 .\build_exe.ps1
 ```
 
-Результат: `dist\TaskTimer.exe`.
+Результат: `dist\tasktimer-link-b24-<версия>-win64.exe`. Сборка только на **Windows 10/11 x64**.
 
-## Сборка .deb (Linux amd64)
+### Linux (`.deb` amd64)
 
 Единственный формат дистрибуции для Linux — **Debian-пакет amd64** (не Flatpak).
 
@@ -61,47 +67,53 @@ pytest
 ./build_deb.sh
 ```
 
-WebDAV: [`docs/webdav-sync.md`](docs/webdav-sync.md).
-
-Требования: `dpkg-deb`, venv с зависимостями проекта, PyInstaller из `requirements-build.txt`.
-
-Версия — в **`pyproject.toml`**, при сборке **автоматически поднимается** (semver):
+Требования: `dpkg-deb`, venv, PyInstaller из `requirements-build.txt`, хост **x86_64**.
 
 | Команда | Когда |
 |---------|--------|
-| `./build_deb.sh` | мелкие правки → **patch** (0.1.0 → 0.1.1) |
-| `BUMP=minor ./build_deb.sh` | новые фичи → **minor** (0.1.0 → 0.2.0) |
-| `BUMP=major ./build_deb.sh` | ломающие изменения |
+| `./build_deb.sh` | мелкие правки → **patch** |
+| `BUMP=minor ./build_deb.sh` | новые фичи → **minor** |
 | `NO_BUMP=1 ./build_deb.sh` | пересборка без смены версии |
 
-```bash
-chmod +x build_deb.sh
-./build_deb.sh
-```
+Результат: `dist/tasktimer-link-b24-<версия>-amd64.deb`.
 
-Результат: `dist/tasktimer-link-b24-<версия>-amd64.deb`. В меню — «TaskTimer link B24»; версия — в заголовке окна.
-
-Установка:
+### macOS (`.app` в `.zip`)
 
 ```bash
-sudo dpkg -i dist/tasktimer-link-b24-<версия>-amd64.deb
-sudo apt-get install -f
-tasktimer-link-b24
+./build_macos.sh
 ```
 
-Upgrade/downgrade: более новая версия ставится поверх старой; downgrade блокируется (`preinst`) — сначала `sudo apt remove tasktimer-link-b24`.
+Результат: `dist/tasktimer-link-b24-<версия>-macos-<arch>.zip` (arm64 или x86_64). Сборка только на **macOS**.
+
+### Android (`.apk`)
+
+```bash
+./build_apk.sh
+```
+
+Результат: `dist/tasktimer-link-b24-<версия>-android.apk`. См. [системные требования](docs/system-requirements.md).
+
+### CI
+
+При push в `main` GitHub Actions собирает **`.deb`**, **`.exe`** и **macOS `.zip`** (артефакты в workflow run).
 
 Ручной bump без сборки: `python scripts/bump_version.py minor`
 
 ### Releases
 
-Готовые `.deb` публикуются в [GitHub Releases](https://github.com/alexandrgert/timer-app/releases).
+Готовые сборки — [GitHub Releases](https://github.com/alexandrgert/timer-app/releases).
+**Системные требования:** [`docs/system-requirements.md`](docs/system-requirements.md).
 
 **Последний релиз:** [v0.4.1](https://github.com/alexandrgert/timer-app/releases/tag/v0.4.1) — [текст для пользователей](docs/release-notes-v0.4.1.md)
 
-Скачать пакет (Linux amd64):
+| Платформа | Файл |
+|-----------|------|
+| Linux amd64 | `tasktimer-link-b24-0.4.1-amd64.deb` |
+| Windows x64 | `tasktimer-link-b24-0.4.1-win64.exe` |
+| macOS | `tasktimer-link-b24-0.4.1-macos-<arch>.zip` |
+| Android | `tasktimer-link-b24-0.4.1-android.apk` |
 
-https://github.com/alexandrgert/timer-app/releases/download/v0.4.1/tasktimer-link-b24-0.4.1-amd64.deb
+Linux:
 
 ```bash
 wget https://github.com/alexandrgert/timer-app/releases/download/v0.4.1/tasktimer-link-b24-0.4.1-amd64.deb
@@ -124,6 +136,9 @@ tasktimer-link-b24
 app.py                 # обёртка для запуска
 run.sh                 # запуск из venv проекта
 build_deb.sh           # сборка .deb (Linux amd64)
+build_exe.ps1          # сборка .exe (Windows x64)
+build_macos.sh         # сборка .app zip (macOS)
+build_apk.sh           # сборка .apk (Android)
 src/timerapp_ag/
   main.py              # точка входа
   controller.py        # бизнес-логика
