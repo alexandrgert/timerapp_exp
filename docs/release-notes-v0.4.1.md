@@ -43,7 +43,7 @@
 |-----------|------|-----------|
 | **Linux** (amd64) | [`.deb`](https://github.com/alexandrgert/timer-app/releases/download/v0.4.1/tasktimer-link-b24-0.4.1-amd64.deb) | `sudo dpkg -i …deb && sudo apt-get install -f` |
 | **Windows** (x64) | [`.exe`](https://github.com/alexandrgert/timer-app/releases/download/v0.4.1/tasktimer-link-b24-0.4.1-win64.exe) | запустить exe |
-| **macOS** 11+ | [`.zip`](https://github.com/alexandrgert/timer-app/releases/download/v0.4.1/) (arm64 / x86_64) | распаковать, перетащить `.app` в Программы |
+| **macOS** 11+ | [`.zip` arm64](https://github.com/alexandrgert/timer-app/releases/download/v0.4.1/tasktimer-link-b24-0.4.1-macos-arm64.zip) | распаковать, перетащить `.app` в Программы |
 | **Android** 10+ | [`.apk`](https://github.com/alexandrgert/timer-app/releases/download/v0.4.1/tasktimer-link-b24-0.4.1-android.apk) | установить APK |
 
 ### Linux
