@@ -2,7 +2,7 @@
 
 Минимальные требования для **установленных** сборок (не для разработки из исходников).
 
-Текущая версия продукта: **0.4.2** (см. [`pyproject.toml`](../pyproject.toml)).
+Текущая версия продукта: **0.4.4** (см. [`pyproject.toml`](../pyproject.toml)).
 
 ---
 
@@ -138,4 +138,4 @@ CI (`.github/workflows/ci.yml`) автоматически собирает **Li
 
 - [ИНСТРУКЦИЯ.md](../ИНСТРУКЦИЯ.md) — для пользователей
 - [architecture-cross-platform.md](architecture-cross-platform.md) — архитектура
-- [release-notes-v0.4.2.md](release-notes-v0.4.2.md) — что нового в релизе
+- [release-notes-v0.4.4.md](release-notes-v0.4.4.md) — что нового в релизе
