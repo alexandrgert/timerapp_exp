@@ -966,6 +966,60 @@ class SettingsDialog(QDialog):
         super().reject()
 
 
+class TaskEditDialog(QDialog):
+    def __init__(self, controller: AppController, task: Task, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.controller = controller
+        self.task_id = task.id
+        self.setWindowTitle("Редактировать задачу")
+        self.resize(480, 280)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 22, 24, 22)
+        layout.setSpacing(12)
+
+        heading = QLabel("Редактировать задачу")
+        heading.setObjectName("sectionTitle")
+        layout.addWidget(heading)
+
+        form = QFormLayout()
+        form.setHorizontalSpacing(14)
+        form.setVerticalSpacing(10)
+        self.title_edit = QLineEdit(task.title)
+        self.title_edit.setPlaceholderText("Название задачи")
+        form.addRow("Название", self.title_edit)
+
+        self.description_edit = QPlainTextEdit()
+        self.description_edit.setPlaceholderText("Описание (необязательно)")
+        self.description_edit.setPlainText(task.description)
+        self.description_edit.setFixedHeight(90)
+        form.addRow("Описание", self.description_edit)
+        layout.addLayout(form)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def accept(self) -> None:
+        title = self.title_edit.text().strip()
+        if not title:
+            QMessageBox.warning(self, "Ошибка", "Введите название задачи.")
+            return
+        try:
+            self.controller.update_task(
+                self.task_id,
+                title=title,
+                description=self.description_edit.toPlainText(),
+            )
+        except ValueError as exc:
+            QMessageBox.warning(self, "Ошибка", str(exc))
+            return
+        super().accept()
+
+
 class SessionEditDialog(QDialog):
     def __init__(self, controller: AppController, task: Task, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -974,7 +1028,7 @@ class SessionEditDialog(QDialog):
         self.selected_session_id: str | None = None
         self._transfer_thread: _CallableThread | None = None
         self.setWindowTitle("История сессий")
-        self.resize(660, 480)
+        self.resize(700, 540)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 22, 24, 22)
@@ -994,8 +1048,10 @@ class SessionEditDialog(QDialog):
         self.select_all_checkbox.toggled.connect(self._toggle_select_all)
         layout.addWidget(self.select_all_checkbox)
 
-        self.table = QTableWidget(0, 5)
-        self.table.setHorizontalHeaderLabels(["", "Начало", "Окончание", "Длительность", "Передано"])
+        self.table = QTableWidget(0, 6)
+        self.table.setHorizontalHeaderLabels(
+            ["", "Начало", "Окончание", "Длительность", "Комментарий", "Передано"]
+        )
         self.table.verticalHeader().setVisible(False)
         self.table.verticalHeader().setDefaultSectionSize(36)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -1010,7 +1066,8 @@ class SessionEditDialog(QDialog):
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
         self.table.itemSelectionChanged.connect(self._load_current_session)
         layout.addWidget(self.table, 1)
 
@@ -1033,6 +1090,12 @@ class SessionEditDialog(QDialog):
         self.end_edit.setFixedHeight(34)
         _style_calendar_field(self.end_edit)
         form.addRow("Окончание", self.end_edit)
+
+        self.comment_edit = QPlainTextEdit()
+        self.comment_edit.setObjectName("historyComment")
+        self.comment_edit.setPlaceholderText("Комментарий к интервалу (необязательно)")
+        self.comment_edit.setFixedHeight(56)
+        form.addRow("Комментарий", self.comment_edit)
         layout.addLayout(form)
         layout.addSpacing(4)
 
@@ -1126,7 +1189,8 @@ class SessionEditDialog(QDialog):
                 self._readonly_cell(end.strftime("%d.%m.%Y %H:%M:%S") if end else "идёт"),
             )
             self.table.setItem(row, 3, self._readonly_cell(format_duration(duration)))
-            self.table.setItem(row, 4, self._readonly_cell(session.bitrix_record_id or ""))
+            self.table.setItem(row, 4, self._readonly_cell(session.comment))
+            self.table.setItem(row, 5, self._readonly_cell(session.bitrix_record_id or ""))
         self.table.blockSignals(False)
         if self.table.rowCount():
             self.table.selectRow(0)
@@ -1149,7 +1213,12 @@ class SessionEditDialog(QDialog):
         start = self.start_edit.dateTime().toPython()
         end = self.end_edit.dateTime().toPython()
         try:
-            session = self.controller.add_session(self.task.id, start, end)
+            session = self.controller.add_session(
+                self.task.id,
+                start,
+                end,
+                comment=self.comment_edit.toPlainText(),
+            )
         except ValueError as exc:
             QMessageBox.warning(self, "Ошибка", str(exc))
             return
@@ -1200,6 +1269,7 @@ class SessionEditDialog(QDialog):
         self.start_edit.setDateTime(QDateTime.fromString(session.started_at, Qt.DateFormat.ISODate))
         end_value = session.ended_at or datetime.now().isoformat()
         self.end_edit.setDateTime(QDateTime.fromString(end_value, Qt.DateFormat.ISODate))
+        self.comment_edit.setPlainText(session.comment)
 
     def _save_current_session(self) -> None:
         if not self.selected_session_id:
@@ -1207,7 +1277,13 @@ class SessionEditDialog(QDialog):
         start = self.start_edit.dateTime().toPython()
         end = self.end_edit.dateTime().toPython()
         try:
-            self.controller.update_session(self.task.id, self.selected_session_id, start, end)
+            self.controller.update_session(
+                self.task.id,
+                self.selected_session_id,
+                start,
+                end,
+                comment=self.comment_edit.toPlainText(),
+            )
         except ValueError as exc:
             QMessageBox.warning(self, "Ошибка", str(exc))
             return
@@ -1237,7 +1313,10 @@ class SessionEditDialog(QDialog):
             QMessageBox.warning(self, "Битрикс24", "Укажите URL вебхука в настройках.")
             return
         name, ok = QInputDialog.getText(
-            self, "Передача времени", "Название записи:", text=self.task.title
+            self,
+            "Передача времени",
+            "Название записи:",
+            text=next((s.comment for s in sessions if s.comment.strip()), "") or self.task.title,
         )
         name = (name or "").strip()
         if not ok or not name:
@@ -1298,6 +1377,7 @@ class TaskRow(QFrame):
     complete_requested = Signal(str)
     resume_requested = Signal(str)
     history_requested = Signal(str)
+    edit_requested = Signal(str)
     delete_requested = Signal(str)
     plan_toggle_requested = Signal(str)
 
@@ -1364,6 +1444,13 @@ class TaskRow(QFrame):
         actions.addWidget(fade)
 
         is_done = task.status == TaskStatus.COMPLETED
+
+        edit_button = QPushButton("Изменить")
+        edit_button.setObjectName("linkAction")
+        edit_button.setToolTip("Изменить название и описание")
+        edit_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        edit_button.clicked.connect(lambda: self.edit_requested.emit(task.id))
+        actions.addWidget(edit_button)
 
         if not is_done:
             history_button = QPushButton()
@@ -2050,17 +2137,19 @@ class MainWindow(QMainWindow):
         self.scroll_area.setWidget(self.days_container)
         content_layout.addWidget(self.scroll_area, 1)
 
-        content_layout.addWidget(self._build_timer_panel())
+        content_layout.addWidget(self._build_timer_panel(), 0, Qt.AlignmentFlag.AlignTop)
         page_layout.addWidget(content, 1)
         return page
     def _build_timer_panel(self) -> QWidget:
         panel = QFrame()
         panel.setObjectName("timerPanel")
         panel.setFixedWidth(268)
+        panel.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Maximum)
         self.timer_panel = panel
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(18, 20, 18, 20)
         layout.setSpacing(0)
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         timer_label = QLabel("ТАЙМЕР")
         timer_label.setObjectName("timerLbl")
@@ -2077,6 +2166,23 @@ class MainWindow(QMainWindow):
         self.active_task_name.setObjectName("tcardName")
         self.active_task_name.setWordWrap(True)
         card.addWidget(self.active_task_name)
+
+        self.active_task_description = QLabel("")
+        self.active_task_description.setObjectName("tcardDesc")
+        self.active_task_description.setWordWrap(True)
+        self.active_task_description.setAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
+        )
+        self.active_task_description.setSizePolicy(
+            QSizePolicy.Policy.Preferred,
+            QSizePolicy.Policy.Minimum,
+        )
+        self.active_task_description.setVisible(False)
+        card.addWidget(self.active_task_description)
+        self._timer_desc_spacing = QWidget()
+        self._timer_desc_spacing.setFixedHeight(8)
+        self._timer_desc_spacing.setVisible(False)
+        card.addWidget(self._timer_desc_spacing)
         card.addSpacing(14)
 
         self.timer_digits = QLabel("00:00:00")
@@ -2110,8 +2216,7 @@ class MainWindow(QMainWindow):
         self.timer_progress.setRange(0, 100)
         self.timer_progress.setValue(0)
         layout.addWidget(self.timer_progress)
-
-        layout.addStretch(1)
+        layout.addSpacing(16)
 
         self.stop_active_button = QPushButton("Стоп")
         self.stop_active_button.setObjectName("btnStop")
@@ -2127,6 +2232,7 @@ class MainWindow(QMainWindow):
         self.complete_active_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.complete_active_button.clicked.connect(self._complete_active)
         layout.addWidget(self.complete_active_button)
+        layout.addStretch(1)
 
         return panel
     def _build_focus_page(self) -> QWidget:
@@ -2385,48 +2491,49 @@ class MainWindow(QMainWindow):
             }
             QPushButton#rowResume:hover { background: #DBE8FC; }
 
-            /* ── Timer panel (dark) ───────────────────────── */
+            /* ── Timer panel (light) ──────────────────────── */
             QFrame#timerPanel {
-                background: #131720; border-left: 1px solid rgba(255,255,255,0.06);
+                background: #ECEEF3; border-left: 1px solid #DCDEE3;
             }
-            QFrame#timerPanel[running="true"] { border-left: 1px solid rgba(39,174,96,0.25); }
+            QFrame#timerPanel[running="true"] { border-left: 1px solid rgba(39,174,96,0.35); }
             QLabel#timerLbl {
-                color: rgba(255,255,255,0.28); font-size: 10px; font-weight: 500;
+                color: #B8BDC9; font-size: 10px; font-weight: 500;
                 letter-spacing: 1px;
             }
             QFrame#timerCard {
-                background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08);
+                background: #FFFFFF; border: 1px solid #DCDEE3;
                 border-radius: 12px;
             }
             QFrame#timerCard[running="true"] {
-                background: rgba(39,174,96,0.10); border: 1px solid rgba(39,174,96,0.25);
+                background: #F0FAF4; border: 1px solid rgba(39,174,96,0.30);
             }
-            QLabel#tcardName { color: rgba(255,255,255,0.75); font-size: 13px; }
+            QLabel#tcardName { color: #252835; font-size: 13px; font-weight: 500; }
+            QLabel#tcardDesc { color: #828B9A; font-size: 12px; }
             QLabel#timerDigits {
-                color: #7EB3FA; font-family: "__MONO__"; font-size: 38px; font-weight: 300;
+                color: #3B83F6; font-family: "__MONO__"; font-size: 38px; font-weight: 300;
             }
             QFrame#timerPanel[running="true"] QLabel#timerDigits { color: #27AE60; }
             QLabel#tcsLbl {
-                color: rgba(255,255,255,0.25); font-size: 9px; font-weight: 500; letter-spacing: 1px;
+                color: #B8BDC9; font-size: 9px; font-weight: 500; letter-spacing: 1px;
             }
-            QLabel#tcsVal { color: rgba(255,255,255,0.45); font-family: "__MONO__"; font-size: 12px; }
-            QFrame#timerPanel[running="true"] QLabel#tcsVal { color: rgba(39,174,96,0.80); }
+            QLabel#tcsVal { color: #828B9A; font-family: "__MONO__"; font-size: 12px; }
+            QFrame#timerPanel[running="true"] QLabel#tcsVal { color: #27AE60; }
             QProgressBar#timerProgress {
-                background: rgba(255,255,255,0.08); border: none; border-radius: 2px;
+                background: #DCDEE3; border: none; border-radius: 2px;
             }
             QProgressBar#timerProgress::chunk { background: #27AE60; border-radius: 2px; }
             QPushButton#btnStop {
-                background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.10);
-                border-radius: 10px; color: rgba(255,255,255,0.55); font-weight: 500;
+                background: #FFFFFF; border: 1px solid #D0D2D8;
+                border-radius: 10px; color: #252835; font-weight: 500;
             }
-            QPushButton#btnStop:hover { background: rgba(255,255,255,0.12); color: rgba(255,255,255,0.85); }
-            QPushButton#btnStop:disabled { color: rgba(255,255,255,0.22); }
+            QPushButton#btnStop:hover { background: #F5F6FA; }
+            QPushButton#btnStop:disabled { color: #B8BDC9; }
             QPushButton#btnComplete {
-                background: rgba(224,83,83,0.14); border: 1px solid rgba(224,83,83,0.20);
-                border-radius: 10px; color: #F47A7A; font-weight: 500;
+                background: #FDE8E8; border: 1px solid #F5C4C4;
+                border-radius: 10px; color: #E05353; font-weight: 500;
             }
-            QPushButton#btnComplete:hover { background: rgba(224,83,83,0.24); }
-            QPushButton#btnComplete:disabled { color: rgba(224,83,83,0.35); }
+            QPushButton#btnComplete:hover { background: #FBD0D0; }
+            QPushButton#btnComplete:disabled { color: #E8A8A8; }
 
             /* ── Focus page ───────────────────────────────── */
             QFrame#focusCard {
@@ -2590,6 +2697,7 @@ class MainWindow(QMainWindow):
                 row.complete_requested.connect(self._confirm_complete_task)
                 row.resume_requested.connect(self._resume_task)
                 row.history_requested.connect(self._open_history)
+                row.edit_requested.connect(self._open_task_edit)
                 row.delete_requested.connect(self._confirm_delete_task)
                 row.plan_toggle_requested.connect(self._toggle_plan)
                 self._task_rows[task.id] = row
@@ -2627,12 +2735,25 @@ class MainWindow(QMainWindow):
                 widget.style().unpolish(widget)
                 widget.style().polish(widget)
                 widget.update()
+    def _set_active_task_description(self, text: str, *, visible: bool) -> None:
+        self.active_task_description.setVisible(visible)
+        self._timer_desc_spacing.setVisible(visible)
+        if visible:
+            self.active_task_description.setText(text)
+        else:
+            self.active_task_description.clear()
+
     def _refresh_active_panel(self) -> None:
         panel_task = self.controller.timer_panel_task()
-        is_running = panel_task is not None and panel_task.status == TaskStatus.RUNNING
-        self._set_timer_running(is_running)
+        timer_running = (
+            panel_task is not None
+            and panel_task.status == TaskStatus.RUNNING
+            and panel_task.active_session() is not None
+        )
+        self._set_timer_running(timer_running)
         if not panel_task:
             self.active_task_name.setText("Выберите задачу\nи нажмите Старт")
+            self._set_active_task_description("", visible=False)
             self.timer_digits.setText("00:00:00")
             self.timer_today_value.setText("0:00")
             self.timer_total_value.setText("0:00")
@@ -2644,6 +2765,11 @@ class MainWindow(QMainWindow):
         now = datetime.now()
         total = panel_task.total_seconds(now)
         self.active_task_name.setText(panel_task.title)
+        description = panel_task.description.strip()
+        self._set_active_task_description(
+            description,
+            visible=timer_running and bool(description),
+        )
         self.timer_digits.setText(format_duration(total))
         self.timer_today_value.setText(format_hm(self.controller.today_seconds(panel_task)))
         self.timer_total_value.setText(format_hm(total))
@@ -2651,7 +2777,7 @@ class MainWindow(QMainWindow):
         session = panel_task.active_session()
         elapsed = session.duration_seconds(now) if session else 0
         self.timer_progress.setValue(int(min(elapsed / interval, 1.0) * 100))
-        if is_running:
+        if timer_running:
             self.stop_active_button.setText("Стоп")
         else:
             self.stop_active_button.setText("Продолжить")
@@ -2871,6 +2997,12 @@ class MainWindow(QMainWindow):
         dialog = SessionEditDialog(self.controller, task, self)
         dialog.exec()
         self.refresh_ui()
+
+    def _open_task_edit(self, task_id: str) -> None:
+        task = self.controller.find_task(task_id)
+        dialog = TaskEditDialog(self.controller, task, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.refresh_ui()
 
     def _confirm_delete_task(self, task_id: str) -> None:
         task = self.controller.find_task(task_id)

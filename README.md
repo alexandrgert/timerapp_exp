@@ -18,7 +18,7 @@
 
 Спецификация модели «план на день»: [`docs/superpowers/specs/2026-06-11-task-views-and-plan-design.md`](docs/superpowers/specs/2026-06-11-task-views-and-plan-design.md).
 
-Документация: [архитектура](docs/architecture-cross-platform.md) · [схема данных](docs/data-schema.md) · [WebDAV (техн.)](docs/webdav-sync.md) · [системные требования](docs/system-requirements.md) · [релиз 0.4.5](docs/release-notes-v0.4.5.md)
+Документация: [архитектура](docs/architecture-cross-platform.md) · [схема данных](docs/data-schema.md) · [WebDAV (техн.)](docs/webdav-sync.md) · [системные требования](docs/system-requirements.md) · [релиз 0.5.0](docs/release-notes-v0.5.0.md)
 
 ## Быстрый старт
 
@@ -103,20 +103,20 @@ pytest
 Готовые сборки — [GitHub Releases](https://github.com/alexandrgert/timer-app/releases).
 **Системные требования:** [`docs/system-requirements.md`](docs/system-requirements.md).
 
-**Последний релиз:** [v0.4.5](https://github.com/alexandrgert/timer-app/releases/tag/v0.4.5) — [текст для пользователей](docs/release-notes-v0.4.5.md)
+**Последний релиз:** [v0.5.0](https://github.com/alexandrgert/timer-app/releases/tag/v0.5.0) — [текст для пользователей](docs/release-notes-v0.5.0.md)
 
 | Платформа | Файл |
 |-----------|------|
-| Linux amd64 | `tasktimer-link-b24-0.4.5-amd64.deb` |
-| Windows x64 | `tasktimer-link-b24-0.4.5-win64.exe` |
-| macOS | `tasktimer-link-b24-0.4.5-macos-<arch>.zip` |
-| Android | `tasktimer-link-b24-0.4.5-android.apk` |
+| Linux amd64 | `tasktimer-link-b24-0.5.0-amd64.deb` |
+| Windows x64 | `tasktimer-link-b24-0.5.0-win64.exe` |
+| macOS | `tasktimer-link-b24-0.5.0-macos-<arch>.zip` |
+| Android | `tasktimer-link-b24-0.5.0-android.apk` |
 
 Linux:
 
 ```bash
-wget https://github.com/alexandrgert/timer-app/releases/download/v0.4.5/tasktimer-link-b24-0.4.5-amd64.deb
-sudo dpkg -i tasktimer-link-b24-0.4.5-amd64.deb
+wget https://github.com/alexandrgert/timer-app/releases/download/v0.5.0/tasktimer-link-b24-0.5.0-amd64.deb
+sudo dpkg -i tasktimer-link-b24-0.5.0-amd64.deb
 sudo apt-get install -f
 tasktimer-link-b24
 ```

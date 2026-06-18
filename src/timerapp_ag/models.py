@@ -24,6 +24,7 @@ class Session:
     started_at: str
     ended_at: str | None = None
     bitrix_record_id: str | None = None
+    comment: str = ""
 
     @property
     def start_dt(self) -> datetime:
@@ -43,6 +44,7 @@ class Session:
             "started_at": self.started_at,
             "ended_at": self.ended_at,
             "bitrix_record_id": self.bitrix_record_id,
+            "comment": self.comment,
         }
 
     @classmethod
@@ -52,6 +54,7 @@ class Session:
             started_at=data["started_at"],
             ended_at=data.get("ended_at"),
             bitrix_record_id=data.get("bitrix_record_id"),
+            comment=str(data.get("comment", "") or ""),
         )
 
 

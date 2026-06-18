@@ -41,6 +41,8 @@
 | `id` | string | да |
 | `started_at` | string (ISO 8601) | да |
 | `ended_at` | string \| null | нет — `null` = таймер идёт |
+| `bitrix_record_id` | string \| null | нет — id записи учёта времени в Битрикс24 |
+| `comment` | string | нет — по умолчанию `""`; текст для передачи в Битрикс24 |
 
 ## UI (`ui`)
 

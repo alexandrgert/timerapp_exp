@@ -45,6 +45,28 @@ def test_session_bitrix_record_id_round_trip() -> None:
     assert restored.bitrix_record_id == "999"
 
 
+def test_session_from_dict_without_comment_defaults_empty() -> None:
+    restored = Session.from_dict(
+        {
+            "id": "s1",
+            "started_at": "2026-01-01T10:00:00",
+            "ended_at": "2026-01-01T10:30:00",
+        }
+    )
+    assert restored.comment == ""
+
+
+def test_session_comment_round_trip() -> None:
+    session = Session(
+        id="s1",
+        started_at="2026-01-01T10:00:00",
+        ended_at="2026-01-01T10:30:00",
+        comment="Созвон с клиентом",
+    )
+    restored = Session.from_dict(session.to_dict())
+    assert restored.comment == "Созвон с клиентом"
+
+
 def test_task_total_seconds_sums_sessions() -> None:
     task = Task(
         id="t1",

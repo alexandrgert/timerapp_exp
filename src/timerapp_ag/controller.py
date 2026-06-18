@@ -326,8 +326,37 @@ class AppController:
         self.next_reminder_at = datetime.now() + reminders_domain.reminder_interval_td(self.state)
         self.save()
 
-    def add_session(self, task_id: str, started_at: datetime, ended_at: datetime) -> Session:
-        session = task_ops.add_session(self.state, task_id, started_at, ended_at)
+    def update_task(
+        self,
+        task_id: str,
+        *,
+        title: str | None = None,
+        description: str | None = None,
+    ) -> Task:
+        task = task_ops.update_task(
+            self.state,
+            task_id,
+            title=title,
+            description=description,
+        )
+        self.save()
+        return task
+
+    def add_session(
+        self,
+        task_id: str,
+        started_at: datetime,
+        ended_at: datetime,
+        *,
+        comment: str = "",
+    ) -> Session:
+        session = task_ops.add_session(
+            self.state,
+            task_id,
+            started_at,
+            ended_at,
+            comment=comment,
+        )
         self.save()
         return session
 
@@ -341,8 +370,23 @@ class AppController:
             self.next_reminder_at = None
         self.save()
 
-    def update_session(self, task_id: str, session_id: str, started_at: datetime, ended_at: datetime) -> None:
-        task_ops.update_session(self.state, task_id, session_id, started_at, ended_at)
+    def update_session(
+        self,
+        task_id: str,
+        session_id: str,
+        started_at: datetime,
+        ended_at: datetime,
+        *,
+        comment: str | None = None,
+    ) -> None:
+        task_ops.update_session(
+            self.state,
+            task_id,
+            session_id,
+            started_at,
+            ended_at,
+            comment=comment,
+        )
         self.save()
 
     def mark_sessions_transferred(self, task_id: str, session_ids, record_id) -> None:

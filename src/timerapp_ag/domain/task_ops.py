@@ -33,6 +33,24 @@ def link_bitrix(state: AppState, task_id: str, link: dict) -> None:
     find_task(state, task_id).bitrix = link
 
 
+def update_task(
+    state: AppState,
+    task_id: str,
+    *,
+    title: str | None = None,
+    description: str | None = None,
+) -> Task:
+    task = find_task(state, task_id)
+    if title is not None:
+        stripped = title.strip()
+        if not stripped:
+            raise ValueError("Название задачи не может быть пустым.")
+        task.title = stripped
+    if description is not None:
+        task.description = description.strip()
+    return task
+
+
 def start_task(state: AppState, task_id: str, *, now: datetime | None = None) -> Task:
     now = now or datetime.now()
     current = active_task(state)
@@ -89,11 +107,18 @@ def add_session(
     task_id: str,
     started_at: datetime,
     ended_at: datetime,
+    *,
+    comment: str = "",
 ) -> Session:
     if ended_at <= started_at:
         raise ValueError("Время окончания должно быть позже начала.")
     task = find_task(state, task_id)
-    session = Session(id=make_id(), started_at=started_at.isoformat(), ended_at=ended_at.isoformat())
+    session = Session(
+        id=make_id(),
+        started_at=started_at.isoformat(),
+        ended_at=ended_at.isoformat(),
+        comment=comment.strip(),
+    )
     task.sessions.append(session)
     task.sessions.sort(key=lambda item: item.started_at)
     return session
@@ -123,6 +148,8 @@ def update_session(
     session_id: str,
     started_at: datetime,
     ended_at: datetime,
+    *,
+    comment: str | None = None,
 ) -> None:
     if ended_at <= started_at:
         raise ValueError("Время окончания должно быть позже начала.")
@@ -131,6 +158,8 @@ def update_session(
         if session.id == session_id:
             session.started_at = started_at.isoformat()
             session.ended_at = ended_at.isoformat()
+            if comment is not None:
+                session.comment = comment.strip()
             break
     else:
         raise KeyError(session_id)

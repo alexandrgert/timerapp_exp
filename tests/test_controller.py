@@ -277,6 +277,51 @@ def test_update_session(controller: AppController) -> None:
     assert task.sessions[0].duration_seconds() == 30 * 60
 
 
+def test_add_session_with_comment(controller: AppController) -> None:
+    task = controller.create_task("A")
+    start = datetime(2026, 1, 1, 10, 0, 0)
+    session = controller.add_session(
+        task.id,
+        start,
+        start + timedelta(minutes=15),
+        comment="Первичный комментарий",
+    )
+    assert session.comment == "Первичный комментарий"
+    task = controller.find_task(task.id)
+    assert task.sessions[0].comment == "Первичный комментарий"
+
+
+def test_update_session_comment(controller: AppController) -> None:
+    task = controller.create_task("A")
+    start = datetime(2026, 1, 1, 10, 0, 0)
+    session = controller.add_session(task.id, start, start + timedelta(minutes=10))
+    controller.update_session(
+        task.id,
+        session.id,
+        start,
+        start + timedelta(minutes=10),
+        comment="Уточнение по задаче",
+    )
+    task = controller.find_task(task.id)
+    assert task.sessions[0].comment == "Уточнение по задаче"
+
+
+def test_update_task_title_and_description(controller: AppController) -> None:
+    task = controller.create_task("Old", description="old desc")
+    updated = controller.update_task(task.id, title="New title", description="new desc")
+    assert updated.title == "New title"
+    assert updated.description == "new desc"
+    reloaded = controller.find_task(task.id)
+    assert reloaded.title == "New title"
+    assert reloaded.description == "new desc"
+
+
+def test_update_task_rejects_empty_title(controller: AppController) -> None:
+    task = controller.create_task("Keep")
+    with pytest.raises(ValueError):
+        controller.update_task(task.id, title="   ")
+
+
 def test_delete_session_of_running_task_pauses_it(controller: AppController) -> None:
     task = controller.create_task("A", start_now=True)
     running_session = task.active_session()

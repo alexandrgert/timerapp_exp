@@ -35,7 +35,11 @@
         "started_at": { "$ref": "#/$defs/isoDateTime" },
         "ended_at": {
           "anyOf": [{ "$ref": "#/$defs/isoDateTime" }, { "type": "null" }]
-        }
+        },
+        "bitrix_record_id": {
+          "anyOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }]
+        },
+        "comment": { "type": "string" }
       }
     },
     "bitrixLink": {
