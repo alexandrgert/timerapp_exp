@@ -46,6 +46,14 @@ def isolated_webdav_config(tmp_path: Path, monkeypatch):
     return path
 
 
+@pytest.fixture(autouse=True)
+def isolated_legacy_merge_config(tmp_path: Path, monkeypatch):
+    """Пустой legacy-merge.json — тесты не читают ~/.config/timerapp_exp/."""
+    path = tmp_path / "legacy-merge.json"
+    monkeypatch.setattr("timerapp_ag.legacy_merge._legacy_merge_config_path", lambda: path)
+    return path
+
+
 @pytest.fixture
 def storage(tmp_path: Path) -> Storage:
     """Storage backed by an isolated temp data.json (no real AppData writes)."""

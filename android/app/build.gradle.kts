@@ -19,11 +19,11 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.timerapp.linkb24"
+        applicationId = "com.timerapp.exp"
         minSdk = 29
         targetSdk = 35
-        versionCode = 531
-        versionName = "0.5.31"
+        versionCode = 540
+        versionName = "0.5.40"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

@@ -165,7 +165,7 @@ class WebDavClient(
         val builder = Request.Builder()
             .url(url)
             .header("Authorization", basicAuthHeader(config.username, config.password))
-            .header("User-Agent", "TaskTimer-link-B24-Android")
+            .header("User-Agent", "TaskTimer-Experiment-Android")
         val contentType = extraHeaders["Content-Type"]
         extraHeaders.forEach { (key, value) ->
             if (key != "Content-Type" || method !in setOf("PUT", "POST")) {

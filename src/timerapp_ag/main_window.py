@@ -53,7 +53,6 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QSpinBox,
-    QStyle,
     QSystemTrayIcon,
     QTabWidget,
     QTableWidget,
@@ -63,9 +62,14 @@ from PySide6.QtWidgets import (
 )
 
 from .bitrix import Bitrix24Client, looks_like_webhook, seconds_to_worklog_hours
+from .ui.tray_icon import (
+    build_tray_app_icon,
+    clear_tray_app_icon_cache,
+    install_tray_icon_theme_refresh,
+)
 from .bitrix_config import BitrixPortalConfig
 from .bitrix_transfer_journal import record_transfer_result
-from .app_info import resolve_app_title
+from .app_info import APP_TITLE_BASE, resolve_app_title
 from .controller import AppController, format_day_label, format_duration, format_hm
 from .models import Task, TaskStatus
 from .runtime_info import build_about_report
@@ -1852,7 +1856,7 @@ class MainWindow(QMainWindow):
         self._task_rows_reference_date: str | None = None
         self._pinned_task_row_id: str | None = None
         self.tray_available = QSystemTrayIcon.isSystemTrayAvailable()
-        self.app_icon = self.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon)
+        self.app_icon = build_tray_app_icon(self.style())
         self.setWindowIcon(self.app_icon)
         self.setWindowTitle(resolve_app_title())
         self.resize(980, 680)
@@ -1871,6 +1875,7 @@ class MainWindow(QMainWindow):
         self._build_ui()
         self._build_menu_bar()
         self._build_tray()
+        install_tray_icon_theme_refresh(self._refresh_app_icon)
         self._apply_styles()
         self._apply_window_constraints()
         self.refresh_ui()
@@ -1931,10 +1936,10 @@ class MainWindow(QMainWindow):
         icon = QSystemTrayIcon.MessageIcon.Warning if "не удалось" in notice.lower() else QSystemTrayIcon.MessageIcon.Information
         shown = False
         if self.tray_available and hasattr(self, "tray") and self.tray.isVisible():
-            self._show_tray_message("TaskTimer link B24", notice, icon=icon, timeout=8000)
+            self._show_tray_message(APP_TITLE_BASE, notice, icon=icon, timeout=8000)
             shown = True
         if not shown:
-            QMessageBox.information(self, "TaskTimer link B24", notice)
+            QMessageBox.information(self, APP_TITLE_BASE, notice)
         clear_webdav_pending_notice()
         self.controller.webdav_startup_notice = None
 
@@ -2450,6 +2455,14 @@ class MainWindow(QMainWindow):
         merge_legacy_action.triggered.connect(self._merge_legacy_bases)
         settings_menu.addAction(merge_legacy_action)
 
+        legacy_path_action = QAction("Указать каталог старой версии…", self)
+        legacy_path_action.triggered.connect(self._configure_legacy_data_path)
+        settings_menu.addAction(legacy_path_action)
+
+        legacy_paths_action = QAction("Каталоги старых версий…", self)
+        legacy_paths_action.triggered.connect(self._manage_legacy_data_paths)
+        settings_menu.addAction(legacy_paths_action)
+
         exit_action = QAction("Выход", self)
         exit_action.setShortcut("Ctrl+Q")
         exit_action.triggered.connect(self._request_exit)
@@ -2458,6 +2471,13 @@ class MainWindow(QMainWindow):
         about_action = QAction("О программе", self)
         about_action.triggered.connect(self._open_about)
         bar.addAction(about_action)
+
+    def _refresh_app_icon(self) -> None:
+        clear_tray_app_icon_cache()
+        self.app_icon = build_tray_app_icon(self.style())
+        self.setWindowIcon(self.app_icon)
+        if hasattr(self, "tray") and self.tray_available:
+            self.tray.setIcon(self.app_icon)
 
     def _build_tray(self) -> None:
         self.tray = QSystemTrayIcon(self.app_icon, self)
@@ -3153,6 +3173,16 @@ class MainWindow(QMainWindow):
         if offer_legacy_merge_manual(self, resolve_app_title(), self.controller.storage):
             self.controller.reload_state_from_storage()
             self.refresh_ui()
+
+    def _configure_legacy_data_path(self) -> None:
+        from .legacy_merge_ui import configure_legacy_data_location
+
+        configure_legacy_data_location(self, resolve_app_title())
+
+    def _manage_legacy_data_paths(self) -> None:
+        from .legacy_merge_ui import manage_legacy_data_locations
+
+        manage_legacy_data_locations(self, resolve_app_title())
 
     def _open_create_dialog(self) -> None:
         self.create_dialog.open_clean()

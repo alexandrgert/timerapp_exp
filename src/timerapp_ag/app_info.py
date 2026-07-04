@@ -5,9 +5,12 @@ import sys
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
-APP_TITLE_BASE = "TaskTimer link B24"
-DESKTOP_FILE_NAME = "tasktimer-link-b24"
-STORAGE_ORG = "timerapp"
+APP_TITLE_BASE = "TaskTimer Experiment"
+DESKTOP_FILE_NAME = "timerapp-exp"
+STORAGE_ORG = "timerapp_exp"
+INSTALL_DIR_NAME = "timerapp_exp"
+PACKAGE_NAME = "timerapp-exp"
+BIN_NAME = "timerapp-exp"
 
 
 def app_install_dir() -> Path:

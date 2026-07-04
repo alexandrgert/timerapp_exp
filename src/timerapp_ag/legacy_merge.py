@@ -5,6 +5,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from . import platform_paths
 from .domain.merge import states_equivalent
@@ -32,6 +33,98 @@ def _legacy_merge_config_path() -> Path:
     return platform_paths.config_dir() / "legacy-merge.json"
 
 
+def load_legacy_merge_config() -> dict[str, Any]:
+    path = _legacy_merge_config_path()
+    if not path.is_file():
+        return {"declined_fingerprint": "", "extra_data_paths": []}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"declined_fingerprint": "", "extra_data_paths": []}
+    if not isinstance(payload, dict):
+        return {"declined_fingerprint": "", "extra_data_paths": []}
+    extra = payload.get("extra_data_paths")
+    if not isinstance(extra, list):
+        extra = []
+    return {
+        "declined_fingerprint": str(payload.get("declined_fingerprint") or "").strip(),
+        "extra_data_paths": [str(item).strip() for item in extra if str(item).strip()],
+    }
+
+
+def save_legacy_merge_config(config: dict[str, Any]) -> None:
+    write_json_secrets(
+        _legacy_merge_config_path(),
+        {
+            "declined_fingerprint": str(config.get("declined_fingerprint") or "").strip(),
+            "extra_data_paths": [
+                str(item).strip()
+                for item in (config.get("extra_data_paths") or [])
+                if str(item).strip()
+            ],
+        },
+    )
+
+
+def resolve_legacy_data_json_path(raw: str | Path) -> Path | None:
+    """Каталог с data.json или сам файл data.json."""
+    path = Path(raw).expanduser()
+    try:
+        path = path.resolve()
+    except OSError:
+        return None
+    if path.is_file():
+        return path if path.name == "data.json" else None
+    if path.is_dir():
+        candidate = path / "data.json"
+        return candidate.resolve() if candidate.is_file() else None
+    return None
+
+
+def list_configured_legacy_locations() -> list[str]:
+    return list(load_legacy_merge_config()["extra_data_paths"])
+
+
+def extra_legacy_data_files() -> list[Path]:
+    seen: set[Path] = set()
+    files: list[Path] = []
+    for raw in list_configured_legacy_locations():
+        resolved = resolve_legacy_data_json_path(raw)
+        if resolved is not None and resolved not in seen:
+            seen.add(resolved)
+            files.append(resolved)
+    return files
+
+
+def add_configured_legacy_location(raw: str | Path) -> tuple[Path | None, str]:
+    resolved = resolve_legacy_data_json_path(raw)
+    if resolved is None:
+        return None, "Не найден data.json в указанном каталоге или файле."
+    storage_key = str(resolved.parent)
+    config = load_legacy_merge_config()
+    locations = list(config["extra_data_paths"])
+    if storage_key not in locations:
+        locations.append(storage_key)
+    config["extra_data_paths"] = locations
+    save_legacy_merge_config(config)
+    return resolved, ""
+
+
+def remove_configured_legacy_location(raw: str | Path) -> bool:
+    resolved = resolve_legacy_data_json_path(raw)
+    if resolved is None:
+        target = str(Path(raw).expanduser()).strip()
+    else:
+        target = str(resolved.parent)
+    config = load_legacy_merge_config()
+    locations = [item for item in config["extra_data_paths"] if item != target]
+    if len(locations) == len(config["extra_data_paths"]):
+        return False
+    config["extra_data_paths"] = locations
+    save_legacy_merge_config(config)
+    return True
+
+
 def _load_state(path: Path) -> AppState:
     if not path.is_file():
         return AppState()
@@ -53,23 +146,13 @@ def sources_fingerprint(paths: list[Path]) -> str:
 
 
 def load_declined_fingerprint() -> str:
-    path = _legacy_merge_config_path()
-    if not path.is_file():
-        return ""
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return ""
-    if not isinstance(payload, dict):
-        return ""
-    return str(payload.get("declined_fingerprint") or "").strip()
+    return str(load_legacy_merge_config()["declined_fingerprint"])
 
 
 def save_declined_fingerprint(fingerprint: str) -> None:
-    write_json_secrets(
-        _legacy_merge_config_path(),
-        {"declined_fingerprint": fingerprint.strip()},
-    )
+    config = load_legacy_merge_config()
+    config["declined_fingerprint"] = fingerprint.strip()
+    save_legacy_merge_config(config)
 
 
 def clear_declined_fingerprint() -> None:
@@ -77,7 +160,12 @@ def clear_declined_fingerprint() -> None:
 
 
 def _source_label(path: Path) -> str:
-    return path.parent.name or path.name
+    parent = path.parent.resolve()
+    for item in list_configured_legacy_locations():
+        resolved = resolve_legacy_data_json_path(item)
+        if resolved is not None and resolved.parent.resolve() == parent:
+            return str(parent)
+    return parent.name or path.name
 
 
 def _merge_stats(current: AppState, merged: AppState) -> tuple[int, int, int, list[str], list[str]]:

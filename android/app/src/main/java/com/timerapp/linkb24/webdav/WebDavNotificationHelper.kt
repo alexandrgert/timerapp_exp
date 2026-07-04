@@ -16,8 +16,8 @@ object WebDavNotificationHelper {
     const val CHANNEL_ID = "webdav_remote_changes"
     const val NOTIFICATION_ID = 4101
 
-    const val ACTION_CONFIRM = "com.timerapp.linkb24.webdav.ACTION_CONFIRM"
-    const val ACTION_LATER = "com.timerapp.linkb24.webdav.ACTION_LATER"
+    const val ACTION_CONFIRM = "com.timerapp.exp.webdav.ACTION_CONFIRM"
+    const val ACTION_LATER = "com.timerapp.exp.webdav.ACTION_LATER"
     const val EXTRA_REMOTE_HASH = "remote_hash"
 
     fun showRemoteChange(context: Context, prompt: RemoteChangePrompt) {

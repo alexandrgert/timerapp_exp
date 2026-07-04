@@ -55,12 +55,12 @@ coll = COLLECT(
 
 app = BUNDLE(
     coll,
-    name="TaskTimer link B24.app",
-    bundle_identifier="com.timerapp.linkb24",
+    name="TaskTimer Experiment.app",
+    bundle_identifier="com.timerapp.exp",
     info_plist={
         "CFBundleShortVersionString": APP_VERSION,
         "CFBundleVersion": APP_VERSION,
-        "CFBundleDisplayName": "TaskTimer link B24",
+        "CFBundleDisplayName": "TaskTimer Experiment",
         "NSHighResolutionCapable": True,
     },
 )

@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# Сборка .deb для TaskTimer link B24 (Linux amd64): PyInstaller onedir + dpkg-deb.
+# Сборка .deb для TaskTimer Experiment (Linux amd64): PyInstaller onedir + dpkg-deb.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$SCRIPT_DIR"
 PACKAGING_DIR="$PROJECT_DIR/packaging/linux"
 
-PACKAGE_NAME="${PACKAGE_NAME:-tasktimer-link-b24}"
+PACKAGE_NAME="${PACKAGE_NAME:-timerapp-exp}"
 TARGET_ARCH=amd64
 MAINTAINER="${PACKAGE_MAINTAINER:-alexandrgert <alexandrgert@gmail.com>}"
 VENV="${VENV:-$PROJECT_DIR/.venv}"
 PYTHON="${PYTHON:-$VENV/bin/python}"
-INSTALL_PREFIX="${INSTALL_PREFIX:-/opt/tasktimer-link-b24}"
-BIN_NAME="${BIN_NAME:-tasktimer-link-b24}"
+INSTALL_PREFIX="${INSTALL_PREFIX:-/opt/timerapp_exp}"
+BIN_NAME="${BIN_NAME:-timerapp-exp}"
 BUMP="${BUMP:-patch}"
 DIST_DIR="$PROJECT_DIR/dist"
 OFFLINE="${OFFLINE:-0}"
@@ -70,7 +70,7 @@ fi
 
 deb_file="${PACKAGE_NAME}-${VERSION}-${TARGET_ARCH}.deb"
 deb_out="${DIST_DIR}/${deb_file}"
-package_title="${PACKAGE_TITLE:-TaskTimer link B24}"
+package_title="${PACKAGE_TITLE:-TaskTimer Experiment}"
 
 echo "==> Сборка ${deb_file}"
 
@@ -99,22 +99,22 @@ EOF
 chmod 755 "$build_root/usr/bin/$BIN_NAME"
 
 mkdir -p "$build_root/usr/share/applications"
-cat > "$build_root/usr/share/applications/tasktimer-link-b24.desktop" <<EOF
+cat > "$build_root/usr/share/applications/timerapp-exp.desktop" <<EOF
 [Desktop Entry]
 Type=Application
 Name=${package_title}
 Name[ru]=${package_title}
-Comment=Desktop task timer with Bitrix24 integration
-Comment[ru]=Таймер задач с интеграцией Битрикс24
+Comment=Experimental desktop task timer with Bitrix24 integration
+Comment[ru]=Экспериментальный таймер задач с интеграцией Битрикс24
 Exec=${BIN_NAME}
-Icon=tasktimer-link-b24
+Icon=timerapp-exp
 Terminal=false
 Categories=Office;Utility;
-StartupWMClass=tasktimer-link-b24
+StartupWMClass=timerapp-exp
 EOF
 
 mkdir -p "$build_root/usr/share/icons/hicolor/scalable/apps"
-cp "$PACKAGING_DIR/tasktimer.svg" "$build_root/usr/share/icons/hicolor/scalable/apps/tasktimer-link-b24.svg"
+cp "$PACKAGING_DIR/tasktimer.svg" "$build_root/usr/share/icons/hicolor/scalable/apps/timerapp-exp.svg"
 
 installed_size_kb="$(
   du -sk "$build_root/$opt_rel" "$build_root/usr" 2>/dev/null | awk '{s += $1} END {print s}'
@@ -129,11 +129,9 @@ Priority: optional
 Architecture: ${TARGET_ARCH}
 Installed-Size: ${installed_size_kb}
 Maintainer: ${MAINTAINER}
-Conflicts: tasktimer
-Replaces: tasktimer
 Depends: libc6 (>= 2.31), libglib2.0-0, libx11-6, libxcb1, libxkbcommon0, libdbus-1-3, libfontconfig1, libfreetype6, libgl1, libegl1, libxext6, libxrender1, libxi6, libxrandr2, libxss1, libxcursor1, libxinerama1, libtiff5 | libtiff6
 Description: ${package_title}
- Desktop task timer: daily plan, focus mode, Bitrix24 tasks and smart-process projects.
+ Experimental desktop task timer: daily plan, focus mode, Bitrix24 tasks and smart-process projects.
 EOF
 
 cat > "$build_root/DEBIAN/preinst" <<EOF

@@ -39,15 +39,16 @@ class FloatingTimer(QWidget):
         outer.addWidget(card)
 
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(14, 10, 14, 12)
+        layout.setContentsMargins(14, 8, 14, 12)
         layout.setSpacing(6)
 
-        header = QHBoxLayout()
-        header.setSpacing(8)
+        top = QHBoxLayout()
+        top.setSpacing(6)
+        top.addStretch(1)
 
-        self.name_label = QLabel("Задача")
-        self.name_label.setObjectName("floatingName")
-        header.addWidget(self.name_label, 1)
+        self.dev_badge = QLabel("DEV")
+        self.dev_badge.setObjectName("floatingDevBadge")
+        top.addWidget(self.dev_badge, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
 
         self.close_button = QPushButton("✕")
         self.close_button.setObjectName("floatingClose")
@@ -55,7 +56,16 @@ class FloatingTimer(QWidget):
         self.close_button.setToolTip("Скрыть виджет (таймер продолжит работать)")
         self.close_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.close_button.clicked.connect(self.close_requested.emit)
-        header.addWidget(self.close_button, 0, Qt.AlignmentFlag.AlignTop)
+        top.addWidget(self.close_button, 0, Qt.AlignmentFlag.AlignTop)
+
+        layout.addLayout(top)
+
+        header = QHBoxLayout()
+        header.setSpacing(8)
+
+        self.name_label = QLabel("Задача")
+        self.name_label.setObjectName("floatingName")
+        header.addWidget(self.name_label, 1)
 
         layout.addLayout(header)
 
@@ -92,6 +102,13 @@ class FloatingTimer(QWidget):
                 background: rgba(18, 20, 25, 0.88);
                 border: 1px solid rgba(255, 255, 255, 0.16);
                 border-radius: 16px;
+            }
+            QLabel#floatingDevBadge {
+                background: transparent;
+                color: #ffffff;
+                font-size: 17px;
+                font-weight: 900;
+                letter-spacing: 1.5px;
             }
             QLabel#floatingName {
                 background: transparent;
@@ -153,7 +170,9 @@ class FloatingTimer(QWidget):
         is_focus: bool = False,
     ) -> None:
         elided = self.name_label.fontMetrics().elidedText(
-            title, Qt.TextElideMode.ElideRight, 196
+            title,
+            Qt.TextElideMode.ElideRight,
+            max(80, self.name_label.width() or self.width() - 28),
         )
         self.name_label.setText(elided)
         self.time_label.setText(time_text)

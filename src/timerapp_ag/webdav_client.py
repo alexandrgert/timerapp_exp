@@ -56,7 +56,7 @@ class WebDavClient:
     ) -> tuple[int, bytes, Mapping[str, str]]:
         request_headers = {
             "Authorization": _basic_auth_header(self._config.username, self._config.password),
-            "User-Agent": "TaskTimer-link-B24",
+            "User-Agent": "TaskTimer-Experiment",
         }
         if headers:
             request_headers.update(headers)

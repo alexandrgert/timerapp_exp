@@ -54,7 +54,10 @@ def load_env() -> None:
     Порядок (последующие слои перекрывают предыдущие):
 
     1. `<repo>/.env` (override=False)
-    2. пользовательский конфиг (~/.config/tasktimer/.env или %APPDATA%\\TaskTimer\\.env)
+    2. пользовательский конфиг: `platform_paths.user_env_path()`
+       (Linux: ~/.config/timerapp_exp/.env,
+        Windows: %APPDATA%\\timerapp_exp\\.env,
+        macOS: ~/Library/Application Support/timerapp_exp/.env)
     """
     root = find_project_root()
     root_env = root / ".env"

@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "TaskTimerLinkB24"
+rootProject.name = "TimerAppExperiment"
 include(":app")

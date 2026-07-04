@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "timerapp-ag"
-version = "0.5.31"
+version = "0.5.40"
 description = "Десктопный таймер задач с интеграцией Битрикс24"
 requires-python = ">=3.10"
 dependencies = [

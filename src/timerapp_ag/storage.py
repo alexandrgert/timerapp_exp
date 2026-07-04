@@ -50,8 +50,17 @@ def discover_data_files(*, include_qt_fallback: bool = True) -> list[Path]:
 
 
 def discover_legacy_data_files() -> list[Path]:
-    """Каталоги установок в data_share_roots без Qt AppDataLocation (для legacy merge)."""
-    return discover_data_files(include_qt_fallback=False)
+    """Каталоги установок в data_share_roots и пользовательские пути (legacy merge)."""
+    files = discover_data_files(include_qt_fallback=False)
+    seen = {item.resolve() for item in files}
+    from .legacy_merge import extra_legacy_data_files
+
+    for path in extra_legacy_data_files():
+        resolved = path.resolve()
+        if resolved not in seen:
+            seen.add(resolved)
+            files.append(resolved)
+    return files
 
 
 def _load_state_from_file(path: Path) -> AppState | None:

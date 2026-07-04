@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Сборка APK TaskTimer link B24 (Android 10+, API 29).
+# Сборка APK TaskTimer Experiment (Android 10+, API 29).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -102,7 +102,7 @@ ensure_release_keystore() {
     -validity 10000 \
     -storepass tasktimer-local-release \
     -keypass tasktimer-local-release \
-    -dname "CN=TaskTimer link B24, OU=Dev, O=TaskTimer, L=Unknown, ST=Unknown, C=RU"
+    -dname "CN=TaskTimer Experiment, OU=Dev, O=TaskTimer, L=Unknown, ST=Unknown, C=RU"
 }
 
 build_apk() {
@@ -118,13 +118,13 @@ build_apk() {
   local version
   version="$(grep 'versionName' app/build.gradle.kts | head -1 | sed -E 's/.*"([^"]+)".*/\1/')"
   cp -f app/build/outputs/apk/release/app-release.apk \
-    "$DIST_DIR/tasktimer-link-b24-${version}-android.apk"
+    "$DIST_DIR/timerapp-exp-${version}-android.apk"
 
   echo "Готово:"
-  ls -lh "$DIST_DIR/tasktimer-link-b24-${version}-android.apk"
+  ls -lh "$DIST_DIR/timerapp-exp-${version}-android.apk"
   echo ""
   echo "Установка / обновление:"
-  echo "  adb install -r dist/tasktimer-link-b24-${version}-android.apk"
+  echo "  adb install -r dist/timerapp-exp-${version}-android.apk"
   echo "Если Android отказывает (несовместимая подпись) — один раз удалите старую версию,"
   echo "затем установите заново. WebDAV-настройки придётся ввести снова."
 }

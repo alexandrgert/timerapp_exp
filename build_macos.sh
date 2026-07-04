@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Сборка macOS .app + .zip для TaskTimer link B24 (PyInstaller onedir + BUNDLE).
+# Сборка macOS .app + .zip для TaskTimer Experiment (PyInstaller onedir + BUNDLE).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -7,9 +7,9 @@ PROJECT_DIR="$SCRIPT_DIR"
 VENV="${VENV:-$PROJECT_DIR/.venv}"
 PYTHON="${PYTHON:-$VENV/bin/python}"
 DIST_DIR="$PROJECT_DIR/dist"
-PACKAGE_NAME="${PACKAGE_NAME:-tasktimer-link-b24}"
+PACKAGE_NAME="${PACKAGE_NAME:-timerapp-exp}"
 BUMP="${BUMP:-patch}"
-APP_BUNDLE_NAME="TaskTimer link B24.app"
+APP_BUNDLE_NAME="TaskTimer Experiment.app"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "Ошибка: сборка macOS возможна только на macOS (Darwin)." >&2
@@ -58,4 +58,4 @@ rm -f "$zip_out"
 
 echo "Готово:"
 ls -lh "$zip_out"
-echo "Установка: распакуйте zip и перетащите «TaskTimer link B24.app» в Программы."
+echo "Установка: распакуйте zip и перетащите «TaskTimer Experiment.app» в Программы."

@@ -21,3 +21,4 @@ src/*.egg-info/
 timer-app/
 .DS_Store
 upstream/**/.DS_Store
+.vscode/

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">TaskTimer link B24</string>
+    <string name="app_name">TaskTimer Experiment</string>
     <string name="open_settings">Настройки</string>
     <string name="filter_today">Сегодня</string>
     <string name="filter_in_progress">В работе</string>

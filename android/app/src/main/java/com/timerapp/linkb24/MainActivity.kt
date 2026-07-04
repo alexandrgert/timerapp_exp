@@ -8,7 +8,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import com.timerapp.linkb24.ui.RemoteChangePrompt
-import com.timerapp.linkb24.ui.TaskTimerApp
+import com.timerapp.linkb24.ui.TimerAppExperimentApp
 import com.timerapp.linkb24.webdav.WebDavNotificationHelper
 import com.timerapp.linkb24.webdav.WebDavPromptBus
 
@@ -21,7 +21,7 @@ class MainActivity : ComponentActivity() {
             MaterialTheme(
                 colorScheme = lightColorScheme(),
             ) {
-                TaskTimerApp()
+                TimerAppExperimentApp()
             }
         }
     }

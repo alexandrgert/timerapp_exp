@@ -57,7 +57,7 @@ private enum class AppScreen {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TaskTimerApp(viewModel: TaskViewModel = viewModel()) {
+fun TimerAppExperimentApp(viewModel: TaskViewModel = viewModel()) {
     var screen by rememberSaveable { mutableStateOf(AppScreen.Tasks) }
 
     when (screen) {

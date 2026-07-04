@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from timerapp_ag.app_info import APP_TITLE_BASE, STORAGE_ORG
 from timerapp_ag.storage import Storage, discover_data_files, discover_legacy_data_files, merge_data_files, pick_best_data_file, stable_data_path
 
 
@@ -43,10 +44,10 @@ def test_merge_data_files_combines_unique_tasks(tmp_path: Path) -> None:
 
 
 def test_storage_merges_legacy_files_into_primary(tmp_path: Path, monkeypatch) -> None:
-    share_root = tmp_path / "share" / "timerapp"
+    share_root = tmp_path / "share" / STORAGE_ORG
     legacy = share_root / "TaskTimer link B24 0.2.2" / "data.json"
     other = share_root / "TaskTimer" / "data.json"
-    target = share_root / "TaskTimer link B24" / "data.json"
+    target = share_root / APP_TITLE_BASE / "data.json"
     legacy.parent.mkdir(parents=True)
     other.parent.mkdir(parents=True)
     target.parent.mkdir(parents=True)
@@ -135,6 +136,6 @@ def test_create_backup_writes_timestamped_copy(tmp_path: Path) -> None:
 
 
 def test_stable_data_path_uses_app_title_base(tmp_path: Path, monkeypatch) -> None:
-    share_root = tmp_path / "share" / "timerapp"
+    share_root = tmp_path / "share" / STORAGE_ORG
     monkeypatch.setattr("timerapp_ag.platform_paths.data_share_roots", lambda: [share_root.resolve()])
-    assert stable_data_path() == (share_root / "TaskTimer link B24" / "data.json").resolve()
+    assert stable_data_path() == (share_root / APP_TITLE_BASE / "data.json").resolve()

@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from timerapp_ag.app_info import APP_TITLE_BASE, STORAGE_ORG
 from timerapp_ag import platform_paths
 from timerapp_ag.domain.constants import SCHEMA_VERSION
 from timerapp_ag.domain.state import AppState
@@ -19,11 +20,11 @@ def test_config_dir_under_tmp_home(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.delenv("LOCALAPPDATA", raising=False)
     path = platform_paths.config_dir()
     assert path.is_absolute()
-    assert "tasktimer" in path.as_posix().lower() or "TaskTimer" in path.as_posix()
+    assert STORAGE_ORG in path.as_posix().lower()
 
 
 def test_stable_data_path_uses_org_and_title(tmp_path: Path, monkeypatch) -> None:
-    share = tmp_path / "share" / "timerapp"
+    share = tmp_path / "share" / STORAGE_ORG
     monkeypatch.setattr(
         platform_paths,
         "data_share_roots",
@@ -31,7 +32,7 @@ def test_stable_data_path_uses_org_and_title(tmp_path: Path, monkeypatch) -> Non
     )
     data_path = platform_paths.stable_data_path()
     assert data_path.name == "data.json"
-    assert data_path.parent.name == "TaskTimer link B24"
+    assert data_path.parent.name == APP_TITLE_BASE
 
 
 def test_bitrix_and_webdav_secrets_under_config_dir(tmp_path: Path, monkeypatch) -> None:
@@ -44,11 +45,47 @@ def test_bitrix_and_webdav_secrets_under_config_dir(tmp_path: Path, monkeypatch)
     assert platform_paths.user_env_path() == cfg / ".env"
 
 
+@pytest.mark.parametrize(
+    "fake_platform",
+    [
+        platform_paths.Platform.WINDOWS,
+        platform_paths.Platform.MACOS,
+        platform_paths.Platform.LINUX,
+    ],
+)
+def test_local_data_home_per_platform(
+    tmp_path: Path,
+    monkeypatch,
+    fake_platform: platform_paths.Platform,
+) -> None:
+    monkeypatch.setattr(platform_paths, "detect_platform", lambda: fake_platform)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("XDG_DATA_HOME", raising=False)
+    monkeypatch.delenv("LOCALAPPDATA", raising=False)
+
+    if fake_platform is platform_paths.Platform.WINDOWS:
+        expected = tmp_path / "AppData" / "Local"
+        monkeypatch.setenv("LOCALAPPDATA", str(expected))
+    elif fake_platform is platform_paths.Platform.MACOS:
+        expected = tmp_path / "Library" / "Application Support"
+    else:
+        expected = tmp_path / ".local" / "share"
+
+    assert platform_paths._local_data_home().resolve() == expected.resolve()
+
+
+def test_local_data_home_uses_xdg_data_home_on_linux(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(platform_paths, "detect_platform", lambda: platform_paths.Platform.LINUX)
+    xdg = tmp_path / "xdg-data"
+    monkeypatch.setenv("XDG_DATA_HOME", str(xdg))
+    assert platform_paths._local_data_home() == xdg
+
+
 @pytest.mark.skipif(sys.platform != "linux", reason="linux-specific XDG fallback")
 def test_linux_data_share_roots_includes_local_share(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg-data"))
     roots = platform_paths.data_share_roots()
-    assert any("timerapp" in root.as_posix() for root in roots)
+    assert any(STORAGE_ORG in root.as_posix() for root in roots)
 
 
 def test_saved_state_matches_schema_shape(tmp_path: Path) -> None:

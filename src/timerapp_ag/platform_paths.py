@@ -31,14 +31,14 @@ def config_dir() -> Path:
     if platform is Platform.WINDOWS:
         appdata = os.environ.get("APPDATA", "").strip()
         if appdata:
-            return Path(appdata) / "TaskTimer"
-        return Path.home() / "AppData" / "Roaming" / "TaskTimer"
+            return Path(appdata) / STORAGE_ORG
+        return Path.home() / "AppData" / "Roaming" / STORAGE_ORG
     if platform is Platform.MACOS:
-        return Path.home() / "Library" / "Application Support" / "TaskTimer"
+        return Path.home() / "Library" / "Application Support" / STORAGE_ORG
     xdg = os.environ.get("XDG_CONFIG_HOME", "").strip()
     if xdg:
-        return Path(xdg) / "tasktimer"
-    return Path.home() / ".config" / "tasktimer"
+        return Path(xdg) / STORAGE_ORG
+    return Path.home() / ".config" / STORAGE_ORG
 
 
 def _local_data_home() -> Path:

@@ -6,7 +6,7 @@ from enum import Enum
 
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 
-SERVER_NAME = "tasktimer-link-b24.single"
+SERVER_NAME = "timerapp-exp.single"
 ACTIVATE_MESSAGE = b"activate"
 
 

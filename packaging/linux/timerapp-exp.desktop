@@ -1,0 +1,12 @@
+# Шаблон desktop-файла. При сборке .deb генерируется в build_deb.sh
+# с Name=TaskTimer Experiment из pyproject.toml / VERSION=.
+
+[Desktop Entry]
+Type=Application
+Name=TaskTimer Experiment
+Comment=Experimental desktop task timer with Bitrix24 integration
+Exec=timerapp-exp
+Icon=timerapp-exp
+Terminal=false
+Categories=Office;Utility;
+StartupWMClass=timerapp-exp

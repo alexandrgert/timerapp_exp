@@ -32,7 +32,7 @@ if (-not (Test-Path $ExeSrc)) {
     throw "Не найден бинарник: $ExeSrc"
 }
 
-$PackageName = if ($env:PACKAGE_NAME) { $env:PACKAGE_NAME } else { "tasktimer-link-b24" }
+$PackageName = if ($env:PACKAGE_NAME) { $env:PACKAGE_NAME } else { "timerapp-exp" }
 $ExeOut = Join-Path $PSScriptRoot "dist\$PackageName-$Version-win64.exe"
 Copy-Item -Force $ExeSrc $ExeOut
 
