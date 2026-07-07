@@ -5,6 +5,7 @@ from datetime import datetime
 from PySide6.QtCore import QEasingCurve, Qt, QPropertyAnimation, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QFontMetrics, QMouseEvent
 from PySide6.QtWidgets import (
+    QCheckBox,
     QFrame,
     QGraphicsOpacityEffect,
     QHBoxLayout,
@@ -17,6 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..controller import AppController, format_day_label, format_hm
+from ..domain.priority import task_priority
 from ..domain.formatting import TASK_DATETIME_SAMPLE, format_task_datetime
 from ..models import Task, TaskStatus
 from .bitrix_links import bitrix_entity_url
@@ -26,6 +28,7 @@ from .text_layout import (
     TASK_ROW_DESC_HORIZONTAL_INSET,
     TASK_ROW_NAME_MIN_WIDTH,
     TASK_ROW_PINNED_FOOTER_V_PAD,
+    TASK_ROW_PRIORITY_LEADING_WIDTH,
     break_long_unbroken_runs,
     fit_wrapped_label_height,
 )
@@ -66,9 +69,15 @@ class TaskRow(QFrame):
     plan_toggle_requested = Signal(str)
     row_selected = Signal(str)
     row_deselected = Signal(str)
+    selection_changed = Signal(str, bool)
 
     def __init__(
-        self, controller: AppController, task: Task, reference_date: str | None = None
+        self,
+        controller: AppController,
+        task: Task,
+        reference_date: str | None = None,
+        *,
+        plan_mode: bool = False,
     ) -> None:
         super().__init__()
         self.setObjectName("taskRow")
@@ -77,6 +86,8 @@ class TaskRow(QFrame):
         self._description = task.description.strip()
         self._is_completed = task.status == TaskStatus.COMPLETED
         self._pinned = False
+        self._plan_mode = plan_mode
+        self._leading_width = TASK_ROW_PRIORITY_LEADING_WIDTH if plan_mode else 0
         self._is_running = task.status == TaskStatus.RUNNING
         status = _STATUS_PROP.get(task.status, "todo")
         self.setProperty("status", status)
@@ -93,6 +104,22 @@ class TaskRow(QFrame):
         self._header_layout = layout
         layout.setContentsMargins(13, 0, 12, 0)
         layout.setSpacing(10)
+
+        self._select_checkbox = QCheckBox()
+        self._select_checkbox.setObjectName("taskRowSelect")
+        self._select_checkbox.setFixedWidth(20)
+        self._select_checkbox.setVisible(plan_mode)
+        self._select_checkbox.toggled.connect(self._on_selection_toggled)
+        layout.addWidget(self._select_checkbox)
+
+        priority_date = reference_date or controller.today_str()
+        self._priority_badge = QLabel(str(task_priority(task, priority_date)))
+        self._priority_badge.setObjectName("taskPriorityBadge")
+        self._priority_badge.setFixedSize(18, 18)
+        self._priority_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._priority_badge.setVisible(plan_mode)
+        self.set_priority(task_priority(task, priority_date))
+        layout.addWidget(self._priority_badge)
 
         dot = QFrame()
         dot.setObjectName("taskDot")
@@ -165,6 +192,10 @@ class TaskRow(QFrame):
         self._stats_row_h.addWidget(self._meta_box)
         self._stats_row_h.addWidget(self._times_box)
         self._stats_cluster_layout.addWidget(self._stats_row_wrap)
+        self._stats_cluster.setSizePolicy(
+            QSizePolicy.Policy.Minimum,
+            QSizePolicy.Policy.Preferred,
+        )
         layout.addWidget(self._stats_cluster)
 
         self._actions = QWidget()
@@ -216,8 +247,8 @@ class TaskRow(QFrame):
             complete_button.clicked.connect(lambda: self.complete_requested.emit(task.id))
             actions.addWidget(complete_button)
 
-        in_plan = controller.in_today_plan(task)
-        plan_button = QPushButton("Из плана" if in_plan else "В план")
+        visible = controller.visible_on_today_plan(task)
+        plan_button = QPushButton("Из плана" if visible else "В план")
         plan_button.setObjectName("linkAction")
         plan_button.setCursor(Qt.CursorShape.PointingHandCursor)
         plan_button.clicked.connect(lambda: self.plan_toggle_requested.emit(task.id))
@@ -257,23 +288,10 @@ class TaskRow(QFrame):
         layout.addWidget(self._actions)
         root.addWidget(header)
 
-        self._pinned_footer = QWidget()
-        self._pinned_footer.setObjectName("taskRowPinnedFooter")
-        self._pinned_footer_layout = QHBoxLayout(self._pinned_footer)
-        self._pinned_footer_layout.setContentsMargins(
-            31,
-            TASK_ROW_PINNED_FOOTER_V_PAD,
-            12,
-            TASK_ROW_PINNED_FOOTER_V_PAD,
-        )
-        self._pinned_footer_layout.setSpacing(4)
-        root.addWidget(self._pinned_footer)
-        self._pinned_footer.hide()
-
         self._desc_wrap = QWidget()
         self._desc_wrap.setObjectName("taskRowDescWrap")
         desc_layout = QHBoxLayout(self._desc_wrap)
-        desc_layout.setContentsMargins(31, 0, 12, 10)
+        desc_layout.setContentsMargins(self._content_left_inset(), 0, 12, 10)
         desc_layout.setSpacing(0)
         self._desc_label = QLabel()
         self._desc_label.setObjectName("taskRowDesc")
@@ -289,6 +307,19 @@ class TaskRow(QFrame):
         root.addWidget(self._desc_wrap)
         self._desc_wrap.hide()
 
+        self._pinned_footer = QWidget()
+        self._pinned_footer.setObjectName("taskRowPinnedFooter")
+        self._pinned_footer_layout = QHBoxLayout(self._pinned_footer)
+        self._pinned_footer_layout.setContentsMargins(
+            self._content_left_inset(),
+            TASK_ROW_PINNED_FOOTER_V_PAD,
+            12,
+            TASK_ROW_PINNED_FOOTER_V_PAD,
+        )
+        self._pinned_footer_layout.setSpacing(4)
+        root.addWidget(self._pinned_footer)
+        self._pinned_footer.hide()
+
         self.setFixedHeight(48)
 
         self._fade_effect = QGraphicsOpacityEffect(self._actions)
@@ -301,6 +332,37 @@ class TaskRow(QFrame):
         self._fade_anim.finished.connect(self._on_fade_finished)
 
         self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+
+    def _content_left_inset(self) -> int:
+        return 31 + self._leading_width
+
+    def set_plan_mode(self, enabled: bool) -> None:
+        self._plan_mode = enabled
+        self._leading_width = TASK_ROW_PRIORITY_LEADING_WIDTH if enabled else 0
+        self._select_checkbox.setVisible(enabled)
+        self._priority_badge.setVisible(enabled)
+        self._desc_wrap.layout().setContentsMargins(self._content_left_inset(), 0, 12, 10)
+        self._pinned_footer_layout.setContentsMargins(
+            self._content_left_inset(),
+            TASK_ROW_PINNED_FOOTER_V_PAD,
+            12,
+            TASK_ROW_PINNED_FOOTER_V_PAD,
+        )
+        self.refresh_layout()
+
+    def set_priority(self, level: int) -> None:
+        self._priority_badge.setText(str(level))
+        self._priority_badge.setProperty("priority", str(level))
+        self._priority_badge.style().unpolish(self._priority_badge)
+        self._priority_badge.style().polish(self._priority_badge)
+
+    def set_row_checked(self, checked: bool) -> None:
+        blocker = self._select_checkbox.blockSignals(True)
+        self._select_checkbox.setChecked(checked)
+        self._select_checkbox.blockSignals(blocker)
+
+    def _on_selection_toggled(self, checked: bool) -> None:
+        self.selection_changed.emit(self._task_id, checked)
 
     def _content_max_width(self) -> int:
         ancestor = self.parentWidget()
@@ -319,16 +381,27 @@ class TaskRow(QFrame):
                 widget.setParent(None)
 
     def _stats_cluster_available_width(self) -> int:
-        margins = 25
-        dot_block = 18
+        actual_width = self._stats_cluster.width()
+        if actual_width > 0:
+            return max(actual_width, 120)
+
+        margins = self._header_layout.contentsMargins()
+        horizontal_margins = margins.left() + margins.right()
+        spacing = self._header_layout.spacing()
+        dot_block = 8 + spacing + self._leading_width
+
+        header_w = self._header.width()
+        if header_w <= 0:
+            header_w = self._content_max_width()
+
         if self._pinned:
+            # Pinned title column is at least TASK_ROW_NAME_MIN_WIDTH; actual label
+            # width includes space already reserved for stats — don't subtract it twice.
             name_block = TASK_ROW_NAME_MIN_WIDTH
         else:
             name_block = max(self._name_label.width(), self._name_label.sizeHint().width())
-        return max(
-            self._content_max_width() - margins - dot_block - name_block - 10,
-            120,
-        )
+
+        return max(header_w - horizontal_margins - dot_block - name_block - spacing, 120)
 
     def _meta_block_width(self) -> int:
         width = self._meta_box.sizeHint().width()
@@ -392,7 +465,7 @@ class TaskRow(QFrame):
 
     def _title_area_width(self) -> int:
         margins = 25
-        dot_block = 18
+        dot_block = 18 + self._leading_width
         times_block = self._times_box.sizeHint().width() + 10
         if self._meta_box.isVisible():
             meta_block = self._meta_block_width()
@@ -442,7 +515,7 @@ class TaskRow(QFrame):
             self._name_label.setText(elided)
 
     def _description_area_width(self) -> int:
-        return max(self._content_max_width() - TASK_ROW_DESC_HORIZONTAL_INSET, 120)
+        return max(self._content_max_width() - self._content_left_inset() - 12, 120)
 
     def _relayout_actions_for_pinned(self, pinned: bool) -> None:
         if pinned:
@@ -532,7 +605,7 @@ class TaskRow(QFrame):
     def _is_interactive_target(self, pos) -> bool:
         target = self.childAt(pos)
         while target is not None and target is not self:
-            if isinstance(target, QPushButton):
+            if isinstance(target, (QPushButton, QCheckBox)):
                 return True
             if target is self._actions:
                 return True

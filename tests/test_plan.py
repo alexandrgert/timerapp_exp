@@ -91,6 +91,20 @@ def test_add_and_remove_from_plan_idempotent(controller):
     assert not controller.in_today_plan(controller.find_task(task.id), today)
 
 
+def test_remove_from_plan_clears_daily_priorities(controller):
+    today = controller.today_str()
+    task = _add(controller, "T", planned_days=[])
+    controller.add_to_plan_with_priority(task.id, 2)
+    stored = controller.find_task(task.id)
+    assert stored.daily_priorities[today] == 2
+
+    controller.remove_from_plan(task.id, today)
+
+    stored = controller.find_task(task.id)
+    assert today not in stored.planned_days
+    assert today not in stored.daily_priorities
+
+
 # --- plan rollover ------------------------------------------------------------
 
 def test_plan_rollover_carries_unfinished_from_yesterday(controller):

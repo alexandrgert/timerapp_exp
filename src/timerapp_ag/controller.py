@@ -8,6 +8,7 @@ from .bitrix_secrets import import_webhook_from_ui, load_bitrix_webhook, save_bi
 from .bitrix_transfer_journal import apply_transfer_journal, remove_transfer_result
 from .domain import formatting
 from .domain import plan as plan_domain
+from .domain import priority as priority_domain
 from .domain import queries
 from .domain import reminders as reminders_domain
 from .domain.sync_normalize import normalize_running_tasks
@@ -229,7 +230,63 @@ class AppController:
         return queries.tasks_in_progress(self.state)
 
     def tasks_today_plan(self, today: str | None = None) -> list[Task]:
-        return queries.tasks_today_plan(self.state, today or self.today_str())
+        return queries.tasks_today_plan(
+            self.state,
+            today or self.today_str(),
+            priority_levels=self.priority_filter_levels(),
+        )
+
+    def task_priority(self, task: Task, day: str | None = None) -> int:
+        return priority_domain.task_priority(task, day or self.today_str())
+
+    def set_tasks_priority(
+        self,
+        task_ids: list[str],
+        priority: int,
+        day: str | None = None,
+    ) -> None:
+        today = day or self.today_str()
+        priority = priority_domain.clamp_priority(priority)
+        if priority == priority_domain.DEFAULT_PRIORITY:
+            changed = bool(
+                priority_domain.clear_tasks_priority(self.state, task_ids, today)
+            )
+        else:
+            changed = bool(
+                priority_domain.set_tasks_priority(self.state, task_ids, today, priority)
+            )
+            for task_id in task_ids:
+                if plan_domain.add_to_plan(self.state, task_id, today):
+                    changed = True
+        if changed:
+            self.save()
+
+    def assign_tasks_priority(
+        self,
+        task_ids: list[str],
+        priority: int,
+        day: str | None = None,
+        *,
+        add_to_plan: bool = False,
+    ) -> None:
+        today = day or self.today_str()
+        priority = priority_domain.clamp_priority(priority)
+        changed = bool(
+            priority_domain.assign_tasks_priority(self.state, task_ids, today, priority)
+        )
+        if add_to_plan or priority != priority_domain.DEFAULT_PRIORITY:
+            for task_id in task_ids:
+                if plan_domain.add_to_plan(self.state, task_id, today):
+                    changed = True
+        if changed:
+            self.save()
+
+    def priority_filter_levels(self) -> set[int]:
+        return priority_domain.priority_filter_levels(self.state.ui)
+
+    def set_priority_filter_levels(self, levels: set[int]) -> None:
+        if priority_domain.set_priority_filter_levels(self.state.ui, levels):
+            self.save()
 
     def tasks_on_date(self, date_iso: str) -> list[Task]:
         return queries.tasks_on_date(self.state, date_iso)
@@ -237,8 +294,24 @@ class AppController:
     def in_today_plan(self, task: Task, today: str | None = None) -> bool:
         return queries.in_today_plan(task, today or self.today_str())
 
+    def visible_on_today_plan(self, task: Task, today: str | None = None) -> bool:
+        return queries.visible_on_today_plan(task, today or self.today_str())
+
     def add_to_plan(self, task_id: str, today: str | None = None) -> None:
         if plan_domain.add_to_plan(self.state, task_id, today or self.today_str()):
+            self.save()
+
+    def add_to_plan_with_priority(
+        self,
+        task_id: str,
+        priority: int,
+        today: str | None = None,
+    ) -> None:
+        day = today or self.today_str()
+        changed = plan_domain.add_to_plan(self.state, task_id, day)
+        if priority_domain.assign_task_priority_for_day(self.state, task_id, day, priority):
+            changed = True
+        if changed:
             self.save()
 
     def remove_from_plan(self, task_id: str, today: str | None = None) -> None:
@@ -296,6 +369,7 @@ class AppController:
         self.stop_focus_timer()
         self._set_focus_paused_task_id(None)
         self.focus_resume_offer_pending = False
+        plan_domain.add_to_plan(self.state, task_id, self.today_str())
         now = datetime.now()
         task = task_ops.start_task(self.state, task_id, now=now)
         self._clear_reminder_runtime()

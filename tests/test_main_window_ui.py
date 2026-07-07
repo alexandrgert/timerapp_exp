@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 import pytest
 from PySide6.QtCore import QRect
 from PySide6.QtGui import QFont, QFontMetrics
@@ -17,7 +19,9 @@ from timerapp_ag.controller import AppController
 from timerapp_ag.domain import queries
 from timerapp_ag.domain.formatting import format_hm
 from timerapp_ag.main_window import (
+    CreateTaskDialog,
     MainWindow,
+    SessionEditDialog,
     TaskEditDialog,
     TaskRow,
     RIGHT_COLUMN_WIDTH,
@@ -34,7 +38,7 @@ from timerapp_ag.main_window import (
     fit_plain_text_edit_height,
     fit_wrapped_label_height,
 )
-from timerapp_ag.models import Task
+from timerapp_ag.models import Task, TaskStatus, make_id
 
 
 def _widget_right_in_ancestor(widget: QWidget, ancestor: QWidget, *, margin: int = 0) -> int:
@@ -60,6 +64,14 @@ def main_window(
 ) -> MainWindow:
     monkeypatch.setattr("timerapp_ag.main_window.QTimer.singleShot", lambda *args, **kwargs: None)
     window = MainWindow(controller, qapp)
+    original_refresh_ui = window.refresh_ui
+
+    def refresh_ui_with_flush() -> None:
+        original_refresh_ui()
+        qapp.processEvents()
+
+    window.refresh_ui = refresh_ui_with_flush  # type: ignore[method-assign]
+    qapp.processEvents()
     yield window
     window.close()
 
@@ -398,6 +410,67 @@ def test_task_edit_dialog_description_autofit(
     assert dialog.description_edit.height() > 90
 
 
+def test_create_task_dialog_emits_selected_priority(
+    controller: AppController,
+    qapp: QApplication,
+) -> None:
+    dialog = CreateTaskDialog(controller)
+    payloads: list[dict] = []
+    dialog.create_requested.connect(payloads.append)
+    dialog.title_edit.setText("Priority create")
+    dialog.description_edit.setPlainText("Details")
+    dialog._priority_buttons[2].click()
+
+    dialog._emit_request(False)
+
+    assert payloads
+    assert payloads[0]["priority"] == 2
+
+
+def test_task_edit_dialog_saves_selected_priority(
+    controller: AppController,
+) -> None:
+    task = controller.create_task("Edit me", description="text")
+    dialog = TaskEditDialog(controller, task)
+    dialog._priority_buttons[3].click()
+
+    dialog.accept()
+
+    reloaded = controller.find_task(task.id)
+    assert controller.task_priority(reloaded) == 3
+
+
+def test_session_edit_dialog_keeps_selected_row_after_save(
+    controller: AppController,
+    qapp: QApplication,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task = controller.create_task("History task", description="text")
+    controller.add_session(
+        task.id,
+        datetime(2026, 7, 7, 11, 15, 3),
+        datetime(2026, 7, 7, 11, 32, 41),
+    )
+    second = controller.add_session(
+        task.id,
+        datetime(2026, 7, 7, 12, 10, 3),
+        datetime(2026, 7, 7, 12, 20, 41),
+        comment="comment",
+    )
+    dialog = SessionEditDialog(controller, controller.find_task(task.id))
+    monkeypatch.setattr("timerapp_ag.main_window.QMessageBox.information", lambda *args, **kwargs: None)
+
+    dialog.table.selectRow(1)
+    dialog._load_current_session()
+    dialog.comment_edit.setPlainText("updated")
+
+    dialog._save_current_session()
+
+    assert dialog.selected_session_id == second.id
+    assert dialog._current_session_id() == second.id
+    assert dialog.table.currentRow() == 1
+
+
 def test_task_row_update_times_refreshes_labels(
     qapp: QApplication, controller: AppController, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -526,6 +599,323 @@ def test_pinned_task_collapses_when_switching_to_in_progress(
     assert row._actions.parentWidget() is row._header
     assert row._desc_wrap.isHidden()
     assert row.height() == 48
+
+
+def test_complete_other_task_keeps_pinned_task_expanded(
+    main_window: MainWindow,
+    controller: AppController,
+    monkeypatch: pytest.MonkeyPatch,
+    qapp: QApplication,
+) -> None:
+    from PySide6.QtWidgets import QMessageBox
+
+    pinned = controller.create_task("Pinned task", description="")
+    other = controller.create_task("Other task", description="Details")
+    controller.stop_task(pinned.id)
+    main_window.show()
+    main_window._set_view("plan")
+    main_window.refresh_ui()
+    qapp.processEvents()
+    main_window._on_task_row_selected(pinned.id)
+    pinned_row = main_window._task_rows[pinned.id]
+    assert pinned_row._pinned
+    assert not pinned_row._desc_wrap.isHidden()
+    assert pinned_row._actions.parentWidget() is pinned_row._pinned_footer
+    assert pinned_row.height() > 48
+
+    monkeypatch.setattr(
+        "timerapp_ag.main_window.QMessageBox.question",
+        lambda *args, **kwargs: QMessageBox.StandardButton.Yes,
+    )
+    main_window._confirm_complete_task(other.id)
+    qapp.processEvents()
+
+    assert main_window._pinned_task_row_id == pinned.id
+    restored = main_window._task_rows[pinned.id]
+    assert restored._pinned
+    assert not restored._desc_wrap.isHidden()
+    assert restored._actions.parentWidget() is restored._pinned_footer
+    assert restored._pinned_footer.isVisible()
+    assert restored.height() > 48
+
+
+def test_resume_other_task_keeps_pinned_task_expanded(
+    main_window: MainWindow,
+    controller: AppController,
+    qapp: QApplication,
+) -> None:
+    pinned = controller.create_task("Pinned task", description="")
+    other = controller.create_task("Other task", description="Details")
+    controller.stop_task(pinned.id)
+    controller.complete_task(other.id)
+    main_window.show()
+    main_window._set_view("plan")
+    main_window.refresh_ui()
+    qapp.processEvents()
+    main_window._on_task_row_selected(pinned.id)
+    pinned_row = main_window._task_rows[pinned.id]
+    assert pinned_row._pinned
+
+    main_window._resume_task(other.id)
+    qapp.processEvents()
+
+    assert main_window._pinned_task_row_id == pinned.id
+    restored = main_window._task_rows[pinned.id]
+    assert restored._pinned
+    assert not restored._desc_wrap.isHidden()
+    assert restored._actions.parentWidget() is restored._pinned_footer
+    assert restored._pinned_footer.isVisible()
+    assert restored.height() > 48
+
+
+def test_complete_pinned_task_collapses_row(
+    main_window: MainWindow,
+    controller: AppController,
+    monkeypatch: pytest.MonkeyPatch,
+    qapp: QApplication,
+) -> None:
+    from PySide6.QtWidgets import QMessageBox
+
+    task = controller.create_task("Pinned complete", description="")
+    controller.stop_task(task.id)
+    main_window._set_view("plan")
+    main_window.refresh_ui()
+    main_window._on_task_row_selected(task.id)
+    assert main_window._task_rows[task.id]._pinned
+
+    monkeypatch.setattr(
+        "timerapp_ag.main_window.QMessageBox.question",
+        lambda *args, **kwargs: QMessageBox.StandardButton.Yes,
+    )
+    main_window._confirm_complete_task(task.id)
+    qapp.processEvents()
+
+    row = main_window._task_rows[task.id]
+    assert main_window._pinned_task_row_id is None
+    assert not row._pinned
+    assert row._desc_wrap.isHidden()
+
+
+def test_resume_pinned_task_collapses_row(
+    main_window: MainWindow,
+    controller: AppController,
+    qapp: QApplication,
+) -> None:
+    task = controller.create_task("Pinned resume", description="")
+    controller.complete_task(task.id)
+    main_window._set_view("plan")
+    main_window.refresh_ui()
+    main_window._on_task_row_selected(task.id)
+    assert main_window._task_rows[task.id]._pinned
+
+    main_window._resume_task(task.id)
+    qapp.processEvents()
+
+    row = main_window._task_rows[task.id]
+    assert main_window._pinned_task_row_id is None
+    assert not row._pinned
+    assert row._desc_wrap.isHidden()
+
+
+def test_refresh_ui_keeps_pinned_row_visible_after_rebuild(
+    main_window: MainWindow,
+    controller: AppController,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task = controller.create_task("Visible after refresh", description="Details")
+    main_window._set_view("plan")
+    main_window._on_task_row_selected(task.id)
+    calls: list[str] = []
+
+    original = main_window._restore_pinned_task_row
+
+    def wrapped() -> None:
+        calls.append("ensure")
+        original()
+
+    monkeypatch.setattr(main_window, "_restore_pinned_task_row", wrapped)
+    main_window.refresh_ui()
+
+    assert calls == ["ensure"]
+
+
+def test_start_task_clears_pinned_row(
+    main_window: MainWindow,
+    controller: AppController,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task = controller.create_task("Pin and start", description="Details")
+    monkeypatch.setattr(main_window, "_resolve_start_priority", lambda _task_id: 2)
+    main_window._set_view("plan")
+    main_window._on_task_row_selected(task.id)
+    main_window._start_task(task.id)
+
+    assert main_window._pinned_task_row_id is None
+    assert not main_window._task_rows[task.id]._pinned
+
+
+def test_start_task_cancelled_priority_prompt_does_not_start(
+    main_window: MainWindow,
+    controller: AppController,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task = controller.create_task("Cancel start", description="Details")
+    monkeypatch.setattr(main_window, "_prompt_start_priority", lambda _task_id: None)
+
+    main_window._start_task(task.id)
+
+    reloaded = controller.find_task(task.id)
+    assert reloaded.status == TaskStatus.OPEN
+    assert reloaded.active_session() is None
+
+
+def test_start_task_sets_priority_from_prompt(
+    main_window: MainWindow,
+    controller: AppController,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task = controller.create_task("Prompted start", description="Details")
+    monkeypatch.setattr(main_window, "_prompt_start_priority", lambda _task_id: 2)
+
+    main_window._start_task(task.id)
+
+    reloaded = controller.find_task(task.id)
+    assert reloaded.status == TaskStatus.RUNNING
+    assert controller.task_priority(reloaded) == 2
+
+
+def test_start_task_skips_prompt_when_priority_already_set(
+    main_window: MainWindow,
+    controller: AppController,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task = controller.create_task("Already prioritized", description="Details")
+    controller.set_tasks_priority([task.id], 2)
+
+    def fail_if_prompted(_task_id: str) -> int:
+        raise AssertionError("priority prompt should not be shown")
+
+    monkeypatch.setattr(main_window, "_prompt_start_priority", fail_if_prompted)
+
+    main_window._start_task(task.id)
+
+    reloaded = controller.find_task(task.id)
+    assert reloaded.status == TaskStatus.RUNNING
+    assert controller.task_priority(reloaded) == 2
+
+
+def test_start_task_prompts_only_for_default_priority(
+    main_window: MainWindow,
+    controller: AppController,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task = controller.create_task("Default priority", description="Details")
+    calls: list[str] = []
+    monkeypatch.setattr(
+        main_window,
+        "_prompt_start_priority",
+        lambda task_id: calls.append(task_id) or 1,
+    )
+
+    main_window._start_task(task.id)
+
+    assert calls == [task.id]
+    assert controller.find_task(task.id).status == TaskStatus.RUNNING
+
+
+def test_add_to_plan_prompts_priority_and_shows_on_today_tab(
+    main_window: MainWindow,
+    controller: AppController,
+    monkeypatch: pytest.MonkeyPatch,
+    qapp: QApplication,
+) -> None:
+    from datetime import date, timedelta
+
+    today = controller.today_str()
+    yesterday = (date.fromisoformat(today) - timedelta(days=1)).isoformat()
+    task = Task(
+        id=make_id(),
+        day=yesterday,
+        title="Add to plan",
+        planned_days=[],
+    )
+    controller.state.tasks.append(task)
+    monkeypatch.setattr(main_window, "_prompt_plan_priority", lambda _task_id: 2)
+
+    main_window._set_view("all")
+    main_window.refresh_ui()
+    main_window._add_to_plan_with_priority_prompt(task.id)
+    qapp.processEvents()
+    main_window._set_view("plan")
+    main_window.refresh_ui()
+    qapp.processEvents()
+
+    titles = {row._title for row in main_window._task_rows.values()}
+    assert "Add to plan" in titles
+    assert controller.in_today_plan(controller.find_task(task.id))
+
+
+def test_add_to_plan_cancelled_does_not_change_plan(
+    main_window: MainWindow,
+    controller: AppController,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from datetime import date, timedelta
+
+    today = controller.today_str()
+    yesterday = (date.fromisoformat(today) - timedelta(days=1)).isoformat()
+    task = Task(
+        id=make_id(),
+        day=yesterday,
+        title="Cancel plan",
+        planned_days=[],
+    )
+    controller.state.tasks.append(task)
+    monkeypatch.setattr(main_window, "_prompt_plan_priority", lambda _task_id: None)
+
+    main_window._add_to_plan_with_priority_prompt(task.id)
+
+    reloaded = controller.find_task(task.id)
+    assert not controller.in_today_plan(reloaded)
+    assert today not in reloaded.planned_days
+
+
+def test_remove_from_plan_cancelled_keeps_task_in_plan(
+    main_window: MainWindow,
+    controller: AppController,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from PySide6.QtWidgets import QMessageBox
+
+    task = controller.create_task("Stay in plan", description="")
+    controller.stop_task(task.id)
+    monkeypatch.setattr(
+        "timerapp_ag.main_window.QMessageBox.question",
+        lambda *args, **kwargs: QMessageBox.StandardButton.Cancel,
+    )
+
+    main_window._confirm_remove_from_plan(task.id)
+
+    assert controller.in_today_plan(controller.find_task(task.id))
+
+
+def test_remove_from_plan_confirmed_removes_task_from_plan(
+    main_window: MainWindow,
+    controller: AppController,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from PySide6.QtWidgets import QMessageBox
+
+    task = controller.create_task("Leave plan", description="")
+    controller.stop_task(task.id)
+    monkeypatch.setattr(
+        "timerapp_ag.main_window.QMessageBox.question",
+        lambda *args, **kwargs: QMessageBox.StandardButton.Yes,
+    )
+
+    main_window._confirm_remove_from_plan(task.id)
+
+    assert not controller.in_today_plan(controller.find_task(task.id))
 
 
 def test_task_row_pinned_shows_readonly_meta_on_one_line(
@@ -713,6 +1103,291 @@ def test_task_row_pinned_long_title_wraps(
     assert "СИНай" in row._name_label.text()
 
 
+def test_task_row_pinned_long_title_wraps_meta_vertically(
+    qapp: QApplication, controller: AppController
+) -> None:
+    container = QWidget()
+    container.setObjectName("taskListBg")
+    container.setFixedWidth(700)
+    layout = QVBoxLayout(container)
+    title = "По реестрам: обсудили с Аней и ещё немного текста для переноса"
+    task = controller.create_task(title, description="")
+    row = TaskRow(controller, task)
+    layout.addWidget(row)
+    container.show()
+    row.set_pinned(True)
+    qapp.processEvents()
+
+    assert row._stats_wrap_vertical is True
+    meta_pos = row._meta_box.mapTo(row, row._meta_box.rect().topLeft())
+    times_pos = row._times_box.mapTo(row, row._times_box.rect().topLeft())
+    assert meta_pos.y() < times_pos.y()
+
+
+def test_task_row_pinned_description_above_actions(
+    qapp: QApplication, controller: AppController
+) -> None:
+    container = QWidget()
+    container.setObjectName("taskListBg")
+    container.setFixedWidth(520)
+    layout = QVBoxLayout(container)
+    task = controller.create_task("Actions order", description="Описание")
+    row = TaskRow(controller, task)
+    layout.addWidget(row)
+    container.show()
+    row.set_pinned(True)
+    qapp.processEvents()
+
+    desc_pos = row._desc_wrap.mapTo(row, row._desc_wrap.rect().topLeft())
+    footer_pos = row._pinned_footer.mapTo(row, row._pinned_footer.rect().topLeft())
+    assert desc_pos.y() < footer_pos.y()
+
+
+def test_priority_bar_visible_only_on_plan_view(
+    main_window: MainWindow,
+) -> None:
+    main_window._set_view("plan")
+    assert not main_window._priority_bar.isHidden()
+    main_window._set_view("in_progress")
+    assert not main_window._priority_bar.isHidden()
+    main_window._set_view("all")
+    assert not main_window._priority_bar.isHidden()
+    main_window._set_view("date")
+    assert main_window._priority_bar.isHidden()
+
+
+def test_priority_filter_hides_tasks_by_level(
+    main_window: MainWindow,
+    controller: AppController,
+) -> None:
+    high = controller.create_task("High priority")
+    low = controller.create_task("Low priority")
+    controller.set_tasks_priority([high.id], 1)
+    controller.set_tasks_priority([low.id], 4)
+    controller.set_priority_filter_levels({1})
+    main_window._set_view("plan")
+    titles = {controller.find_task(task_id).title for task_id in main_window._task_rows}
+    assert titles == {"High priority"}
+
+
+def test_priority_filter_hides_tasks_by_level_in_all_view(
+    main_window: MainWindow,
+    controller: AppController,
+) -> None:
+    high = controller.create_task("High all")
+    low = controller.create_task("Low all")
+    controller.set_tasks_priority([high.id], 1)
+    controller.set_tasks_priority([low.id], 4)
+    controller.set_priority_filter_levels({1})
+
+    main_window._set_view("all")
+
+    titles = {controller.find_task(task_id).title for task_id in main_window._task_rows}
+    assert titles == {"High all"}
+
+
+def test_priority_filter_hides_tasks_by_level_in_in_progress_view(
+    main_window: MainWindow,
+    controller: AppController,
+) -> None:
+    high = controller.create_task("High progress")
+    low = controller.create_task("Low progress")
+    controller.set_tasks_priority([high.id], 1)
+    controller.set_tasks_priority([low.id], 4)
+    controller.set_priority_filter_levels({1})
+
+    main_window._set_view("in_progress")
+
+    titles = {controller.find_task(task_id).title for task_id in main_window._task_rows}
+    assert titles == {"High progress"}
+
+
+def test_priority_filter_clears_pinned_task(
+    main_window: MainWindow,
+    controller: AppController,
+) -> None:
+    task = controller.create_task("Pinned filter target", description="Details")
+    main_window._set_view("plan")
+    main_window._on_task_row_selected(task.id)
+
+    assert main_window._pinned_task_row_id == task.id
+    assert main_window._task_rows[task.id]._pinned
+
+    main_window._toggle_priority_filter(4)
+
+    assert main_window._pinned_task_row_id is None
+    assert all(not row._pinned for row in main_window._task_rows.values())
+
+
+def test_priority_bar_shows_hidden_selected_count(
+    main_window: MainWindow,
+    controller: AppController,
+) -> None:
+    high = controller.create_task("Visible selected")
+    hidden = controller.create_task("Hidden selected")
+    controller.set_tasks_priority([high.id], 1)
+    controller.set_tasks_priority([hidden.id], 4)
+    main_window._set_view("plan")
+    main_window._on_task_row_selection_changed(high.id, True)
+    main_window._on_task_row_selection_changed(hidden.id, True)
+
+    main_window._toggle_priority_filter(4)
+
+    assert hidden.id not in main_window._task_rows
+    assert not main_window._priority_hidden_selection_label.isHidden()
+    assert "1" in main_window._priority_hidden_selection_label.text()
+
+
+def test_apply_priority_updates_selected_rows(
+    main_window: MainWindow,
+    controller: AppController,
+    qapp: QApplication,
+) -> None:
+    task = controller.create_task("Apply priority")
+    main_window._set_view("plan")
+    row = main_window._task_rows[task.id]
+    row.set_row_checked(True)
+    main_window._on_task_row_selection_changed(task.id, True)
+    main_window._apply_priority_to_selection(2)
+    qapp.processEvents()
+    assert controller.task_priority(task) == 2
+    row = main_window._task_rows[task.id]
+    assert row._priority_badge.text() == "2"
+    assert row._priority_badge.property("priority") == "2"
+
+
+def test_apply_priority_four_assigns_explicit_low_priority(
+    main_window: MainWindow,
+    controller: AppController,
+    qapp: QApplication,
+) -> None:
+    from datetime import date, timedelta
+
+    today = controller.today_str()
+    yesterday = (date.fromisoformat(today) - timedelta(days=1)).isoformat()
+    task = Task(
+        id=make_id(),
+        day=yesterday,
+        title="Bulk four",
+        planned_days=[],
+    )
+    controller.state.tasks.append(task)
+    main_window._set_view("all")
+    qapp.processEvents()
+    main_window._selected_task_ids.add(task.id)
+
+    main_window._apply_priority_to_selection(4)
+    qapp.processEvents()
+
+    stored = controller.find_task(task.id)
+    assert stored.daily_priorities[today] == 4
+    assert today in stored.planned_days
+    assert stored.title in {item.title for item in controller.tasks_today_plan(today)}
+
+
+def test_create_task_start_now_skips_priority_prompt(
+    main_window: MainWindow,
+    controller: AppController,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_if_prompted(_task_id: str) -> int:
+        raise AssertionError("priority prompt should not be shown")
+
+    monkeypatch.setattr(main_window, "_prompt_start_priority", fail_if_prompted)
+
+    main_window._create_task(
+        {
+            "title": "Immediate",
+            "description": "",
+            "priority": 2,
+            "start_now": True,
+        }
+    )
+
+    task = next(item for item in controller.state.tasks if item.title == "Immediate")
+    assert task.status == TaskStatus.RUNNING
+    assert controller.task_priority(task) == 2
+
+
+def test_focus_resume_skips_priority_prompt(
+    main_window: MainWindow,
+    controller: AppController,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from PySide6.QtWidgets import QMessageBox
+
+    task = controller.create_task("Focus resume", description="")
+    controller.assign_tasks_priority([task.id], 2)
+    controller.start_task(task.id)
+    controller.start_focus_timer(10)
+
+    def fail_if_prompted(_task_id: str) -> int:
+        raise AssertionError("priority prompt should not be shown")
+
+    monkeypatch.setattr(main_window, "_prompt_start_priority", fail_if_prompted)
+    monkeypatch.setattr(
+        "timerapp_ag.main_window.QMessageBox.question",
+        lambda *args, **kwargs: QMessageBox.StandardButton.Yes,
+    )
+
+    main_window._prompt_focus_resume(task.id)
+
+    reloaded = controller.find_task(task.id)
+    assert reloaded.status == TaskStatus.RUNNING
+    assert controller.task_priority(reloaded) == 2
+
+
+def test_task_row_checkbox_does_not_pin_row(
+    qapp: QApplication,
+    controller: AppController,
+) -> None:
+    task = controller.create_task("Checkbox row")
+    row = TaskRow(controller, task, plan_mode=True)
+    row.resize(520, 120)
+    row.show()
+    qapp.processEvents()
+
+    row._select_checkbox.click()
+    qapp.processEvents()
+
+    assert not row._pinned
+    assert row._select_checkbox.isChecked()
+
+
+def test_task_row_plan_mode_long_title_wraps_meta_vertically(
+    qapp: QApplication, controller: AppController
+) -> None:
+    container = QWidget()
+    container.setObjectName("taskListBg")
+    container.setFixedWidth(700)
+    layout = QVBoxLayout(container)
+    title = "Альфаро Про: внести изменение в бизнес-процесс и ещё длинный хвост для переноса"
+    task = controller.create_task(title, description="Описание")
+    row = TaskRow(controller, task, plan_mode=True)
+    layout.addWidget(row)
+    container.show()
+    row.set_pinned(True)
+    qapp.processEvents()
+
+    assert row._stats_wrap_vertical is True
+    meta_pos = row._meta_box.mapTo(row, row._meta_box.rect().topLeft())
+    times_pos = row._times_box.mapTo(row, row._times_box.rect().topLeft())
+    assert meta_pos.y() < times_pos.y()
+
+
+def test_plan_view_sorts_tasks_by_priority(
+    main_window: MainWindow,
+    controller: AppController,
+) -> None:
+    high = controller.create_task("High first")
+    low = controller.create_task("Low second")
+    controller.set_tasks_priority([high.id], 1)
+    controller.set_priority_filter_levels({1, 2, 3, 4})
+    main_window._set_view("plan")
+    titles = [controller.find_task(task_id).title for task_id in main_window._task_rows]
+    assert titles.index("High first") < titles.index("Low second")
+
+
 def test_break_long_unbroken_runs_inserts_zero_width_spaces() -> None:
     broken = break_long_unbroken_runs("abcdefgh", max_run=3)
     assert broken == "abc\u200bdef\u200bgh"
@@ -773,6 +1448,39 @@ def test_manual_stop_focus_offers_resume(
     main_window._stop_focus_timer()
     assert prompts
     assert task.title in str(prompts[0])
+
+
+def test_stop_focus_timer_clears_pinned_row(
+    main_window: MainWindow,
+    controller: AppController,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from PySide6.QtWidgets import QMessageBox
+
+    task = controller.create_task("Pinned focus target", description="Details", start_now=True)
+    main_window._set_view("plan")
+    main_window._on_task_row_selected(task.id)
+    controller.start_focus_timer(10)
+
+    monkeypatch.setattr(
+        "timerapp_ag.main_window.QMessageBox.question",
+        lambda *args, **kwargs: QMessageBox.StandardButton.No,
+    )
+    main_window._stop_focus_timer()
+
+    assert main_window._pinned_task_row_id is None
+
+
+def test_floating_stop_clears_pinned_row(
+    main_window: MainWindow,
+    controller: AppController,
+) -> None:
+    task = controller.create_task("Floating stop target", description="Details", start_now=True)
+    main_window._set_view("plan")
+    main_window._on_task_row_selected(task.id)
+    main_window._floating_stop()
+
+    assert main_window._pinned_task_row_id is None
 
 
 def test_tick_focus_finish_prompts_resume(

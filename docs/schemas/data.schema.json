@@ -78,6 +78,14 @@
         "planned_days": {
           "type": "array",
           "items": { "$ref": "#/$defs/isoDate" }
+        },
+        "daily_priorities": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4
+          }
         }
       }
     },
@@ -128,6 +136,12 @@
       "properties": {
         "schema_version": { "type": "integer", "minimum": 1 },
         "plan_rollover_day": { "$ref": "#/$defs/isoDate" },
+        "priority_filter": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 1, "maximum": 4 },
+          "minItems": 1,
+          "maxItems": 4
+        },
         "filter_open_only": { "type": "boolean" },
         "reminder_interval_minutes": {
           "type": "integer",

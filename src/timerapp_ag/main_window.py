@@ -71,6 +71,7 @@ from .bitrix_config import BitrixPortalConfig
 from .bitrix_transfer_journal import record_transfer_result
 from .app_info import APP_TITLE_BASE, resolve_app_title
 from .controller import AppController, format_day_label, format_duration, format_hm
+from .domain.priority import DEFAULT_PRIORITY, filter_tasks_by_priority
 from .models import Task, TaskStatus
 from .runtime_info import build_about_report
 from .webdav_config import (
@@ -449,6 +450,14 @@ class CreateTaskDialog(QDialog):
         self.description_edit.setFixedHeight(90)
         layout.addWidget(self.description_edit)
 
+        self.priority_selector = PrioritySelector(
+            label_text="Приоритет на сегодня",
+            selected_priority=4,
+            parent=self,
+        )
+        self._priority_buttons = self.priority_selector._priority_buttons
+        layout.addWidget(self.priority_selector)
+
         self.portal_checkbox = QCheckBox("Создать задачу в Битрикс24")
         self.portal_checkbox.toggled.connect(self._toggle_portal)
         layout.addWidget(self.portal_checkbox)
@@ -488,6 +497,7 @@ class CreateTaskDialog(QDialog):
     def open_clean(self) -> None:
         self.title_edit.clear()
         self.description_edit.clear()
+        self.priority_selector.set_selected_priority(4)
         self.portal_checkbox.setChecked(False)
         self.company_edit.clear()
         self._company_id = None
@@ -549,6 +559,7 @@ class CreateTaskDialog(QDialog):
             {
                 "title": title,
                 "description": description,
+                "priority": self.priority_selector.selected_priority,
                 "start_now": start_now,
                 "on_portal": self.portal_checkbox.isChecked(),
                 "company_id": company_id,
@@ -654,6 +665,59 @@ def _check_icon_path() -> str:
     pixmap.save(path, "PNG")
     _CHECK_ICON_PATH = path
     return path
+
+
+def _make_priority_button(level: int, object_name: str) -> QPushButton:
+    button = QPushButton(str(level))
+    button.setObjectName(object_name)
+    button.setProperty("priority", str(level))
+    button.setFixedSize(22, 22)
+    button.setCursor(Qt.CursorShape.PointingHandCursor)
+    return button
+
+
+class PrioritySelector(QWidget):
+    def __init__(
+        self,
+        *,
+        label_text: str,
+        selected_priority: int = 4,
+        button_object_name: str = "priorityApplyChip",
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.selected_priority = selected_priority
+        self._priority_buttons: dict[int, QPushButton] = {}
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
+
+        label = QLabel(label_text)
+        label.setObjectName("taskRowMetaLbl")
+        layout.addWidget(label)
+
+        buttons_row = QHBoxLayout()
+        buttons_row.setSpacing(10)
+        self._priority_group = QButtonGroup(self)
+        for level in (1, 2, 3, 4):
+            button = _make_priority_button(level, button_object_name)
+            button.setCheckable(True)
+            button.setChecked(level == selected_priority)
+            self._priority_group.addButton(button, level)
+            self._priority_buttons[level] = button
+            buttons_row.addWidget(button)
+        self._priority_group.idClicked.connect(self._select_priority)
+        layout.addLayout(buttons_row)
+        layout.addStretch(1)
+
+    def _select_priority(self, level: int) -> None:
+        self.selected_priority = level
+
+    def set_selected_priority(self, level: int) -> None:
+        button = self._priority_buttons[level]
+        button.setChecked(True)
+        self.selected_priority = level
 
 
 class _CallableThread(QThread):
@@ -1295,6 +1359,14 @@ class TaskEditDialog(QDialog):
             lambda: fit_plain_text_edit_height(self.description_edit)
         )
         form.addRow("Описание", self.description_edit)
+
+        self.priority_selector = PrioritySelector(
+            label_text="Приоритет на сегодня",
+            selected_priority=controller.task_priority(task),
+            parent=self,
+        )
+        self._priority_buttons = self.priority_selector._priority_buttons
+        form.addRow("Приоритет", self.priority_selector)
         layout.addLayout(form)
 
         buttons = QDialogButtonBox(
@@ -1323,10 +1395,89 @@ class TaskEditDialog(QDialog):
                 title=title,
                 description=self.description_edit.toPlainText(),
             )
+            self.controller.assign_tasks_priority(
+                [self.task_id],
+                self.priority_selector.selected_priority,
+            )
         except ValueError as exc:
             QMessageBox.warning(self, "Ошибка", str(exc))
             return
         super().accept()
+
+
+class TaskPriorityDialog(QDialog):
+    def __init__(
+        self,
+        controller: AppController,
+        task: Task,
+        *,
+        window_title: str,
+        heading: str,
+        confirm_text: str,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.controller = controller
+        self.task = task
+        self.selected_priority = controller.task_priority(task)
+        self.setWindowTitle(window_title)
+        self.setModal(True)
+        self.resize(420, 180)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 22, 24, 22)
+        layout.setSpacing(12)
+
+        title = QLabel(heading)
+        title.setObjectName("sectionTitle")
+        layout.addWidget(title)
+
+        subtitle = QLabel(task.title)
+        subtitle.setObjectName("descriptionLabel")
+        subtitle.setWordWrap(True)
+        layout.addWidget(subtitle)
+
+        self.priority_selector = PrioritySelector(
+            label_text="Приоритет на сегодня",
+            selected_priority=self.selected_priority,
+            parent=self,
+        )
+        self._priority_buttons = self.priority_selector._priority_buttons
+        layout.addWidget(self.priority_selector)
+
+        dialog_buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        ok_button = dialog_buttons.button(QDialogButtonBox.StandardButton.Ok)
+        if ok_button is not None:
+            ok_button.setText(confirm_text)
+        cancel_button = dialog_buttons.button(QDialogButtonBox.StandardButton.Cancel)
+        if cancel_button is not None:
+            cancel_button.setText("Отмена")
+        dialog_buttons.accepted.connect(self.accept)
+        dialog_buttons.rejected.connect(self.reject)
+        layout.addWidget(dialog_buttons)
+
+    def accept(self) -> None:
+        self.selected_priority = self.priority_selector.selected_priority
+        super().accept()
+
+
+class StartPriorityDialog(TaskPriorityDialog):
+    def __init__(
+        self,
+        controller: AppController,
+        task: Task,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(
+            controller,
+            task,
+            window_title="Приоритет перед стартом",
+            heading="Укажите приоритет задачи перед стартом",
+            confirm_text="Старт",
+            parent=parent,
+        )
 
 
 class SessionEditDialog(QDialog):
@@ -1471,7 +1622,7 @@ class SessionEditDialog(QDialog):
                 item.setCheckState(state)
         self.table.blockSignals(False)
 
-    def _reload(self) -> None:
+    def _reload(self, *, selected_session_id: str | None = None) -> None:
         self.select_all_checkbox.blockSignals(True)
         self.select_all_checkbox.setChecked(False)
         self.select_all_checkbox.blockSignals(False)
@@ -1502,7 +1653,13 @@ class SessionEditDialog(QDialog):
             self.table.setItem(row, 5, self._readonly_cell(session.bitrix_record_id or ""))
         self.table.blockSignals(False)
         if self.table.rowCount():
-            self.table.selectRow(0)
+            row_to_select = 0
+            if selected_session_id:
+                for row in range(self.table.rowCount()):
+                    if self._session_id_at(row) == selected_session_id:
+                        row_to_select = row
+                        break
+            self.table.selectRow(row_to_select)
         else:
             self.selected_session_id = None
             end_q = QDateTime.currentDateTime()
@@ -1597,7 +1754,7 @@ class SessionEditDialog(QDialog):
             QMessageBox.warning(self, "Ошибка", str(exc))
             return
         self.task = self.controller.find_task(self.task.id)
-        self._reload()
+        self._reload(selected_session_id=self.selected_session_id)
         QMessageBox.information(self, "Сохранено", "Интервал обновлен.")
 
     def _transfer_to_bitrix(self) -> None:
@@ -1854,7 +2011,9 @@ class MainWindow(QMainWindow):
         self._portal_sync_busy = False
         self._task_rows: dict[str, TaskRow] = {}
         self._task_rows_reference_date: str | None = None
+        self._rebuild_task_list_reference_date: str | None = None
         self._pinned_task_row_id: str | None = None
+        self._selected_task_ids: set[str] = set()
         self.tray_available = QSystemTrayIcon.isSystemTrayAvailable()
         self.app_icon = build_tray_app_icon(self.style())
         self.setWindowIcon(self.app_icon)
@@ -1878,6 +2037,9 @@ class MainWindow(QMainWindow):
         install_tray_icon_theme_refresh(self._refresh_app_icon)
         self._apply_styles()
         self._apply_window_constraints()
+        self._task_list_rebuild_timer = QTimer(self)
+        self._task_list_rebuild_timer.setSingleShot(True)
+        self._task_list_rebuild_timer.timeout.connect(self._rebuild_task_list)
         self.refresh_ui()
 
         self.clock_timer = QTimer(self)
@@ -1927,6 +2089,9 @@ class MainWindow(QMainWindow):
         self.controller.take_focus_paused_task_id()
         if answer == QMessageBox.StandardButton.Yes:
             self.controller.start_task(paused_task_id)
+            self._track_floating_task(paused_task_id)
+            self._update_tray_tooltip()
+        self._clear_pinned_task()
         self.refresh_ui()
 
     def _show_startup_notices(self) -> None:
@@ -2147,6 +2312,50 @@ class MainWindow(QMainWindow):
 
         return bar
 
+    def _build_priority_bar(self) -> QFrame:
+        bar = QFrame()
+        bar.setObjectName("priorityBar")
+        bar.setFixedHeight(40)
+        self._priority_bar = bar
+        layout = QHBoxLayout(bar)
+        layout.setContentsMargins(20, 0, 20, 0)
+        layout.setSpacing(8)
+
+        filter_caption = QLabel("Фильтр:")
+        filter_caption.setObjectName("priorityBarCaption")
+        layout.addWidget(filter_caption)
+
+        self._priority_filter_buttons: dict[int, QPushButton] = {}
+        for level in (1, 2, 3, 4):
+            button = _make_priority_button(level, "priorityFilterChip")
+            button.clicked.connect(
+                lambda _checked=False, value=level: self._toggle_priority_filter(value)
+            )
+            self._priority_filter_buttons[level] = button
+            layout.addWidget(button)
+
+        layout.addStretch(1)
+
+        apply_caption = QLabel("Применить:")
+        apply_caption.setObjectName("priorityBarCaption")
+        layout.addWidget(apply_caption)
+
+        self._priority_hidden_selection_label = QLabel("")
+        self._priority_hidden_selection_label.setObjectName("priorityHiddenSelectionLabel")
+        self._priority_hidden_selection_label.hide()
+        layout.addWidget(self._priority_hidden_selection_label)
+
+        self._priority_apply_buttons: dict[int, QPushButton] = {}
+        for level in (1, 2, 3, 4):
+            button = _make_priority_button(level, "priorityApplyChip")
+            button.clicked.connect(
+                lambda _checked=False, value=level: self._apply_priority_to_selection(value)
+            )
+            self._priority_apply_buttons[level] = button
+            layout.addWidget(button)
+
+        return bar
+
     def _build_tasks_page(self) -> QWidget:
         page = QWidget()
         page.setObjectName("tasksPage")
@@ -2232,6 +2441,7 @@ class MainWindow(QMainWindow):
         sub.addWidget(add_button)
 
         page_layout.addWidget(subbar)
+        page_layout.addWidget(self._build_priority_bar())
 
         # ── Content row: task list + dark timer panel ──────────
         content = QWidget()
@@ -2607,7 +2817,39 @@ class MainWindow(QMainWindow):
             QPushButton#filterChip[active="true"] {
                 background: #FFFFFF; border: 1px solid #D0D2D8; color: #3B83F6; font-weight: 500;
             }
-            QLabel#summaryLabel { color: #B8BDC9; font-size: 11px; }
+            QLabel#summaryLabel { color: #B8BDC9; font-size: 13px; }
+
+            QFrame#priorityBar {
+                background: #FFFFFF; border-bottom: 1px solid #DCDEE3;
+            }
+            QLabel#priorityBarCaption { color: #828B9A; font-size: 13px; }
+            QLabel#priorityHiddenSelectionLabel { color: #E07B35; font-size: 12px; }
+            QPushButton#priorityFilterChip, QPushButton#priorityApplyChip {
+                border-radius: 11px; font-size: 13px; font-weight: 600; padding: 0;
+            }
+            QPushButton#priorityFilterChip[priority="1"][active="true"],
+            QPushButton#priorityApplyChip[priority="1"] { background: #E74C3C; color: #FFFFFF; border: none; }
+            QPushButton#priorityFilterChip[priority="2"][active="true"],
+            QPushButton#priorityApplyChip[priority="2"] { background: #F1C40F; color: #FFFFFF; border: none; }
+            QPushButton#priorityFilterChip[priority="3"][active="true"],
+            QPushButton#priorityApplyChip[priority="3"] { background: #27AE60; color: #FFFFFF; border: none; }
+            QPushButton#priorityFilterChip[priority="4"][active="true"],
+            QPushButton#priorityApplyChip[priority="4"] { background: #B8BDC9; color: #FFFFFF; border: none; }
+            QPushButton#priorityFilterChip[priority="1"][active="false"] {
+                background: transparent; color: #E74C3C; border: 2px solid #E74C3C;
+            }
+            QPushButton#priorityFilterChip[priority="2"][active="false"] {
+                background: transparent; color: #D4AC0D; border: 2px solid #F1C40F;
+            }
+            QPushButton#priorityFilterChip[priority="3"][active="false"] {
+                background: transparent; color: #27AE60; border: 2px solid #27AE60;
+            }
+            QPushButton#priorityFilterChip[priority="4"][active="false"] {
+                background: transparent; color: #B8BDC9; border: 2px solid #B8BDC9;
+            }
+            QPushButton#priorityApplyChip:disabled {
+                background: #F5F6FA; color: #D0D2D8; border: 1px solid #DCDEE3;
+            }
 
             /* ── Task list ────────────────────────────────── */
             QScrollArea#taskScroll { background: #F2F3F7; border: none; }
@@ -2634,21 +2876,29 @@ class MainWindow(QMainWindow):
             QFrame#taskDot[status="paused"]  { background: #E07B35; }
             QFrame#taskDot[status="todo"]    { background: transparent; border: 1px solid #B8BDC9; }
             QFrame#taskDot[status="done"]    { background: #B8BDC9; }
+            QLabel#taskPriorityBadge {
+                border-radius: 9px; color: #FFFFFF; font-size: 13px; font-weight: 600;
+            }
+            QLabel#taskPriorityBadge[priority="1"] { background: #E74C3C; }
+            QLabel#taskPriorityBadge[priority="2"] { background: #F1C40F; }
+            QLabel#taskPriorityBadge[priority="3"] { background: #27AE60; }
+            QLabel#taskPriorityBadge[priority="4"] { background: #B8BDC9; }
+            QCheckBox#taskRowSelect { spacing: 0; }
             QLabel#taskName { color: #252835; font-size: 13px; }
             QFrame#taskRow[status="done"] QLabel#taskName {
                 color: #B8BDC9; text-decoration: line-through;
             }
-            QLabel#rowTimeLbl { color: #B8BDC9; font-size: 10px; }
+            QLabel#rowTimeLbl { color: #B8BDC9; font-size: 12px; }
             QLabel#rowTimeSep { color: #D0D2D8; font-size: 11px; }
-            QLabel#rowTimeVal { color: #828B9A; font-size: 11px; font-family: "__MONO__"; }
+            QLabel#rowTimeVal { color: #828B9A; font-size: 13px; font-family: "__MONO__"; }
             QLabel#rowTimeVal[live="true"] { color: #27AE60; }
             QLabel#taskRowDesc { color: #828B9A; font-size: 12px; }
             QLabel#taskRowDesc[empty="true"] { color: #B8BDC9; font-style: italic; }
             QWidget#taskRowMetaBox { background: transparent; }
-            QLabel#taskRowMetaLbl { color: #828B9A; font-size: 11px; }
+            QLabel#taskRowMetaLbl { color: #828B9A; font-size: 13px; }
             QLabel#taskRowMetaVal {
                 background: #F5F6FA; border: 1px solid #DCDEE3; border-radius: 4px;
-                color: #252835; font-size: 11px; padding: 2px 6px;
+                color: #252835; font-size: 13px; padding: 2px 6px;
             }
             QLabel#taskRowMetaVal[empty="true"] { color: #B8BDC9; }
             QWidget#taskRowPinnedFooter { background: transparent; }
@@ -2667,22 +2917,22 @@ class MainWindow(QMainWindow):
             QPushButton#iconActionDanger:hover { background: #FDE8E8; color: #E05353; }
             QPushButton#linkAction {
                 background: transparent; border: none; border-radius: 7px;
-                color: #828B9A; font-size: 11px; padding: 0 9px;
+                color: #828B9A; font-size: 13px; padding: 0 9px;
             }
             QPushButton#linkAction:hover { background: #F5F6FA; color: #252835; }
             QPushButton#rowStart {
                 background: #27AE60; border: none; border-radius: 7px;
-                color: #FFFFFF; font-size: 11px; font-weight: 500; padding: 0 11px;
+                color: #FFFFFF; font-size: 13px; font-weight: 500; padding: 0 11px;
             }
             QPushButton#rowStart:hover { background: #22994F; }
             QPushButton#rowStop {
                 background: #FDE8E8; border: 1px solid rgba(224,83,83,0.25); border-radius: 7px;
-                color: #E05353; font-size: 11px; font-weight: 500; padding: 0 11px;
+                color: #E05353; font-size: 13px; font-weight: 500; padding: 0 11px;
             }
             QPushButton#rowStop:hover { background: #FBD9D9; }
             QPushButton#rowResume {
                 background: #E8F0FD; border: none; border-radius: 7px;
-                color: #3B83F6; font-size: 11px; font-weight: 500; padding: 0 11px;
+                color: #3B83F6; font-size: 13px; font-weight: 500; padding: 0 11px;
             }
             QPushButton#rowResume:hover { background: #DBE8FC; }
 
@@ -2742,10 +2992,10 @@ class MainWindow(QMainWindow):
                 color: #3B83F6; font-family: "__MONO__"; font-size: 44px; font-weight: 300;
             }
             QLabel#focusDisplay[done="true"] { color: #27AE60; }
-            QLabel#focusStatusLabel { color: #B8BDC9; font-size: 11px; }
+            QLabel#focusStatusLabel { color: #B8BDC9; font-size: 13px; }
             QPushButton#focusDur {
                 background: #F5F6FA; border: 1px solid #D0D2D8; border-radius: 10px;
-                color: #828B9A; padding: 5px 7px; font-size: 12px; min-width: 0;
+                color: #828B9A; padding: 5px 7px; font-size: 14px; min-width: 0;
                 min-height: 24px;
             }
             QPushButton#focusDur:hover { background: #ECEEF3; }
@@ -2849,6 +3099,11 @@ class MainWindow(QMainWindow):
             button.style().unpolish(button)
             button.style().polish(button)
 
+        priority_enabled_view = self._current_view in {"plan", "in_progress", "all"}
+        self._priority_bar.setVisible(priority_enabled_view)
+        if priority_enabled_view:
+            self._refresh_priority_bar()
+
         reference_date = self._selected_date if self._current_view == "date" else None
         if reference_date:
             self.today_total_label.setText(
@@ -2860,11 +3115,18 @@ class MainWindow(QMainWindow):
                 f"Сегодня всего: {format_hm(self.controller.today_total_seconds())}"
             )
         self._freeze_summary_label_width()
+        self._rebuild_task_list_reference_date = reference_date
+        if not self._task_list_rebuild_timer.isActive():
+            self._task_list_rebuild_timer.start(0)
+
+    def _rebuild_task_list(self) -> None:
+        reference_date = self._rebuild_task_list_reference_date
 
         while self.days_layout.count():
             item = self.days_layout.takeAt(0)
             widget = item.widget()
             if widget is not None:
+                widget.hide()
                 widget.setParent(None)
                 widget.deleteLater()
 
@@ -2880,8 +3142,17 @@ class MainWindow(QMainWindow):
         else:
             tasks = self.controller.tasks_all()
 
-        # Completed tasks sink to the bottom (stable: keeps prior order otherwise).
-        tasks = sorted(tasks, key=lambda t: t.status == TaskStatus.COMPLETED)
+        if self._current_view in {"in_progress", "all"}:
+            tasks = filter_tasks_by_priority(
+                tasks,
+                self.controller.today_str(),
+                self.controller.priority_filter_levels(),
+            )
+
+        if self._current_view != "plan":
+            tasks = sorted(tasks, key=lambda t: t.status == TaskStatus.COMPLETED)
+
+        priority_enabled_view = self._current_view in {"plan", "in_progress", "all"}
 
         if not tasks:
             hint = QLabel(self._empty_hint())
@@ -2890,7 +3161,12 @@ class MainWindow(QMainWindow):
             self.days_layout.addWidget(hint)
         else:
             for task in tasks:
-                row = TaskRow(self.controller, task, reference_date=reference_date)
+                row = TaskRow(
+                    self.controller,
+                    task,
+                    reference_date=reference_date,
+                    plan_mode=priority_enabled_view,
+                )
                 row.start_requested.connect(self._start_task)
                 row.stop_requested.connect(self._stop_task)
                 row.complete_requested.connect(self._confirm_complete_task)
@@ -2899,20 +3175,39 @@ class MainWindow(QMainWindow):
                 row.edit_requested.connect(self._open_task_edit)
                 row.row_selected.connect(self._on_task_row_selected)
                 row.row_deselected.connect(self._on_task_row_deselected)
+                row.selection_changed.connect(self._on_task_row_selection_changed)
                 row.delete_requested.connect(self._confirm_delete_task)
                 row.plan_toggle_requested.connect(self._toggle_plan)
+                row.set_row_checked(task.id in self._selected_task_ids)
                 self._task_rows[task.id] = row
                 self.days_layout.addWidget(row)
-            if self._pinned_task_row_id in self._task_rows:
-                self._task_rows[self._pinned_task_row_id].set_pinned(True)
+                if task.id == self._pinned_task_row_id:
+                    row.set_pinned(True)
         self.days_layout.addStretch(1)
+        self.days_layout.activate()
         self._refresh_task_row_layouts()
+        self._ensure_pinned_row_visible()
+        if priority_enabled_view:
+            self._refresh_priority_apply_buttons()
         self._refresh_active_panel()
         self._refresh_focus_panel()
 
     def _refresh_task_row_layouts(self) -> None:
         for row in self._task_rows.values():
             row.refresh_layout()
+
+    def _restore_pinned_task_row(self) -> None:
+        if self._pinned_task_row_id not in self._task_rows:
+            return
+        row = self._task_rows[self._pinned_task_row_id]
+        if not row._pinned:
+            row.set_pinned(True)
+        row.refresh_layout()
+        self.scroll_area.ensureWidgetVisible(row, 0, 16)
+
+    def _ensure_pinned_row_visible(self) -> None:
+        self._restore_pinned_task_row()
+        QTimer.singleShot(0, self._restore_pinned_task_row)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -3196,7 +3491,11 @@ class MainWindow(QMainWindow):
         title = payload.get("title", "")
         description = payload.get("description", "")
         start_now = payload.get("start_now", False)
-        task = self.controller.create_task(title, description, start_now=start_now)
+        priority = int(payload.get("priority", 4))
+        task = self.controller.create_task(title, description, start_now=False)
+        self.controller.assign_tasks_priority([task.id], priority)
+        if start_now:
+            self._start_task(task.id)
         self.refresh_ui()
         if payload.get("on_portal"):
             self._create_portal_task_for(task.id, title, description, payload.get("company_id"))
@@ -3234,20 +3533,114 @@ class MainWindow(QMainWindow):
     def _set_view(self, view: str) -> None:
         self._current_view = view
         self._pinned_task_row_id = None
+        self._clear_task_selection()
         self.refresh_ui()
 
     def _set_date(self, qdate: QDate) -> None:
         self._selected_date = qdate.toString("yyyy-MM-dd")
         self._current_view = "date"
         self._pinned_task_row_id = None
+        self._clear_task_selection()
+        self.refresh_ui()
+
+    def _clear_task_selection(self) -> None:
+        self._selected_task_ids.clear()
+
+    def _on_task_row_selection_changed(self, task_id: str, checked: bool) -> None:
+        if checked:
+            self._selected_task_ids.add(task_id)
+        else:
+            self._selected_task_ids.discard(task_id)
+        self._refresh_priority_apply_buttons()
+
+    def _refresh_priority_bar(self) -> None:
+        active_levels = self.controller.priority_filter_levels()
+        for level, button in self._priority_filter_buttons.items():
+            button.setProperty("active", level in active_levels)
+            button.style().unpolish(button)
+            button.style().polish(button)
+        self._refresh_priority_apply_buttons()
+
+    def _refresh_priority_apply_buttons(self) -> None:
+        has_selection = bool(self._selected_task_ids)
+        for button in self._priority_apply_buttons.values():
+            button.setEnabled(has_selection)
+        hidden_selected = len(self._selected_task_ids - set(self._task_rows))
+        if hidden_selected > 0 and self._current_view == "plan":
+            suffix = "задача" if hidden_selected == 1 else "задач"
+            self._priority_hidden_selection_label.setText(
+                f"Скрыто выбрано: {hidden_selected} {suffix}"
+            )
+            self._priority_hidden_selection_label.show()
+        else:
+            self._priority_hidden_selection_label.hide()
+
+    def _toggle_priority_filter(self, level: int) -> None:
+        current = set(self.controller.priority_filter_levels())
+        if level in current:
+            if len(current) <= 1:
+                return
+            current.remove(level)
+        else:
+            current.add(level)
+        self.controller.set_priority_filter_levels(current)
+        self._pinned_task_row_id = None
+        self.refresh_ui()
+
+    def _apply_priority_to_selection(self, level: int) -> None:
+        if not self._selected_task_ids:
+            return
+        self.controller.assign_tasks_priority(
+            sorted(self._selected_task_ids),
+            level,
+            add_to_plan=True,
+        )
         self.refresh_ui()
 
     def _toggle_plan(self, task_id: str) -> None:
         task = self.controller.find_task(task_id)
-        if self.controller.in_today_plan(task):
-            self.controller.remove_from_plan(task_id)
+        if self.controller.visible_on_today_plan(task):
+            self._confirm_remove_from_plan(task_id)
         else:
-            self.controller.add_to_plan(task_id)
+            self._add_to_plan_with_priority_prompt(task_id)
+
+    def _prompt_plan_priority(self, task_id: str) -> int | None:
+        task = self.controller.find_task(task_id)
+        dialog = TaskPriorityDialog(
+            self.controller,
+            task,
+            window_title="Приоритет для плана",
+            heading="Укажите приоритет задачи для плана на сегодня",
+            confirm_text="В план",
+            parent=self,
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return None
+        return dialog.selected_priority
+
+    def _add_to_plan_with_priority_prompt(self, task_id: str) -> None:
+        task = self.controller.find_task(task_id)
+        current = self.controller.task_priority(task)
+        if current == DEFAULT_PRIORITY:
+            priority = self._prompt_plan_priority(task_id)
+            if priority is None:
+                return
+        else:
+            priority = current
+        self.controller.add_to_plan_with_priority(task_id, priority)
+        self.refresh_ui()
+
+    def _confirm_remove_from_plan(self, task_id: str) -> None:
+        task = self.controller.find_task(task_id)
+        answer = QMessageBox.question(
+            self,
+            "Подтверждение",
+            f"Убрать задачу из плана на сегодня?\n\n{task.title}",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self.controller.remove_from_plan(task_id)
         self.refresh_ui()
 
     def _start_focus_timer(self, minutes: int) -> None:
@@ -3266,12 +3659,32 @@ class MainWindow(QMainWindow):
     def _stop_focus_timer(self) -> None:
         paused_id = self.controller.focus_paused_task_id
         self.controller.stop_focus_timer()
+        self._clear_pinned_task()
         self.refresh_ui()
         if paused_id:
             self._prompt_focus_resume(paused_id)
 
+    def _prompt_start_priority(self, task_id: str) -> int | None:
+        task = self.controller.find_task(task_id)
+        dialog = StartPriorityDialog(self.controller, task, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return None
+        return dialog.selected_priority
+
+    def _resolve_start_priority(self, task_id: str) -> int | None:
+        task = self.controller.find_task(task_id)
+        today = self.controller.today_str()
+        if today in (task.daily_priorities or {}):
+            return self.controller.task_priority(task)
+        return self._prompt_start_priority(task_id)
+
     def _start_task(self, task_id: str) -> None:
+        priority = self._resolve_start_priority(task_id)
+        if priority is None:
+            return
+        self.controller.assign_tasks_priority([task_id], priority)
         self.controller.start_task(task_id)
+        self._clear_pinned_task()
         self.refresh_ui()
         self._track_floating_task(task_id)
         self._update_tray_tooltip()
@@ -3280,6 +3693,7 @@ class MainWindow(QMainWindow):
 
     def _stop_task(self, task_id: str) -> None:
         task = self.controller.stop_task(task_id)
+        self._clear_pinned_task()
         self.refresh_ui()
         self._track_floating_task(task_id)
         self._update_tray_tooltip()
@@ -3295,6 +3709,7 @@ class MainWindow(QMainWindow):
         )
         if answer == QMessageBox.StandardButton.Yes:
             self.controller.complete_task(task_id)
+            self._collapse_pinned_task_if(task_id)
             self.refresh_ui()
             self._mini_task_id = None
             self.floating.hide()
@@ -3304,6 +3719,7 @@ class MainWindow(QMainWindow):
 
     def _resume_task(self, task_id: str) -> None:
         self.controller.resume_completed_task(task_id)
+        self._collapse_pinned_task_if(task_id)
         self.refresh_ui()
         self._track_floating_task(task_id)
         self._update_tray_tooltip()
@@ -3368,10 +3784,20 @@ class MainWindow(QMainWindow):
         self._pinned_task_row_id = task_id
         for tid, row in self._task_rows.items():
             row.set_pinned(tid == task_id)
+        self._ensure_pinned_row_visible()
 
     def _on_task_row_deselected(self, task_id: str) -> None:
         if self._pinned_task_row_id == task_id:
             self._pinned_task_row_id = None
+
+    def _clear_pinned_task(self) -> None:
+        if self._pinned_task_row_id in self._task_rows:
+            self._task_rows[self._pinned_task_row_id].set_pinned(False)
+        self._pinned_task_row_id = None
+
+    def _collapse_pinned_task_if(self, task_id: str) -> None:
+        if self._pinned_task_row_id == task_id:
+            self._clear_pinned_task()
 
     def _confirm_delete_task(self, task_id: str) -> None:
         task = self.controller.find_task(task_id)
@@ -3614,6 +4040,7 @@ class MainWindow(QMainWindow):
             return
         if view.is_focus:
             self.controller.stop_focus_timer()
+            self._clear_pinned_task()
             self.refresh_ui()
             self._update_floating()
             return
@@ -3621,6 +4048,7 @@ class MainWindow(QMainWindow):
         if task is None:
             return
         self.controller.stop_task(task.id)
+        self._clear_pinned_task()
         self.refresh_ui()
         self._update_floating()
 
@@ -3631,8 +4059,7 @@ class MainWindow(QMainWindow):
         task = self._resolve_floating_task()
         if task is None:
             return
-        self.controller.start_task(task.id)
-        self.refresh_ui()
+        self._start_task(task.id)
         self._update_floating()
 
     def _request_exit(self) -> None:

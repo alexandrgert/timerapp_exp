@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 
 from ..models import Task, TaskStatus
+from .priority import filter_tasks_by_priority, sort_key_by_priority
 from .datetime_util import local_now, session_local_date
 from .state import AppState
 
@@ -68,8 +69,64 @@ def tasks_in_progress(state: AppState) -> list[Task]:
     return view_sorted(state, [task for task in state.tasks if not task.is_completed()])
 
 
-def tasks_today_plan(state: AppState, today: str) -> list[Task]:
-    return view_sorted(state, [task for task in state.tasks if today in (task.planned_days or [])])
+def tasks_today_plan(
+    state: AppState,
+    today: str,
+    *,
+    priority_levels: set[int] | None = None,
+) -> list[Task]:
+    today_tasks = [
+        task
+        for task in state.tasks
+        if today in (task.planned_days or []) and _show_in_today_plan(task, today)
+    ]
+    if priority_levels is not None:
+        running_ids = {task.id for task in running_tasks(state)}
+        today_tasks = _filter_tasks_by_priority_preserving(
+            today_tasks,
+            today,
+            priority_levels,
+            preserve_ids=running_ids,
+        )
+    active = active_task(state)
+
+    def sort_key(task: Task) -> tuple[int, int, int, str]:
+        if active is not None and task.id == active.id:
+            return (0, 0, 0, "")
+        completed = 1 if task.is_completed() else 0
+        return (1, completed, sort_key_by_priority(task, today), task.created_at)
+
+    return sorted(today_tasks, key=sort_key)
+
+
+def _show_in_today_plan(task: Task, today: str) -> bool:
+    if task.day == today:
+        return True
+    if task.status == TaskStatus.RUNNING and task.active_session() is not None:
+        return True
+    return today in (task.daily_priorities or {})
+
+
+def visible_on_today_plan(task: Task, today: str) -> bool:
+    return today in (task.planned_days or []) and _show_in_today_plan(task, today)
+
+
+def _filter_tasks_by_priority_preserving(
+    tasks: list[Task],
+    today: str,
+    levels: set[int],
+    *,
+    preserve_ids: set[str],
+) -> list[Task]:
+    filtered = filter_tasks_by_priority(tasks, today, levels)
+    if not preserve_ids:
+        return filtered
+    kept_ids = {task.id for task in filtered}
+    restored = list(filtered)
+    for task in tasks:
+        if task.id in preserve_ids and task.id not in kept_ids:
+            restored.append(task)
+    return restored
 
 
 def tasks_on_date(state: AppState, date_iso: str, *, now: datetime | None = None) -> list[Task]:

@@ -104,7 +104,11 @@ def add_to_plan(state: AppState, task_id: str, today: str) -> bool:
 
 def remove_from_plan(state: AppState, task_id: str, today: str) -> bool:
     task = find_task(state, task_id)
-    if today not in task.planned_days:
-        return False
-    task.planned_days = [day for day in task.planned_days if day != today]
-    return True
+    changed = False
+    if today in task.planned_days:
+        task.planned_days = [day for day in task.planned_days if day != today]
+        changed = True
+    if today in task.daily_priorities:
+        del task.daily_priorities[today]
+        changed = True
+    return changed

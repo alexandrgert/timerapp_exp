@@ -5,6 +5,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from ..models import Session, Task, TaskStatus
+from .priority import merge_daily_priorities
 from .datetime_util import duration_seconds, parse_iso_datetime
 from .state import AppState
 
@@ -62,12 +63,14 @@ def merge_task_pair(left: Task, right: Task) -> Task:
     base = right if task_richer(right, left) else left
     other = left if base is right else right
     planned_days = list(dict.fromkeys((base.planned_days or []) + (other.planned_days or [])))
+    daily_priorities = merge_daily_priorities(base.daily_priorities, other.daily_priorities)
     description = base.description or other.description
     status, completed_at = _resolve_merged_status(left, right, merged_sessions)
     return replace(
         base,
         sessions=merged_sessions,
         planned_days=planned_days,
+        daily_priorities=daily_priorities,
         description=description,
         status=status,
         completed_at=completed_at,

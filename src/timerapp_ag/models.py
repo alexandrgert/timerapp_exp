@@ -72,6 +72,7 @@ class Task:
     continuation_of: str | None = None
     bitrix: dict[str, Any] | None = None
     planned_days: list[str] = field(default_factory=list)
+    daily_priorities: dict[str, int] = field(default_factory=dict)
 
     def total_seconds(self, now: datetime | None = None) -> int:
         return sum(session.duration_seconds(now=now) for session in self.sessions)
@@ -86,7 +87,7 @@ class Task:
         return self.status == TaskStatus.COMPLETED
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "id": self.id,
             "day": self.day,
             "title": self.title,
@@ -99,6 +100,9 @@ class Task:
             "bitrix": self.bitrix,
             "planned_days": self.planned_days,
         }
+        if self.daily_priorities:
+            payload["daily_priorities"] = dict(self.daily_priorities)
+        return payload
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Task":
@@ -114,4 +118,9 @@ class Task:
             continuation_of=data.get("continuation_of"),
             bitrix=data.get("bitrix"),
             planned_days=list(data.get("planned_days") or []),
+            daily_priorities={
+                str(key): int(value)
+                for key, value in (data.get("daily_priorities") or {}).items()
+                if isinstance(value, int) and 1 <= value <= 4
+            },
         )
