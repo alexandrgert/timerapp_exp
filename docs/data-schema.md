@@ -51,7 +51,7 @@
 |------|-----|------|----------|
 | `schema_version` | int | да | 2 |
 | `plan_rollover_day` | string | да | последний rollover плана |
-| `priority_filter` | int[] | да | активные уровни приоритета во вкладке «Сегодня» (1–4) |
+| `priority_filter` | int[] | да | активные уровни фильтра приоритета на вкладках «Сегодня» / «В работе» / «Все» (1–4) |
 | `filter_open_only` | bool | да | фильтр списка |
 | `reminder_interval_minutes` | int | да | 1…1440 |
 | `focus_timer` | object | да | `{selected_minutes, duration_minutes, ends_at, session_task_id, paused_task_id}` |

@@ -1,14 +1,18 @@
-# TaskTimer link B24
+# TaskTimer Experiment
+
+Экспериментальный форк **TaskTimer link B24** — песочница для UX и модели данных ([`timerapp_exp`](https://github.com/alexandrgert/timerapp_exp)).  
+Стабильные релизы продукта — [alexandrgert/timer-app](https://github.com/alexandrgert/timer-app).
 
 Десктопный таймер задач на Python + [PySide6](https://doc.qt.io/qtforpython/) с интеграцией **Битрикс24**: импорт проектов (СПА) и задач, создание задач на портале, синхронизация завершения. **Синхронизация базы задач через WebDAV** (Nextcloud, Яндекс.Диск и др.).
 
-**Fork** [useraitester-creator/win-timer-app-v1](https://github.com/useraitester-creator/win-timer-app-v1) (TaskTimer). От upstream: пакет `timerapp_ag`, WebDAV, Android, `.deb`, расширенная интеграция Bitrix24.
+**Upstream:** [useraitester-creator/win-timer-app-v1](https://github.com/useraitester-creator/win-timer-app-v1). От upstream: пакет `timerapp_ag`, WebDAV, Android, `.deb`, расширенная интеграция Bitrix24, **дневные приоритеты 1–4**.
 
 Инструкция для пользователей — [`ИНСТРУКЦИЯ.md`](ИНСТРУКЦИЯ.md). Сборка `.exe` — [`README-DISTRIBUTION.txt`](README-DISTRIBUTION.txt).
 
 ## Возможности
 
 - Три вида списка: **план на сегодня**, **в работе**, **все задачи**; фильтр по дате учёта времени; в развёрнутой карточке — **даты «Создана» / «Завершена»** (read-only).
+- **Дневные приоритеты 1–4** — цветные бейджи, фильтр и массовое применение на вкладках **Сегодня / В работе / Все**; диалог при старте и «В план», если приоритет на сегодня ещё не задан.
 - Таймер по задачам, история интервалов, напоминание «продолжать?», **режим концентрации** (обратный отсчёт в правой колонке).
 - Системный трей и плавающий виджет активной или приостановленной задачи (скрывается после завершения); щелчок по иконке в трее показывает или скрывает главное окно.
 - **Объединение баз** от старых версий — по запросу при обновлении или из меню «Настройки».
@@ -19,13 +23,13 @@
 
 Спецификация модели «план на день»: [`docs/superpowers/specs/2026-06-11-task-views-and-plan-design.md`](docs/superpowers/specs/2026-06-11-task-views-and-plan-design.md).
 
-Документация: [архитектура](docs/architecture-cross-platform.md) · [схема данных](docs/data-schema.md) · [WebDAV (техн.)](docs/webdav-sync.md) · [системные требования](docs/system-requirements.md) · [релиз 0.5.31](docs/release-notes-v0.5.31.md)
+Документация: [архитектура](docs/architecture-cross-platform.md) · [схема данных](docs/data-schema.md) · [WebDAV (техн.)](docs/webdav-sync.md) · [системные требования](docs/system-requirements.md) · [релиз 0.5.51](docs/release-notes-v0.5.51.md)
 
 ## Быстрый старт
 
 ```bash
-git clone https://github.com/alexandrgert/timer-app.git
-cd timer-app
+git clone https://github.com/alexandrgert/timerapp_exp.git
+cd timerapp_exp
 python -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e . -r requirements-dev.txt
@@ -75,7 +79,7 @@ pytest
 | `./build_deb.sh` | мелкие правки → **patch** (в т.ч. локальная сборка) |
 | `BUMP=minor ./build_deb.sh` | новые фичи → **minor** |
 
-Результат: `dist/tasktimer-link-b24-<версия>-amd64.deb`.
+Результат: `dist/timerapp-exp-<версия>-amd64.deb`. Команда в меню: `timerapp-exp`.
 
 ### macOS (`.app` в `.zip`)
 
@@ -105,28 +109,26 @@ python scripts/check_version_sync.py
 
 Ручной bump без сборки: `python scripts/bump_version.py minor`
 
-### Releases
+### Releases (Experiment)
 
-Готовые сборки — [GitHub Releases](https://github.com/alexandrgert/timer-app/releases).
+Готовые сборки Experiment — [GitHub Releases timerapp_exp](https://github.com/alexandrgert/timerapp_exp/releases).  
 **Системные требования:** [`docs/system-requirements.md`](docs/system-requirements.md).
 
-**Последний релиз:** [v0.5.31](https://github.com/alexandrgert/timer-app/releases/tag/v0.5.31) — [текст для пользователей](docs/release-notes-v0.5.31.md)
+**Текущая версия в ветке:** **0.5.51** — [release notes](docs/release-notes-v0.5.51.md)
 
-| Платформа | Файл |
-|-----------|------|
-| Linux amd64 | `tasktimer-link-b24-0.5.31-amd64.deb` |
-| Windows x64 | `tasktimer-link-b24-0.5.31-win64.exe` |
-| macOS arm64 | `tasktimer-link-b24-0.5.31-macos-arm64.zip` *(Apple Silicon)* |
-| Android | `tasktimer-link-b24-0.5.31-android.apk` |
+| Платформа | Файл (Experiment) |
+|-----------|-------------------|
+| Linux amd64 | `timerapp-exp-0.5.51-amd64.deb` |
 
-Linux:
+Linux (локальная сборка или релиз):
 
 ```bash
-wget https://github.com/alexandrgert/timer-app/releases/download/v0.5.31/tasktimer-link-b24-0.5.31-amd64.deb
-sudo dpkg -i tasktimer-link-b24-0.5.31-amd64.deb
+sudo dpkg -i dist/timerapp-exp-0.5.51-amd64.deb
 sudo apt-get install -f
-tasktimer-link-b24
+timerapp-exp
 ```
+
+> Полный набор платформ (Windows, macOS, Android) — в [timer-app](https://github.com/alexandrgert/timer-app/releases).
 
 ## Зависимости
 
@@ -149,7 +151,7 @@ android/               # Kotlin / Compose, WebDAV, общая схема data.js
 src/timerapp_ag/
   main.py              # точка входа
   controller.py        # бизнес-логика
-  domain/              # merge, план, напоминания (без Qt)
+  domain/              # merge, план, приоритеты, напоминания (без Qt)
   main_window.py       # UI, трей, главное окно
   ui/                  # TaskRow, плавающий виджет, text layout
   storage.py           # data.json
@@ -197,6 +199,6 @@ docs/                  # архитектура, WebDAV, release notes
 | Linux / Android | нет | `.deb` amd64, **APK** (Compose, WebDAV) |
 | WebDAV | нет | синхронизация `data.json` |
 | Legacy merge | нет | объединение баз старых версий |
-| Название продукта | TaskTimer | TaskTimer link B24 |
+| Название продукта | TaskTimer | TaskTimer Experiment / link B24 |
 
 Синхронизация с upstream: `git fetch upstream` (remote `upstream` → useraitester-creator). Перенос изменений — по фичам, не слепым merge (разная структура пакета).
