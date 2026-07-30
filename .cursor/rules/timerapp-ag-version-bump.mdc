@@ -1,29 +1,34 @@
 ---
-description: TaskTimer — semver в pyproject.toml и синхронизация версий перед сборкой и GitHub Release
+description: TaskTimer — semver в pyproject.toml; локально только deb; остальные форматы через GitHub CI
 globs: build_deb.sh,build_*.sh,build_apk.sh,android/**,pyproject.toml,scripts/bump_version.py
 alwaysApply: true
 ---
 
 # timerapp_ag: версия и сборка
 
+Глобальное правило пользователя (`~/.cursor/rules/local-build-deb-only.mdc`): **локально только deb**; APK/exe/macOS — через GitHub CI после commit. Ниже — детали этого репозитория.
+
 ## Источник версии
 
 Единственный источник — **`pyproject.toml`** → `[project].version`.
 
-## Когда что собирать
+## Локально vs GitHub (этот репозиторий)
 
-| Запрос пользователя | Действие агента |
-|---------------------|-----------------|
+| Где | Что собирать |
+|-----|----------------|
+| **Локально** | **только** `./build_deb.sh` |
+| **GitHub CI / Release** | `.apk`, `.exe`, macOS и остальные артефакты **после коммита и push** |
+
+Не запускать локально `./build_apk.sh`, `./build_exe.ps1`, `./build_macos.sh` (кроме явного override «локально вопреки правилу»).
+
+| Запрос | Действие |
+|--------|----------|
 | «собери», «пересобери», «собери deb» | **только** `./build_deb.sh` |
-| «собери apk» / «собери deb и apk» (явно) | deb (если нужен свежий) → **синхрон версии Android** → `./build_apk.sh` |
+| «собери apk» / «deb и apk» / «все платформы» | deb при необходимости → **выровнять Android** → **commit + push**, CI соберёт остальное |
 
-**APK не собирать** вместе с deb «по умолчанию» и не предлагать apk-сборку без явной просьбы.
+После **deb-only** сборки `pyproject.toml` может быть новее `build.gradle.kts` — это нормально **пока** не готовится push/CI. Перед **push в `main`/`master` и любым GitHub Actions, которые собирают APK**, версия Android **должна совпадать** с `pyproject.toml`.
 
-После **deb-only** сборки `pyproject.toml` уже новее `build.gradle.kts` — это нормально. Перед **следующим** `./build_apk.sh` (по явной просьбе) **обязательно** выровнять Android: `versionName` + `versionCode`, затем `check_version_sync.py`.
-
-## Android APK: сверка перед сборкой (обязательно)
-
-**Перед `./build_apk.sh`, push в `main`/`master` и любым GitHub Actions, которые собирают APK**, версия Android **должна совпадать** с `pyproject.toml`.
+## Android: сверка перед push / CI (обязательно)
 
 CI job `build-apk` **не читает** `pyproject.toml` для имени APK — только `versionName` из `build.gradle.kts`. Расхождение → в артефактах GitHub `.deb`/`.exe` одна версия, `.apk` — другая.
 
@@ -33,7 +38,7 @@ CI job `build-apk` **не читает** `pyproject.toml` для имени APK 
 python scripts/check_version_sync.py   # exit 1 при расхождении
 ```
 
-В `.github/workflows/ci.yml` шаг `Verify Android version matches pyproject.toml` выполняется **перед** `build-apk`. Локально — тот же скрипт перед push.
+В `.github/workflows/ci.yml` шаг `Verify Android version matches pyproject.toml` выполняется **перед** `build-apk`. Локально — тот же скрипт **перед push**.
 
 ### Файлы
 
@@ -42,13 +47,13 @@ python scripts/check_version_sync.py   # exit 1 при расхождении
 | `pyproject.toml` | `[project].version` — **эталон** |
 | `android/app/build.gradle.kts` | `versionName` (semver), `versionCode` (целое, монотонно растёт) |
 
-### Чеклист (агент и разработчик)
+### Чеклист перед push (агент и разработчик)
 
 1. Прочитать версию из `pyproject.toml`.
 2. Убедиться, что в `build.gradle.kts`: `versionName = "<та же версия>"`.
-3. Поднять `versionCode` (например `523` для `0.5.23`), если версия изменилась.
+3. Поднять `versionCode` (например `700` для `0.7.0`), если версия изменилась.
 4. Запустить `python scripts/check_version_sync.py` — должен вывести `OK`.
-5. Только после совпадения — `./build_apk.sh` или push (CI соберёт APK).
+5. Commit → push → CI соберёт APK и прочие форматы.
 
 ```bash
 python scripts/check_version_sync.py
@@ -56,39 +61,24 @@ python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['proj
 grep versionName android/app/build.gradle.kts
 ```
 
-Если версии различаются — **сначала правка `build.gradle.kts`, commit, потом сборка/релиз**. Не выкладывать на GitHub Release набор, где `.deb`/`.exe` — одна версия, а `.apk` — другая.
+Если версии различаются — **сначала правка `build.gradle.kts`, commit, потом push**. Не выкладывать на GitHub Release набор, где `.deb`/`.exe` — одна версия, а `.apk` — другая.
 
-## Обязательный bump при сборке
+## Обязательный bump при локальной сборке deb
 
-**Любая сборка** — релизная, локальная, «для проверки», «просто посмотреть» — **всегда** поднимает версию минимум на **patch** перед `./build_deb.sh` / `./build_apk.sh`.
+**Любая локальная сборка deb** — релизная, «для проверки», «просто посмотреть» — **всегда** поднимает версию минимум на **patch** перед `./build_deb.sh`.
 
-Проверочная сборка ≠ исключение: иначе два одинаковых `0.5.30` deb/apk не отличить и легко перепутать с уже установленным.
+Проверочная сборка ≠ исключение: иначе два одинаковых `0.5.30` deb не отличить и легко перепутать с уже установленным.
 
 ### Запрещено агенту по умолчанию
 
 - `NO_BUMP=1` / `ALLOW_NO_BUMP=1` — **не использовать**, если пользователь **явно** не написал «пересобери без смены версии» / «тот же номер версии».
-- Фразы «для проверки», «локально», «собери deb» — **всё равно bump** (deb-only, без apk).
+- Фразы «для проверки», «локально», «собери deb» — **всё равно bump** (deb-only).
 
 ### Порядок локальной сборки
 
-**Только deb** (типичный запрос):
-
 1. `./build_deb.sh` — bump в `pyproject.toml`.
-2. Готово. Android **не трогать**, apk **не собирать**.
-
-**deb + apk** (только если пользователь явно попросил apk):
-
-1. `./build_deb.sh` (или уже свежий deb с нужной версией в `pyproject.toml`).
-2. Синхронизировать `android/app/build.gradle.kts`: `versionName`, `versionCode`.
-3. `python scripts/check_version_sync.py` — должен вывести `OK`.
-4. `./build_apk.sh`.
-
-**Только apk** (явная просьба, deb уже собран):
-
-1. Прочитать версию из `pyproject.toml`.
-2. Синхронизировать `build.gradle.kts` (`versionName`, `versionCode`).
-3. `python scripts/check_version_sync.py`
-4. `./build_apk.sh` (bump не нужен, если версия уже поднята deb-сборкой).
+2. Готово. **APK / exe / macOS локально не собирать.**
+3. Перед релизом на GitHub: выровнять `android/app/build.gradle.kts`, `check_version_sync.py`, commit, push.
 
 ### Тип bump
 
@@ -110,8 +100,9 @@ BUMP=minor ./build_deb.sh
 
 ## Агент
 
-- **deb** — по запросу «собери» / «пересобери»; **apk — только по явной просьбе**.
-- Перед **любой** `./build_apk.sh`: выровнять `versionName`/`versionCode` с `pyproject.toml`, прогнать `check_version_sync.py`. **Не забывать**, даже если deb собирали раньше в той же сессии.
-- После **фич** перед сборкой — `BUMP=minor ./build_deb.sh`. После **фиксов** и **проверочных сборок** — `./build_deb.sh` (patch). **Никогда** не пропускать bump «потому что проверка».
+- **Локально** — только `./build_deb.sh` по запросу «собери» / «пересобери».
+- **Не запускать** `./build_apk.sh` / exe / macOS локально; направлять на **commit + push → GitHub CI**.
+- Перед **push** (не перед локальным apk): выровнять `versionName`/`versionCode` с `pyproject.toml`, прогнать `check_version_sync.py`.
+- После **фич** перед deb — `BUMP=minor ./build_deb.sh`. После **фиксов** и **проверочных сборок** — `./build_deb.sh` (patch). **Никогда** не пропускать bump «потому что проверка».
 
 Перед **GitHub Release** (все платформы): сверить `versionName`/`versionCode` в `android/app/build.gradle.kts` с `pyproject.toml`; при расхождении — исправить и закоммитить **до** push, чтобы CI не собрал APK со старой версией.

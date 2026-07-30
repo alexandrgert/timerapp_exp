@@ -23,6 +23,8 @@ data class SessionDto(
     val id: String,
     @SerialName("started_at") val startedAt: String,
     @SerialName("ended_at") val endedAt: String? = null,
+    @SerialName("bitrix_record_id") val bitrixRecordId: String? = null,
+    val comment: String = "",
 )
 
 @Serializable
@@ -37,6 +39,7 @@ data class TaskDto(
     val day: String,
     val title: String,
     val description: String = "",
+    val result: String = "",
     val status: TaskStatus = TaskStatus.OPEN,
     val sessions: List<SessionDto> = emptyList(),
     @SerialName("created_at") val createdAt: String = "",
@@ -44,6 +47,7 @@ data class TaskDto(
     @SerialName("continuation_of") val continuationOf: String? = null,
     val bitrix: BitrixLinkDto? = null,
     @SerialName("planned_days") val plannedDays: List<String> = emptyList(),
+    @SerialName("daily_priorities") val dailyPriorities: Map<String, Int> = emptyMap(),
 )
 
 @Serializable
@@ -51,6 +55,8 @@ data class FocusTimerDto(
     @SerialName("selected_minutes") val selectedMinutes: Int = 25,
     @SerialName("duration_minutes") val durationMinutes: Int? = null,
     @SerialName("ends_at") val endsAt: String? = null,
+    @SerialName("session_task_id") val sessionTaskId: String? = null,
+    @SerialName("paused_task_id") val pausedTaskId: String? = null,
 )
 
 @Serializable
@@ -60,6 +66,7 @@ data class UiSettingsDto(
     @SerialName("filter_open_only") val filterOpenOnly: Boolean = false,
     @SerialName("reminder_interval_minutes") val reminderIntervalMinutes: Int = 15,
     @SerialName("focus_timer") val focusTimer: FocusTimerDto = FocusTimerDto(),
+    @SerialName("priority_filter") val priorityFilter: List<Int> = listOf(1, 2, 3, 4),
 )
 
 @Serializable

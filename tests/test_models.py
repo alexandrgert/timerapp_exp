@@ -110,12 +110,21 @@ def test_task_round_trip_serialization() -> None:
         day="2026-01-01",
         title="Demo",
         description="desc",
+        result="done",
         status=TaskStatus.PAUSED,
         sessions=[Session(id="a", started_at="2026-01-01T10:00:00", ended_at="2026-01-01T10:10:00")],
         continuation_of="prev",
     )
     restored = Task.from_dict(task.to_dict())
     assert restored == task
+
+
+def test_task_result_round_trip_omits_empty() -> None:
+    task = Task(id="t1", day="2026-01-01", title="Bare", result="")
+    payload = task.to_dict()
+    assert "result" not in payload
+    restored = Task.from_dict(payload)
+    assert restored.result == ""
 
 
 def test_task_from_dict_applies_defaults() -> None:

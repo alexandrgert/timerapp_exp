@@ -3,15 +3,21 @@ package com.timerapp.linkb24.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.timerapp.linkb24.data.ALL_PRIORITIES
 import com.timerapp.linkb24.data.AppDataDto
-import com.timerapp.linkb24.data.TaskViewFilter
 import com.timerapp.linkb24.data.TaskDto
 import com.timerapp.linkb24.data.TaskRepository
+import com.timerapp.linkb24.data.TaskStatus
+import com.timerapp.linkb24.data.TaskViewFilter
 import com.timerapp.linkb24.data.WebDavConfigRepository
+import com.timerapp.linkb24.data.buildDayReportMarkdown
 import com.timerapp.linkb24.data.filterTasks
 import com.timerapp.linkb24.data.formatDuration
 import com.timerapp.linkb24.data.isActive
+import com.timerapp.linkb24.data.needsPriorityBeforeStart
+import com.timerapp.linkb24.data.priorityFilterLevels
 import com.timerapp.linkb24.data.taskDurationSeconds
+import com.timerapp.linkb24.data.todayIsoDate
 import com.timerapp.linkb24.webdav.WebDavNotificationHelper
 import com.timerapp.linkb24.webdav.WebDavPromptBus
 import com.timerapp.linkb24.webdav.WebDavSync
@@ -30,6 +36,8 @@ import kotlinx.coroutines.withContext
 data class TaskListUiState(
     val tasks: List<TaskDto> = emptyList(),
     val taskFilter: TaskViewFilter = TaskViewFilter.TODAY,
+    val priorityFilter: Set<Int> = ALL_PRIORITIES,
+    val selectedTaskIds: Set<String> = emptySet(),
     val tickMillis: Long = System.currentTimeMillis(),
     val newTaskTitle: String = "",
     val errorMessage: String? = null,
@@ -87,14 +95,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
                 withContext(Dispatchers.IO) { repository.load() }
             }.onSuccess { loaded ->
                 appData = loaded
-                _uiState.update {
-                    it.copy(
-                        tasks = visibleTasks(appData),
-                        errorMessage = null,
-                        syncNotice = notices.joinToString("\n").ifBlank { null },
-                        isLoading = false,
-                    )
-                }
+                publishLoaded(notices.joinToString("\n").ifBlank { null })
             }.onFailure { error ->
                 _uiState.update {
                     it.copy(
@@ -120,7 +121,40 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
 
     fun onFilterChange(filter: TaskViewFilter) {
         _uiState.update {
-            it.copy(taskFilter = filter, tasks = filterTasks(appData, filter))
+            it.copy(taskFilter = filter, tasks = visibleTasks(appData, filter))
+        }
+    }
+
+    fun selectTask(taskId: String) {
+        val task = appData.tasks.firstOrNull { it.id == taskId } ?: return
+        _uiState.update {
+            it.copy(selectedTaskIds = enterSelection(task.id))
+        }
+    }
+
+    fun toggleTaskSelection(taskId: String) {
+        val task = appData.tasks.firstOrNull { it.id == taskId } ?: return
+        _uiState.update {
+            it.copy(selectedTaskIds = toggleSelection(it.selectedTaskIds, task.id))
+        }
+    }
+
+    fun clearSelection() {
+        _uiState.update { it.copy(selectedTaskIds = emptySet()) }
+    }
+
+    fun togglePriorityFilter(level: Int) {
+        mutateTasks("Не удалось обновить фильтр приоритета") { data ->
+            val current = priorityFilterLevels(data.ui).toMutableSet()
+            if (level in current) {
+                if (current.size == 1) {
+                    return@mutateTasks data
+                }
+                current.remove(level)
+            } else {
+                current.add(level)
+            }
+            repository.setPriorityFilter(data, current)
         }
     }
 
@@ -144,32 +178,92 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun needsPriorityBeforeStart(taskId: String): Boolean {
+        val task = appData.tasks.firstOrNull { it.id == taskId } ?: return false
+        return needsPriorityBeforeStart(task, todayIsoDate())
+    }
+
     fun toggleTimer(taskId: String) {
-        mutateTasks("Не удалось изменить таймер") {
-            repository.toggleTimer(taskId, appData)
+        mutateTasks("Не удалось изменить таймер") { data ->
+            repository.toggleTimer(taskId, data)
         }
     }
 
-    fun completeTask(taskId: String) {
-        mutateTasks("Не удалось завершить задачу") {
-            repository.completeTask(taskId, appData)
+    fun startTaskWithPriority(taskId: String, priority: Int) {
+        mutateTasks("Не удалось запустить задачу") { data ->
+            val withPriority = repository.assignTaskPriority(taskId, data, priority)
+            repository.toggleTimer(taskId, withPriority)
         }
     }
 
-    fun resumeTask(taskId: String) {
-        mutateTasks("Не удалось возобновить задачу") {
-            repository.resumeCompletedTask(taskId, appData)
+    fun completeTask(taskId: String, result: String) {
+        mutateTasks("Не удалось завершить задачу") { data ->
+            repository.completeTask(taskId, data, result)
+        }
+    }
+
+    fun resumeTask(taskId: String, comment: String = "") {
+        mutateTasks("Не удалось возобновить задачу") { data ->
+            repository.resumeCompletedTask(taskId, data, comment)
+        }
+    }
+
+    fun resumeTaskWithPriority(taskId: String, priority: Int, comment: String = "") {
+        mutateTasks("Не удалось возобновить задачу") { data ->
+            val withPriority = repository.assignTaskPriority(taskId, data, priority)
+            repository.resumeCompletedTask(taskId, withPriority, comment)
+        }
+    }
+
+    fun assignPriority(taskId: String, priority: Int) {
+        mutateTasks("Не удалось назначить приоритет") { data ->
+            repository.assignTaskPriority(taskId, data, priority)
+        }
+    }
+
+    fun assignPriorityToSelected(priority: Int) {
+        val selectedTaskIds = _uiState.value.selectedTaskIds
+        if (selectedTaskIds.isEmpty()) {
+            return
+        }
+        mutateTasks(
+            errorPrefix = "Не удалось назначить приоритет выбранным задачам",
+            clearSelectionIdsOnSuccess = selectedTaskIds,
+        ) { data ->
+            var updated = data
+            for (taskId in selectedTaskIds) {
+                updated = repository.assignTaskPriority(taskId, updated, priority)
+            }
+            updated
+        }
+    }
+
+    fun updateTask(taskId: String, title: String, description: String, result: String) {
+        mutateTasks("Не удалось сохранить задачу") { data ->
+            repository.updateTask(
+                taskId,
+                data,
+                title = title,
+                description = description,
+                result = result,
+            )
         }
     }
 
     fun deleteTask(taskId: String) {
-        mutateTasks("Не удалось удалить задачу") {
-            repository.deleteTask(taskId, appData)
+        mutateTasks("Не удалось удалить задачу") { data ->
+            repository.deleteTask(taskId, data)
         }
     }
 
+    fun findTask(taskId: String): TaskDto? = appData.tasks.firstOrNull { it.id == taskId }
+
     fun durationLabel(task: TaskDto): String {
         return formatDuration(taskDurationSeconds(task, _uiState.value.tickMillis))
+    }
+
+    fun dayReport(dateIso: String, extended: Boolean): String {
+        return buildDayReportMarkdown(appData, dateIso, extended = extended)
     }
 
     fun pullWebDav() {
@@ -241,10 +335,22 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
                 withContext(Dispatchers.IO) { repository.load() }
             }.onSuccess { loaded ->
                 appData = loaded
-                _uiState.update {
-                    it.copy(tasks = visibleTasks(appData), errorMessage = null)
-                }
+                publishLoaded(null)
             }
+        }
+    }
+
+    private fun publishLoaded(syncNotice: String?) {
+        val selectedTaskIds = pruneSelection(_uiState.value.selectedTaskIds, appData.tasks)
+        _uiState.update {
+            it.copy(
+                tasks = visibleTasks(appData),
+                priorityFilter = priorityFilterLevels(appData.ui),
+                selectedTaskIds = selectedTaskIds,
+                errorMessage = null,
+                syncNotice = syncNotice,
+                isLoading = false,
+            )
         }
     }
 
@@ -270,8 +376,11 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         _uiState.update {
+            val selectedTaskIds = pruneSelection(_uiState.value.selectedTaskIds, appData.tasks)
             it.copy(
                 tasks = visibleTasks(appData),
+                priorityFilter = priorityFilterLevels(appData.ui),
+                selectedTaskIds = selectedTaskIds,
                 isWebDavSyncing = false,
                 syncNotice = outcome.notice.ifBlank { outcome.error.ifBlank { null } },
                 errorMessage = outcome.error.ifBlank { null },
@@ -279,7 +388,11 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun mutateTasks(errorPrefix: String, transform: (AppDataDto) -> AppDataDto) {
+    private fun mutateTasks(
+        errorPrefix: String,
+        clearSelectionIdsOnSuccess: Set<String> = emptySet(),
+        transform: (AppDataDto) -> AppDataDto,
+    ) {
         viewModelScope.launch {
             val previous = appData
             runCatching {
@@ -291,8 +404,15 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
             }.onSuccess { updated ->
                 appData = updated
                 _uiState.update {
+                    val selectedTaskIds = nextSelectionAfterMutation(
+                        selectedTaskIds = it.selectedTaskIds,
+                        tasks = appData.tasks,
+                        clearSelectionIds = clearSelectionIdsOnSuccess,
+                    )
                     it.copy(
                         tasks = visibleTasks(appData),
+                        priorityFilter = priorityFilterLevels(appData.ui),
+                        selectedTaskIds = selectedTaskIds,
                         tickMillis = System.currentTimeMillis(),
                         errorMessage = null,
                     )
@@ -306,7 +426,10 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun visibleTasks(data: AppDataDto, filter: TaskViewFilter = _uiState.value.taskFilter): List<TaskDto> {
+    private fun visibleTasks(
+        data: AppDataDto,
+        filter: TaskViewFilter = _uiState.value.taskFilter,
+    ): List<TaskDto> {
         return filterTasks(data, filter)
     }
 }

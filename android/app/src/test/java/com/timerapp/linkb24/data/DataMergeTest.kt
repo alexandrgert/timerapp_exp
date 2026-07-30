@@ -227,6 +227,78 @@ class DataMergeTest {
         assertEquals("naive_later", winner.id)
         assertEquals(TaskStatus.PAUSED, paused.status)
     }
+
+    @Test
+    fun roundTrip_preserves_desktop_fields() {
+        val original = AppDataDto(
+            tasks = listOf(
+                TaskDto(
+                    id = "t1",
+                    day = "2026-07-10",
+                    title = "Desktop task",
+                    description = "Desc",
+                    result = "Done",
+                    dailyPriorities = mapOf("2026-07-10" to 2),
+                    createdAt = "2026-07-10T10:00:00+03:00",
+                    sessions = listOf(
+                        SessionDto(
+                            id = "s1",
+                            startedAt = "2026-07-10T10:00:00+03:00",
+                            endedAt = "2026-07-10T11:00:00+03:00",
+                            comment = "Note",
+                            bitrixRecordId = "99",
+                        ),
+                    ),
+                ),
+            ),
+            ui = UiSettingsDto(priorityFilter = listOf(1, 2)),
+        )
+        val encoded = AppJson.encodeToString(AppDataDto.serializer(), original)
+        val restored = AppJson.decodeFromString(AppDataDto.serializer(), encoded)
+        assertEquals("Done", restored.tasks.single().result)
+        assertEquals(2, restored.tasks.single().dailyPriorities["2026-07-10"])
+        assertEquals("Note", restored.tasks.single().sessions.single().comment)
+        assertEquals("99", restored.tasks.single().sessions.single().bitrixRecordId)
+        assertEquals(listOf(1, 2), restored.ui.priorityFilter)
+    }
+
+    @Test
+    fun mergeTaskPair_keeps_result_and_priorities() {
+        val local = TaskDto(
+            id = "t1",
+            day = "2026-07-10",
+            title = "Local",
+            result = "From local",
+            dailyPriorities = mapOf("2026-07-10" to 3),
+            createdAt = "2026-07-10T10:00:00+03:00",
+            sessions = listOf(
+                SessionDto("s1", "2026-07-10T10:00:00+03:00", "2026-07-10T10:30:00+03:00"),
+            ),
+        )
+        val remote = TaskDto(
+            id = "t1",
+            day = "2026-07-10",
+            title = "Remote",
+            result = "",
+            dailyPriorities = mapOf("2026-07-10" to 1),
+            createdAt = "2026-07-10T09:00:00+03:00",
+            sessions = listOf(
+                SessionDto(
+                    "s1",
+                    "2026-07-10T10:00:00+03:00",
+                    "2026-07-10T10:30:00+03:00",
+                    comment = "Resume reason",
+                    bitrixRecordId = "42",
+                ),
+            ),
+        )
+
+        val merged = mergeTaskPair(local, remote)
+        assertEquals("From local", merged.result)
+        assertEquals(1, merged.dailyPriorities["2026-07-10"])
+        assertEquals("Resume reason", merged.sessions.single().comment)
+        assertEquals("42", merged.sessions.single().bitrixRecordId)
+    }
 }
 
 class WebDavMetaTest {

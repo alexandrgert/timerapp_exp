@@ -65,6 +65,7 @@ class Task:
     day: str
     title: str
     description: str = ""
+    result: str = ""
     status: TaskStatus = TaskStatus.OPEN
     sessions: list[Session] = field(default_factory=list)
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
@@ -100,6 +101,8 @@ class Task:
             "bitrix": self.bitrix,
             "planned_days": self.planned_days,
         }
+        if self.result:
+            payload["result"] = self.result
         if self.daily_priorities:
             payload["daily_priorities"] = dict(self.daily_priorities)
         return payload
@@ -111,6 +114,7 @@ class Task:
             day=data["day"],
             title=data["title"],
             description=data.get("description", ""),
+            result=str(data.get("result", "") or ""),
             status=TaskStatus(data.get("status", TaskStatus.OPEN.value)),
             sessions=[Session.from_dict(item) for item in data.get("sessions", [])],
             created_at=data.get("created_at", datetime.now().isoformat()),

@@ -26,6 +26,7 @@
 | `day` | string | да | ISO date `YYYY-MM-DD` — день создания |
 | `title` | string | да | Название |
 | `description` | string | нет | Описание |
+| `result` | string | нет | Результат при завершении задачи |
 | `status` | enum | да | `open`, `running`, `paused`, `completed` |
 | `sessions` | Session[] | да | Интервалы учёта времени |
 | `created_at` | string | нет | ISO 8601 datetime |

@@ -60,6 +60,7 @@
         "day": { "$ref": "#/$defs/isoDate" },
         "title": { "type": "string" },
         "description": { "type": "string" },
+        "result": { "type": "string" },
         "status": { "$ref": "#/$defs/taskStatus" },
         "sessions": {
           "type": "array",

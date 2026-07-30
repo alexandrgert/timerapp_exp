@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from .bitrix_config import BitrixPortalConfig, merge_portal_config
 from .bitrix_secrets import import_webhook_from_ui, load_bitrix_webhook, save_bitrix_webhook
 from .bitrix_transfer_journal import apply_transfer_journal, remove_transfer_result
+from .domain import day_report as day_report_domain
 from .domain import formatting
 from .domain import plan as plan_domain
 from .domain import priority as priority_domain
@@ -387,14 +388,14 @@ class AppController:
         self.save()
         return task
 
-    def complete_task(self, task_id: str) -> Task:
-        task = task_ops.complete_task(self.state, task_id)
+    def complete_task(self, task_id: str, *, result: str = "") -> Task:
+        task = task_ops.complete_task(self.state, task_id, result=result)
         self._clear_reminder_runtime()
         self.save()
         return task
 
-    def resume_completed_task(self, task_id: str) -> Task:
-        task = task_ops.resume_completed_task(self.state, task_id)
+    def resume_completed_task(self, task_id: str, *, comment: str = "") -> Task:
+        task = task_ops.resume_completed_task(self.state, task_id, comment=comment)
         self._clear_reminder_runtime()
         self.next_reminder_at = datetime.now() + reminders_domain.reminder_interval_td(self.state)
         self.save()
@@ -525,15 +526,25 @@ class AppController:
         *,
         title: str | None = None,
         description: str | None = None,
+        result: str | None = None,
     ) -> Task:
         task = task_ops.update_task(
             self.state,
             task_id,
             title=title,
             description=description,
+            result=result,
         )
         self.save()
         return task
+
+    def build_day_report(self, date_iso: str | None = None, *, extended: bool = False) -> str:
+        day = date_iso or self.today_str()
+        return day_report_domain.build_day_report_markdown(
+            self.state,
+            day,
+            extended=extended,
+        )
 
     def add_session(
         self,

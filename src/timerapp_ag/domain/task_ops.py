@@ -77,6 +77,7 @@ def update_task(
     *,
     title: str | None = None,
     description: str | None = None,
+    result: str | None = None,
 ) -> Task:
     task = find_task(state, task_id)
     if title is not None:
@@ -86,10 +87,18 @@ def update_task(
         task.title = stripped
     if description is not None:
         task.description = description.strip()
+    if result is not None:
+        task.result = result.strip()
     return task
 
 
-def start_task(state: AppState, task_id: str, *, now: datetime | None = None) -> Task:
+def start_task(
+    state: AppState,
+    task_id: str,
+    *,
+    comment: str = "",
+    now: datetime | None = None,
+) -> Task:
     now = now or datetime.now()
     current = active_task(state)
     if current and current.id != task_id:
@@ -99,7 +108,13 @@ def start_task(state: AppState, task_id: str, *, now: datetime | None = None) ->
         task.status = TaskStatus.OPEN
         task.completed_at = None
     if task.active_session() is None:
-        task.sessions.append(Session(id=make_id(), started_at=now.isoformat()))
+        task.sessions.append(
+            Session(
+                id=make_id(),
+                started_at=now.isoformat(),
+                comment=comment.strip(),
+            )
+        )
     task.status = TaskStatus.RUNNING
     return task
 
@@ -115,21 +130,34 @@ def stop_task(state: AppState, task_id: str, *, now: datetime | None = None) -> 
     return task
 
 
-def complete_task(state: AppState, task_id: str, *, now: datetime | None = None) -> Task:
+def complete_task(
+    state: AppState,
+    task_id: str,
+    *,
+    result: str = "",
+    now: datetime | None = None,
+) -> Task:
     now = now or datetime.now()
     task = find_task(state, task_id)
     if task.active_session():
         stop_task(state, task_id, now=now)
+    task.result = result.strip()
     task.status = TaskStatus.COMPLETED
     task.completed_at = now.isoformat()
     return task
 
 
-def resume_completed_task(state: AppState, task_id: str, *, now: datetime | None = None) -> Task:
+def resume_completed_task(
+    state: AppState,
+    task_id: str,
+    *,
+    comment: str = "",
+    now: datetime | None = None,
+) -> Task:
     task = find_task(state, task_id)
     task.status = TaskStatus.OPEN
     task.completed_at = None
-    return start_task(state, task_id, now=now)
+    return start_task(state, task_id, comment=comment, now=now)
 
 
 def delete_task(state: AppState, task_id: str, *, now: datetime | None = None) -> None:

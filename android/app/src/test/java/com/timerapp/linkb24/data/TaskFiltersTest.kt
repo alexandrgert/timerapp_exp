@@ -69,21 +69,67 @@ class TaskFiltersTest {
         assertEquals("running", filtered.first().id)
     }
 
+    @Test
+    fun today_hides_carried_plan_without_priority() {
+        val data = AppDataDto(
+            tasks = listOf(
+                task(
+                    "old",
+                    day = "2026-06-27",
+                    plannedDays = listOf("2026-06-28"),
+                ),
+                task(
+                    "prio",
+                    day = "2026-06-27",
+                    plannedDays = listOf("2026-06-28"),
+                    dailyPriorities = mapOf("2026-06-28" to 2),
+                ),
+            ),
+        )
+
+        val filtered = filterTasks(data, TaskViewFilter.TODAY, today = "2026-06-28")
+
+        assertEquals(listOf("prio"), filtered.map { it.id })
+    }
+
+    @Test
+    fun needs_priority_before_start_for_resume_and_open_tasks() {
+        val openTask = task("open")
+        val completedTask = task("done", status = TaskStatus.COMPLETED)
+        val prioritizedTask = task(
+            "prio",
+            dailyPriorities = mapOf("2026-06-28" to 2),
+        )
+        val runningTask = task(
+            "running",
+            status = TaskStatus.RUNNING,
+            sessions = listOf(SessionDto(id = "s1", startedAt = "2026-06-28T10:00:00+03:00")),
+        )
+
+        assertTrue(needsPriorityBeforeStart(openTask, "2026-06-28"))
+        assertTrue(needsPriorityBeforeStart(completedTask, "2026-06-28"))
+        assertTrue(!needsPriorityBeforeStart(prioritizedTask, "2026-06-28"))
+        assertTrue(!needsPriorityBeforeStart(runningTask, "2026-06-28"))
+    }
+
     private fun task(
         id: String,
         status: TaskStatus = TaskStatus.OPEN,
         createdAt: String = "2026-06-28T10:00:00+03:00",
+        day: String = "2026-06-28",
         plannedDays: List<String> = listOf("2026-06-28"),
         sessions: List<SessionDto> = emptyList(),
+        dailyPriorities: Map<String, Int> = emptyMap(),
     ): TaskDto {
         return TaskDto(
             id = id,
-            day = "2026-06-28",
+            day = day,
             title = id,
             status = status,
             createdAt = createdAt,
             plannedDays = plannedDays,
             sessions = sessions,
+            dailyPriorities = dailyPriorities,
         )
     }
 }

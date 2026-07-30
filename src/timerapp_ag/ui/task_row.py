@@ -84,6 +84,7 @@ class TaskRow(QFrame):
         self._task_id = task.id
         self._title = task.title
         self._description = task.description.strip()
+        self._result = task.result.strip()
         self._is_completed = task.status == TaskStatus.COMPLETED
         self._pinned = False
         self._plan_mode = plan_mode
@@ -220,16 +221,16 @@ class TaskRow(QFrame):
         edit_button.clicked.connect(lambda: self.edit_requested.emit(task.id))
         actions.addWidget(edit_button)
 
-        if not is_done:
-            history_button = QPushButton()
-            history_button.setObjectName("iconAction")
-            history_button.setFixedSize(26, 26)
-            history_button.setIcon(line_icon("stopwatch", draw_stopwatch))
-            history_button.setToolTip("История сессий")
-            history_button.setCursor(Qt.CursorShape.PointingHandCursor)
-            history_button.clicked.connect(lambda: self.history_requested.emit(task.id))
-            actions.addWidget(history_button)
+        history_button = QPushButton()
+        history_button.setObjectName("iconAction")
+        history_button.setFixedSize(26, 26)
+        history_button.setIcon(line_icon("stopwatch", draw_stopwatch))
+        history_button.setToolTip("История сессий")
+        history_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        history_button.clicked.connect(lambda: self.history_requested.emit(task.id))
+        actions.addWidget(history_button)
 
+        if not is_done:
             portal_url = bitrix_entity_url(controller, task.bitrix)
             if portal_url:
                 open_button = QPushButton("Открыть в Б24")
@@ -288,6 +289,25 @@ class TaskRow(QFrame):
         layout.addWidget(self._actions)
         root.addWidget(header)
 
+        self._result_wrap = QWidget()
+        self._result_wrap.setObjectName("taskRowResultWrap")
+        result_layout = QHBoxLayout(self._result_wrap)
+        result_layout.setContentsMargins(self._content_left_inset(), 0, 12, 4)
+        result_layout.setSpacing(0)
+        self._result_label = QLabel()
+        self._result_label.setObjectName("taskRowResult")
+        self._result_label.setWordWrap(True)
+        self._result_label.setAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
+        )
+        self._result_label.setSizePolicy(
+            QSizePolicy.Policy.Ignored,
+            QSizePolicy.Policy.Minimum,
+        )
+        result_layout.addWidget(self._result_label, 1)
+        root.addWidget(self._result_wrap)
+        self._result_wrap.hide()
+
         self._desc_wrap = QWidget()
         self._desc_wrap.setObjectName("taskRowDescWrap")
         desc_layout = QHBoxLayout(self._desc_wrap)
@@ -342,6 +362,7 @@ class TaskRow(QFrame):
         self._select_checkbox.setVisible(enabled)
         self._priority_badge.setVisible(enabled)
         self._desc_wrap.layout().setContentsMargins(self._content_left_inset(), 0, 12, 10)
+        self._result_wrap.layout().setContentsMargins(self._content_left_inset(), 0, 12, 4)
         self._pinned_footer_layout.setContentsMargins(
             self._content_left_inset(),
             TASK_ROW_PINNED_FOOTER_V_PAD,
@@ -517,6 +538,14 @@ class TaskRow(QFrame):
     def _description_area_width(self) -> int:
         return max(self._content_max_width() - self._content_left_inset() - 12, 120)
 
+    def _fit_result_layout(self) -> None:
+        if not self._pinned or self._result_wrap.isHidden():
+            return
+        available = self._description_area_width()
+        self._result_wrap.setFixedWidth(self._content_max_width())
+        display_text = break_long_unbroken_runs(f"Результат: {self._result}")
+        fit_wrapped_label_height(self._result_label, display_text, width=available)
+
     def _relayout_actions_for_pinned(self, pinned: bool) -> None:
         if pinned:
             if self._actions.parentWidget() is self._header:
@@ -546,6 +575,7 @@ class TaskRow(QFrame):
             self._actions.setEnabled(False)
 
     def _fit_description_layout(self) -> None:
+        self._fit_result_layout()
         if not self._pinned or self._desc_wrap.isHidden():
             return
         available = self._description_area_width()
@@ -571,6 +601,7 @@ class TaskRow(QFrame):
         )
         self.setFixedHeight(
             self._header.height()
+            + self._result_wrap.sizeHint().height()
             + self._desc_wrap.sizeHint().height()
             + footer_height
         )
@@ -584,6 +615,11 @@ class TaskRow(QFrame):
         self._relayout_actions_for_pinned(show)
         if show:
             self._meta_box.show()
+            if self._result:
+                self._result_label.setText(break_long_unbroken_runs(f"Результат: {self._result}"))
+                self._result_wrap.show()
+            else:
+                self._result_wrap.hide()
             if self._description:
                 self._desc_label.setText(break_long_unbroken_runs(self._description))
                 self._desc_label.setProperty("empty", False)
@@ -598,6 +634,7 @@ class TaskRow(QFrame):
             self.refresh_layout()
         else:
             self._meta_box.hide()
+            self._result_wrap.hide()
             self._desc_wrap.hide()
             self._fit_header_layout()
             self.setFixedHeight(48)

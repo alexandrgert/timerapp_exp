@@ -39,11 +39,15 @@ fun mergeTaskPair(left: TaskDto, right: TaskDto): TaskDto {
     val other = if (base === right) left else right
     val plannedDays = (base.plannedDays + other.plannedDays).distinct()
     val description = base.description.ifBlank { other.description }
+    val result = base.result.ifBlank { other.result }
+    val dailyPriorities = mergeDailyPriorities(base.dailyPriorities, other.dailyPriorities)
     val (status, completedAt) = resolveMergedStatus(left, right, mergedSessions)
     return base.copy(
         sessions = mergedSessions,
         plannedDays = plannedDays,
         description = description,
+        result = result,
+        dailyPriorities = dailyPriorities,
         status = status,
         completedAt = completedAt,
     )
@@ -105,7 +109,23 @@ private fun pickRicherSession(existing: SessionDto, candidate: SessionDto): Sess
     }
     val existingSeconds = sessionDurationSeconds(existing)
     val candidateSeconds = sessionDurationSeconds(candidate)
-    return if (candidateSeconds > existingSeconds) candidate else existing
+    if (candidateSeconds != existingSeconds) {
+        return if (candidateSeconds > existingSeconds) candidate else existing
+    }
+    val existingMeta = sessionMetaScore(existing)
+    val candidateMeta = sessionMetaScore(candidate)
+    return if (candidateMeta > existingMeta) candidate else existing
+}
+
+private fun sessionMetaScore(session: SessionDto): Int {
+    var score = 0
+    if (session.comment.isNotBlank()) {
+        score += 1
+    }
+    if (!session.bitrixRecordId.isNullOrBlank()) {
+        score += 2
+    }
+    return score
 }
 
 private fun sessionDurationSeconds(session: SessionDto): Long {

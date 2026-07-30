@@ -65,6 +65,7 @@ def merge_task_pair(left: Task, right: Task) -> Task:
     planned_days = list(dict.fromkeys((base.planned_days or []) + (other.planned_days or [])))
     daily_priorities = merge_daily_priorities(base.daily_priorities, other.daily_priorities)
     description = base.description or other.description
+    result = base.result or other.result
     status, completed_at = _resolve_merged_status(left, right, merged_sessions)
     return replace(
         base,
@@ -72,6 +73,7 @@ def merge_task_pair(left: Task, right: Task) -> Task:
         planned_days=planned_days,
         daily_priorities=daily_priorities,
         description=description,
+        result=result,
         status=status,
         completed_at=completed_at,
     )

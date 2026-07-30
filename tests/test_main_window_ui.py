@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 from PySide6.QtCore import QRect
 from PySide6.QtGui import QFont, QFontMetrics
 from PySide6.QtWidgets import (
     QApplication,
+    QDialog,
     QLabel,
     QPlainTextEdit,
     QScrollArea,
@@ -20,9 +21,12 @@ from timerapp_ag.domain import queries
 from timerapp_ag.domain.formatting import format_hm
 from timerapp_ag.main_window import (
     CreateTaskDialog,
+    DayReportDialog,
     MainWindow,
     SessionEditDialog,
+    TaskCompleteDialog,
     TaskEditDialog,
+    TaskResumeDialog,
     TaskRow,
     RIGHT_COLUMN_WIDTH,
     SIDEBAR_WIDTH,
@@ -39,6 +43,10 @@ from timerapp_ag.main_window import (
     fit_wrapped_label_height,
 )
 from timerapp_ag.models import Task, TaskStatus, make_id
+
+
+def _accept_modal_dialog(*_args: object, **_kwargs: object) -> QDialog.DialogCode:
+    return QDialog.DialogCode.Accepted
 
 
 def _widget_right_in_ancestor(widget: QWidget, ancestor: QWidget, *, margin: int = 0) -> int:
@@ -607,8 +615,6 @@ def test_complete_other_task_keeps_pinned_task_expanded(
     monkeypatch: pytest.MonkeyPatch,
     qapp: QApplication,
 ) -> None:
-    from PySide6.QtWidgets import QMessageBox
-
     pinned = controller.create_task("Pinned task", description="")
     other = controller.create_task("Other task", description="Details")
     controller.stop_task(pinned.id)
@@ -624,8 +630,8 @@ def test_complete_other_task_keeps_pinned_task_expanded(
     assert pinned_row.height() > 48
 
     monkeypatch.setattr(
-        "timerapp_ag.main_window.QMessageBox.question",
-        lambda *args, **kwargs: QMessageBox.StandardButton.Yes,
+        "timerapp_ag.main_window.TaskCompleteDialog.exec",
+        _accept_modal_dialog,
     )
     main_window._confirm_complete_task(other.id)
     qapp.processEvents()
@@ -642,6 +648,7 @@ def test_complete_other_task_keeps_pinned_task_expanded(
 def test_resume_other_task_keeps_pinned_task_expanded(
     main_window: MainWindow,
     controller: AppController,
+    monkeypatch: pytest.MonkeyPatch,
     qapp: QApplication,
 ) -> None:
     pinned = controller.create_task("Pinned task", description="")
@@ -656,6 +663,10 @@ def test_resume_other_task_keeps_pinned_task_expanded(
     pinned_row = main_window._task_rows[pinned.id]
     assert pinned_row._pinned
 
+    monkeypatch.setattr(
+        "timerapp_ag.main_window.TaskResumeDialog.exec",
+        _accept_modal_dialog,
+    )
     main_window._resume_task(other.id)
     qapp.processEvents()
 
@@ -674,8 +685,6 @@ def test_complete_pinned_task_collapses_row(
     monkeypatch: pytest.MonkeyPatch,
     qapp: QApplication,
 ) -> None:
-    from PySide6.QtWidgets import QMessageBox
-
     task = controller.create_task("Pinned complete", description="")
     controller.stop_task(task.id)
     main_window._set_view("plan")
@@ -684,8 +693,8 @@ def test_complete_pinned_task_collapses_row(
     assert main_window._task_rows[task.id]._pinned
 
     monkeypatch.setattr(
-        "timerapp_ag.main_window.QMessageBox.question",
-        lambda *args, **kwargs: QMessageBox.StandardButton.Yes,
+        "timerapp_ag.main_window.TaskCompleteDialog.exec",
+        _accept_modal_dialog,
     )
     main_window._confirm_complete_task(task.id)
     qapp.processEvents()
@@ -699,6 +708,7 @@ def test_complete_pinned_task_collapses_row(
 def test_resume_pinned_task_collapses_row(
     main_window: MainWindow,
     controller: AppController,
+    monkeypatch: pytest.MonkeyPatch,
     qapp: QApplication,
 ) -> None:
     task = controller.create_task("Pinned resume", description="")
@@ -708,6 +718,10 @@ def test_resume_pinned_task_collapses_row(
     main_window._on_task_row_selected(task.id)
     assert main_window._task_rows[task.id]._pinned
 
+    monkeypatch.setattr(
+        "timerapp_ag.main_window.TaskResumeDialog.exec",
+        _accept_modal_dialog,
+    )
     main_window._resume_task(task.id)
     qapp.processEvents()
 
@@ -1254,6 +1268,8 @@ def test_apply_priority_updates_selected_rows(
     row = main_window._task_rows[task.id]
     assert row._priority_badge.text() == "2"
     assert row._priority_badge.property("priority") == "2"
+    assert task.id not in main_window._selected_task_ids
+    assert not row._select_checkbox.isChecked()
 
 
 def test_apply_priority_four_assigns_explicit_low_priority(
@@ -1283,6 +1299,7 @@ def test_apply_priority_four_assigns_explicit_low_priority(
     assert stored.daily_priorities[today] == 4
     assert today in stored.planned_days
     assert stored.title in {item.title for item in controller.tasks_today_plan(today)}
+    assert task.id not in main_window._selected_task_ids
 
 
 def test_create_task_start_now_skips_priority_prompt(
@@ -1335,6 +1352,39 @@ def test_focus_resume_skips_priority_prompt(
     reloaded = controller.find_task(task.id)
     assert reloaded.status == TaskStatus.RUNNING
     assert controller.task_priority(reloaded) == 2
+
+
+def test_focus_resume_prompts_priority_when_unset_for_today(
+    main_window: MainWindow,
+    controller: AppController,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from PySide6.QtWidgets import QMessageBox
+
+    task = controller.create_task("Focus no priority", description="")
+    controller.start_task(task.id)
+    # Simulate "no priority set for today" (e.g. carried task / cleared).
+    task.daily_priorities.clear()
+    controller.save()
+    controller.start_focus_timer(10)
+
+    calls: list[str] = []
+    monkeypatch.setattr(
+        main_window,
+        "_prompt_start_priority",
+        lambda task_id: calls.append(task_id) or 1,
+    )
+    monkeypatch.setattr(
+        "timerapp_ag.main_window.QMessageBox.question",
+        lambda *args, **kwargs: QMessageBox.StandardButton.Yes,
+    )
+
+    main_window._prompt_focus_resume(task.id)
+
+    assert calls == [task.id]
+    reloaded = controller.find_task(task.id)
+    assert reloaded.status == TaskStatus.RUNNING
+    assert controller.task_priority(reloaded) == 1
 
 
 def test_task_row_checkbox_does_not_pin_row(
@@ -1869,3 +1919,131 @@ def test_settings_dialog_chrome_height_matches_layout(
     measured_chrome = dialog.height() - scroll.height()
     assert measured_chrome > 0
     assert abs(dialog._settings_dialog_chrome_height() - measured_chrome) <= 8
+
+
+def test_complete_dialog_saves_result(
+    main_window: MainWindow,
+    controller: AppController,
+    monkeypatch: pytest.MonkeyPatch,
+    qapp: QApplication,
+) -> None:
+    task = controller.create_task("Complete me")
+    controller.stop_task(task.id)
+    original_init = TaskCompleteDialog.__init__
+
+    def patched_init(self, task_obj, parent=None) -> None:
+        original_init(self, task_obj, parent)
+        self.result_edit.setPlainText("Итог работы")
+
+    monkeypatch.setattr(TaskCompleteDialog, "__init__", patched_init)
+    monkeypatch.setattr(TaskCompleteDialog, "exec", _accept_modal_dialog)
+    main_window._confirm_complete_task(task.id)
+    qapp.processEvents()
+
+    assert controller.find_task(task.id).result == "Итог работы"
+
+
+def test_complete_dialog_requires_result(
+    controller: AppController,
+    monkeypatch: pytest.MonkeyPatch,
+    qapp: QApplication,
+) -> None:
+    monkeypatch.setattr("timerapp_ag.main_window.QMessageBox.warning", lambda *args, **kwargs: None)
+    task = controller.create_task("Need result")
+    dialog = TaskCompleteDialog(controller.find_task(task.id))
+    dialog.result_edit.setPlainText("   ")
+    dialog.accept()
+    qapp.processEvents()
+    assert dialog.result() == QDialog.DialogCode.Rejected
+
+    dialog.result_edit.setPlainText("Готово")
+    dialog.accept()
+    qapp.processEvents()
+    assert dialog.result() == QDialog.DialogCode.Accepted
+
+
+def test_resume_dialog_saves_comment(
+    main_window: MainWindow,
+    controller: AppController,
+    monkeypatch: pytest.MonkeyPatch,
+    qapp: QApplication,
+) -> None:
+    task = controller.create_task("Resume me")
+    controller.complete_task(task.id)
+    original_init = TaskResumeDialog.__init__
+
+    def patched_init(self, task_obj, parent=None) -> None:
+        original_init(self, task_obj, parent)
+        self.comment_edit.setPlainText("Доработка")
+
+    monkeypatch.setattr(TaskResumeDialog, "__init__", patched_init)
+    monkeypatch.setattr(TaskResumeDialog, "exec", _accept_modal_dialog)
+    main_window._resume_task(task.id)
+    qapp.processEvents()
+
+    resumed = controller.find_task(task.id)
+    assert resumed.active_session() is not None
+    assert resumed.active_session().comment == "Доработка"
+
+
+def test_completed_task_row_has_history_button(
+    qapp: QApplication,
+    controller: AppController,
+) -> None:
+    from PySide6.QtWidgets import QPushButton
+
+    task = controller.create_task("Done task")
+    controller.complete_task(task.id)
+    row = TaskRow(controller, controller.find_task(task.id))
+    history = [b for b in row.findChildren(QPushButton) if b.toolTip() == "История сессий"]
+    assert len(history) == 1
+
+
+def test_pinned_row_shows_result_block(
+    main_window: MainWindow,
+    controller: AppController,
+    qapp: QApplication,
+) -> None:
+    task = controller.create_task("With result")
+    controller.update_task(task.id, result="Готово")
+    controller.stop_task(task.id)
+    main_window._set_view("plan")
+    main_window.refresh_ui()
+    main_window._on_task_row_selected(task.id)
+    qapp.processEvents()
+
+    row = main_window._task_rows[task.id]
+    assert not row._result_wrap.isHidden()
+    assert "Готово" in row._result_label.text()
+
+
+def test_day_report_dialog_extended_mode(
+    main_window: MainWindow,
+    controller: AppController,
+    monkeypatch: pytest.MonkeyPatch,
+    qapp: QApplication,
+) -> None:
+    from PySide6.QtWidgets import QMessageBox
+
+    task = controller.create_task("Report task", description="Desc")
+    now = datetime.now()
+    start = now.replace(hour=10, minute=0, second=0, microsecond=0)
+    controller.add_session(task.id, start, start + timedelta(minutes=20))
+    controller.update_task(task.id, result="Done")
+
+    dialog = DayReportDialog(controller, controller.today_str(), main_window)
+    assert "Report task" in dialog.text_edit.toPlainText()
+    assert "Desc" not in dialog.text_edit.toPlainText()
+
+    monkeypatch.setattr(
+        "timerapp_ag.main_window.QMessageBox.question",
+        lambda *args, **kwargs: QMessageBox.StandardButton.Yes,
+    )
+    dialog._switch_to_extended()
+    qapp.processEvents()
+
+    text = dialog.text_edit.toPlainText()
+    assert "расширенный" in dialog.heading.text().lower()
+    assert "Desc" in text
+    assert "Сессии за день" in text
+    assert not dialog.extended_button.isEnabled()

@@ -1329,6 +1329,197 @@ class SettingsDialog(QDialog):
         super().reject()
 
 
+class TaskCompleteDialog(QDialog):
+    def __init__(self, task: Task, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Завершить задачу")
+        self.setModal(True)
+        self.resize(480, 280)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 22, 24, 22)
+        layout.setSpacing(12)
+
+        title = QLabel("Завершить задачу")
+        title.setObjectName("sectionTitle")
+        layout.addWidget(title)
+
+        subtitle = QLabel(task.title)
+        subtitle.setObjectName("descriptionLabel")
+        subtitle.setWordWrap(True)
+        layout.addWidget(subtitle)
+
+        form = QFormLayout()
+        form.setHorizontalSpacing(14)
+        form.setVerticalSpacing(10)
+        self.result_edit = QPlainTextEdit()
+        self.result_edit.setPlaceholderText("Опишите результат выполнения задачи")
+        self.result_edit.setPlainText(task.result)
+        self.result_edit.document().contentsChanged.connect(
+            lambda: fit_plain_text_edit_height(self.result_edit)
+        )
+        form.addRow("Результат", self.result_edit)
+        layout.addLayout(form)
+
+        dialog_buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        ok_button = dialog_buttons.button(QDialogButtonBox.StandardButton.Ok)
+        if ok_button is not None:
+            ok_button.setText("Завершить")
+        cancel_button = dialog_buttons.button(QDialogButtonBox.StandardButton.Cancel)
+        if cancel_button is not None:
+            cancel_button.setText("Отмена")
+        dialog_buttons.accepted.connect(self.accept)
+        dialog_buttons.rejected.connect(self.reject)
+        layout.addWidget(dialog_buttons)
+
+    def accept(self) -> None:
+        if not self.result_edit.toPlainText().strip():
+            QMessageBox.warning(self, "Ошибка", "Введите результат выполнения задачи.")
+            return
+        super().accept()
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        fit_plain_text_edit_height(self.result_edit)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        fit_plain_text_edit_height(self.result_edit)
+
+    def result_text(self) -> str:
+        return self.result_edit.toPlainText()
+
+
+class TaskResumeDialog(QDialog):
+    def __init__(self, task: Task, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Возобновить задачу")
+        self.setModal(True)
+        self.resize(480, 240)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 22, 24, 22)
+        layout.setSpacing(12)
+
+        title = QLabel("Возобновить задачу")
+        title.setObjectName("sectionTitle")
+        layout.addWidget(title)
+
+        subtitle = QLabel(task.title)
+        subtitle.setObjectName("descriptionLabel")
+        subtitle.setWordWrap(True)
+        layout.addWidget(subtitle)
+
+        form = QFormLayout()
+        form.setHorizontalSpacing(14)
+        form.setVerticalSpacing(10)
+        self.comment_edit = QPlainTextEdit()
+        self.comment_edit.setPlaceholderText("Причина возобновления")
+        self.comment_edit.document().contentsChanged.connect(
+            lambda: fit_plain_text_edit_height(self.comment_edit)
+        )
+        form.addRow("Причина", self.comment_edit)
+        layout.addLayout(form)
+
+        dialog_buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        ok_button = dialog_buttons.button(QDialogButtonBox.StandardButton.Ok)
+        if ok_button is not None:
+            ok_button.setText("Возобновить")
+        cancel_button = dialog_buttons.button(QDialogButtonBox.StandardButton.Cancel)
+        if cancel_button is not None:
+            cancel_button.setText("Отмена")
+        dialog_buttons.accepted.connect(self.accept)
+        dialog_buttons.rejected.connect(self.reject)
+        layout.addWidget(dialog_buttons)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        fit_plain_text_edit_height(self.comment_edit)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        fit_plain_text_edit_height(self.comment_edit)
+
+    def comment_text(self) -> str:
+        return self.comment_edit.toPlainText()
+
+
+class DayReportDialog(QDialog):
+    def __init__(
+        self,
+        controller: AppController,
+        date_iso: str,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.controller = controller
+        self._date_iso = date_iso
+        self._extended = False
+        self.setWindowTitle("Отчёт дня")
+        self.resize(640, 520)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 22, 24, 22)
+        layout.setSpacing(12)
+
+        self.heading = QLabel("Отчёт дня — краткий")
+        self.heading.setObjectName("sectionTitle")
+        layout.addWidget(self.heading)
+
+        self.text_edit = QPlainTextEdit()
+        self.text_edit.setReadOnly(True)
+        self.text_edit.setPlainText(controller.build_day_report(date_iso, extended=False))
+        layout.addWidget(self.text_edit, 1)
+
+        buttons = QHBoxLayout()
+        buttons.setSpacing(8)
+        self.extended_button = QPushButton("Расширенный отчёт…")
+        self.extended_button.setObjectName("ghostButton")
+        self.extended_button.setFixedHeight(34)
+        self.extended_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.extended_button.clicked.connect(self._switch_to_extended)
+        buttons.addWidget(self.extended_button)
+        buttons.addStretch()
+        copy_button = QPushButton("Копировать")
+        copy_button.setObjectName("ghostButton")
+        copy_button.setFixedHeight(34)
+        copy_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        copy_button.clicked.connect(self._copy_to_clipboard)
+        buttons.addWidget(copy_button)
+        close_button = QPushButton("Закрыть")
+        close_button.setObjectName("primaryButton")
+        close_button.setFixedHeight(34)
+        close_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        close_button.clicked.connect(self.accept)
+        buttons.addWidget(close_button)
+        layout.addLayout(buttons)
+
+    def _copy_to_clipboard(self) -> None:
+        QApplication.clipboard().setText(self.text_edit.toPlainText())
+
+    def _switch_to_extended(self) -> None:
+        answer = QMessageBox.question(
+            self,
+            "Расширенный отчёт",
+            "Сформировать расширенный отчёт?\n\n"
+            "К каждой задаче будут добавлены описание и все сессии за день. "
+            "Отчёт может получиться длинным.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self._extended = True
+        self.heading.setText("Отчёт дня — расширенный")
+        self.text_edit.setPlainText(
+            self.controller.build_day_report(self._date_iso, extended=True)
+        )
+        self.extended_button.setEnabled(False)
+
+
 class TaskEditDialog(QDialog):
     def __init__(self, controller: AppController, task: Task, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -1351,6 +1542,14 @@ class TaskEditDialog(QDialog):
         self.title_edit = QLineEdit(task.title)
         self.title_edit.setPlaceholderText("Название задачи")
         form.addRow("Название", self.title_edit)
+
+        self.result_edit = QPlainTextEdit()
+        self.result_edit.setPlaceholderText("Результат (необязательно)")
+        self.result_edit.setPlainText(task.result)
+        self.result_edit.document().contentsChanged.connect(
+            lambda: fit_plain_text_edit_height(self.result_edit)
+        )
+        form.addRow("Результат", self.result_edit)
 
         self.description_edit = QPlainTextEdit()
         self.description_edit.setPlaceholderText("Описание (необязательно)")
@@ -1378,10 +1577,12 @@ class TaskEditDialog(QDialog):
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
+        fit_plain_text_edit_height(self.result_edit)
         fit_plain_text_edit_height(self.description_edit)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
+        fit_plain_text_edit_height(self.result_edit)
         fit_plain_text_edit_height(self.description_edit)
 
     def accept(self) -> None:
@@ -1393,6 +1594,7 @@ class TaskEditDialog(QDialog):
             self.controller.update_task(
                 self.task_id,
                 title=title,
+                result=self.result_edit.toPlainText(),
                 description=self.description_edit.toPlainText(),
             )
             self.controller.assign_tasks_priority(
@@ -2088,9 +2290,8 @@ class MainWindow(QMainWindow):
         )
         self.controller.take_focus_paused_task_id()
         if answer == QMessageBox.StandardButton.Yes:
-            self.controller.start_task(paused_task_id)
-            self._track_floating_task(paused_task_id)
-            self._update_tray_tooltip()
+            self._start_task(paused_task_id)
+            return
         self._clear_pinned_task()
         self.refresh_ui()
 
@@ -2397,6 +2598,14 @@ class MainWindow(QMainWindow):
         sub.addWidget(self.date_edit)
 
         sub.addStretch(1)
+
+        day_report_button = QPushButton("Отчёт дня")
+        day_report_button.setObjectName("ghostButton")
+        day_report_button.setFixedHeight(28)
+        day_report_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        day_report_button.setToolTip("Сформировать отчёт за выбранный день")
+        day_report_button.clicked.connect(self._open_day_report)
+        sub.addWidget(day_report_button)
 
         self.today_total_label = QLabel("")
         self.today_total_label.setObjectName("summaryLabel")
@@ -2894,6 +3103,7 @@ class MainWindow(QMainWindow):
             QLabel#rowTimeVal[live="true"] { color: #27AE60; }
             QLabel#taskRowDesc { color: #828B9A; font-size: 12px; }
             QLabel#taskRowDesc[empty="true"] { color: #B8BDC9; font-style: italic; }
+            QLabel#taskRowResult { color: #5C6370; font-size: 12px; }
             QWidget#taskRowMetaBox { background: transparent; }
             QLabel#taskRowMetaLbl { color: #828B9A; font-size: 13px; }
             QLabel#taskRowMetaVal {
@@ -3543,8 +3753,18 @@ class MainWindow(QMainWindow):
         self._clear_task_selection()
         self.refresh_ui()
 
-    def _clear_task_selection(self) -> None:
-        self._selected_task_ids.clear()
+    def _clear_task_selection(self, task_ids: set[str] | None = None) -> None:
+        if task_ids is None:
+            to_clear = set(self._selected_task_ids)
+            self._selected_task_ids.clear()
+        else:
+            to_clear = set(task_ids) & self._selected_task_ids
+            self._selected_task_ids -= to_clear
+        for task_id in to_clear:
+            row = self._task_rows.get(task_id)
+            if row is not None:
+                row.set_row_checked(False)
+        self._refresh_priority_apply_buttons()
 
     def _on_task_row_selection_changed(self, task_id: str, checked: bool) -> None:
         if checked:
@@ -3590,11 +3810,13 @@ class MainWindow(QMainWindow):
     def _apply_priority_to_selection(self, level: int) -> None:
         if not self._selected_task_ids:
             return
+        selected = set(self._selected_task_ids)
         self.controller.assign_tasks_priority(
-            sorted(self._selected_task_ids),
+            sorted(selected),
             level,
             add_to_plan=True,
         )
+        self._clear_task_selection(selected)
         self.refresh_ui()
 
     def _toggle_plan(self, task_id: str) -> None:
@@ -3628,6 +3850,7 @@ class MainWindow(QMainWindow):
         else:
             priority = current
         self.controller.add_to_plan_with_priority(task_id, priority)
+        self._clear_task_selection({task_id})
         self.refresh_ui()
 
     def _confirm_remove_from_plan(self, task_id: str) -> None:
@@ -3684,6 +3907,7 @@ class MainWindow(QMainWindow):
             return
         self.controller.assign_tasks_priority([task_id], priority)
         self.controller.start_task(task_id)
+        self._clear_task_selection({task_id})
         self._clear_pinned_task()
         self.refresh_ui()
         self._track_floating_task(task_id)
@@ -3699,26 +3923,35 @@ class MainWindow(QMainWindow):
         self._update_tray_tooltip()
         self._show_tray_message("Таймер остановлен", task.title, QSystemTrayIcon.MessageIcon.Information, 4000)
 
+    def _report_reference_date(self) -> str:
+        if self._current_view == "date" and self._selected_date:
+            return self._selected_date
+        return self.controller.today_str()
+
+    def _open_day_report(self) -> None:
+        dialog = DayReportDialog(self.controller, self._report_reference_date(), self)
+        dialog.exec()
+
     def _confirm_complete_task(self, task_id: str) -> None:
         task = self.controller.find_task(task_id)
-        answer = QMessageBox.question(
-            self,
-            "Подтверждение",
-            f"Задача завершена, закрываю?\n\n{task.title}",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        )
-        if answer == QMessageBox.StandardButton.Yes:
-            self.controller.complete_task(task_id)
-            self._collapse_pinned_task_if(task_id)
-            self.refresh_ui()
-            self._mini_task_id = None
-            self.floating.hide()
-            self._update_tray_tooltip()
-            self._sync_portal_completion(self.controller.find_task(task_id), complete=True)
-            self._show_tray_message("Задача завершена", task.title, QSystemTrayIcon.MessageIcon.Information, 4000)
+        dialog = TaskCompleteDialog(task, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        self.controller.complete_task(task_id, result=dialog.result_text())
+        self._collapse_pinned_task_if(task_id)
+        self.refresh_ui()
+        self._mini_task_id = None
+        self.floating.hide()
+        self._update_tray_tooltip()
+        self._sync_portal_completion(self.controller.find_task(task_id), complete=True)
+        self._show_tray_message("Задача завершена", task.title, QSystemTrayIcon.MessageIcon.Information, 4000)
 
     def _resume_task(self, task_id: str) -> None:
-        self.controller.resume_completed_task(task_id)
+        task = self.controller.find_task(task_id)
+        dialog = TaskResumeDialog(task, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        self.controller.resume_completed_task(task_id, comment=dialog.comment_text())
         self._collapse_pinned_task_if(task_id)
         self.refresh_ui()
         self._track_floating_task(task_id)
@@ -3778,6 +4011,7 @@ class MainWindow(QMainWindow):
         task = self.controller.find_task(task_id)
         dialog = TaskEditDialog(self.controller, task, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
+            self._clear_task_selection({task_id})
             self.refresh_ui()
 
     def _on_task_row_selected(self, task_id: str) -> None:

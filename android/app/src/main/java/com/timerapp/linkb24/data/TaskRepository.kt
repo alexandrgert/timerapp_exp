@@ -98,37 +98,87 @@ class TaskRepository(
         return data.copy(tasks = tasks)
     }
 
-    fun completeTask(taskId: String, data: AppDataDto): AppDataDto {
+    fun completeTask(taskId: String, data: AppDataDto, result: String): AppDataDto {
+        val trimmed = result.trim()
+        require(trimmed.isNotEmpty()) { "Введите результат выполнения задачи." }
         val now = OffsetDateTime.now(zoneId).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
         val tasks = data.tasks.map { task ->
             if (task.id != taskId) {
                 task
             } else {
                 val paused = pauseRunningTask(task)
-                paused.copy(status = TaskStatus.COMPLETED, completedAt = now)
+                paused.copy(
+                    status = TaskStatus.COMPLETED,
+                    completedAt = now,
+                    result = trimmed,
+                )
             }
         }
         return data.copy(tasks = tasks)
     }
 
-    fun resumeCompletedTask(taskId: String, data: AppDataDto): AppDataDto {
+    fun resumeCompletedTask(taskId: String, data: AppDataDto, comment: String = ""): AppDataDto {
         val pausedOthers = data.copy(tasks = data.tasks.map { pauseRunningTask(it) })
         val tasks = pausedOthers.tasks.map { task ->
             if (task.id != taskId) {
                 task
             } else {
                 val reopened = task.copy(status = TaskStatus.OPEN, completedAt = null)
-                startTask(reopened)
+                startTask(reopened, comment = comment)
             }
         }
         return data.copy(tasks = tasks)
+    }
+
+    fun updateTask(
+        taskId: String,
+        data: AppDataDto,
+        title: String? = null,
+        description: String? = null,
+        result: String? = null,
+    ): AppDataDto {
+        val tasks = data.tasks.map { task ->
+            if (task.id != taskId) {
+                task
+            } else {
+                var updated = task
+                if (title != null) {
+                    val trimmed = title.trim()
+                    require(trimmed.isNotEmpty()) { "Название задачи не может быть пустым." }
+                    updated = updated.copy(title = trimmed)
+                }
+                if (description != null) {
+                    updated = updated.copy(description = description.trim())
+                }
+                if (result != null) {
+                    val trimmedResult = result.trim()
+                    if (task.status == TaskStatus.COMPLETED && trimmedResult.isEmpty()) {
+                        throw IllegalArgumentException("Введите результат выполнения задачи.")
+                    }
+                    updated = updated.copy(result = trimmedResult)
+                }
+                updated
+            }
+        }
+        return data.copy(tasks = tasks)
+    }
+
+    fun assignTaskPriority(taskId: String, data: AppDataDto, priority: Int, dateIso: String = todayIsoDate()): AppDataDto {
+        val tasks = data.tasks.map { task ->
+            if (task.id != taskId) task else withTaskPriority(task, dateIso, priority)
+        }
+        return data.copy(tasks = tasks)
+    }
+
+    fun setPriorityFilter(data: AppDataDto, levels: Set<Int>): AppDataDto {
+        return data.copy(ui = withPriorityFilter(data.ui, levels))
     }
 
     fun deleteTask(taskId: String, data: AppDataDto): AppDataDto {
         return data.copy(tasks = data.tasks.filterNot { it.id == taskId })
     }
 
-    private fun startTask(task: TaskDto): TaskDto {
+    private fun startTask(task: TaskDto, comment: String = ""): TaskDto {
         if (task.sessions.any { it.endedAt == null }) {
             return task.copy(status = TaskStatus.RUNNING)
         }
@@ -136,6 +186,7 @@ class TaskRepository(
         val session = SessionDto(
             id = UUID.randomUUID().toString().replace("-", ""),
             startedAt = now,
+            comment = comment.trim(),
         )
         return task.copy(status = TaskStatus.RUNNING, sessions = task.sessions + session)
     }

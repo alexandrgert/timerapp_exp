@@ -78,9 +78,10 @@ def test_stop_task_sets_paused_and_closes_session(controller: AppController) -> 
 
 def test_complete_task(controller: AppController) -> None:
     task = controller.create_task("A", start_now=True)
-    controller.complete_task(task.id)
+    controller.complete_task(task.id, result="  Done  ")
     task = controller.find_task(task.id)
     assert task.is_completed()
+    assert task.result == "Done"
     assert task.completed_at is not None
     assert task.active_session() is None
     assert controller.active_task() is None
@@ -89,11 +90,13 @@ def test_complete_task(controller: AppController) -> None:
 def test_resume_completed_task_restarts_it(controller: AppController) -> None:
     task = controller.create_task("A", start_now=True)
     controller.complete_task(task.id)
-    controller.resume_completed_task(task.id)
+    controller.resume_completed_task(task.id, comment="Нужно доделать")
     task = controller.find_task(task.id)
     assert task.status == TaskStatus.RUNNING
     assert task.completed_at is None
     assert controller.active_task().id == task.id
+    assert task.active_session() is not None
+    assert task.active_session().comment == "Нужно доделать"
 
 
 def test_delete_task(controller: AppController) -> None:

@@ -22,8 +22,8 @@ android {
         applicationId = "com.timerapp.exp"
         minSdk = 29
         targetSdk = 35
-        versionCode = 540
-        versionName = "0.5.40"
+        versionCode = 700
+        versionName = "0.7.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

@@ -104,18 +104,47 @@ class TaskRepositoryTest {
         val dir = tempDir()
         val repository = TaskRepository(File(dir, "data.json"))
         val created = repository.createTask("Done", AppDataDto())
-        val completed = repository.completeTask(created.tasks.single().id, created)
+        val completed = repository.completeTask(created.tasks.single().id, created, result = "Готово")
         val task = completed.tasks.single()
 
         assertEquals(TaskStatus.COMPLETED, task.status)
+        assertEquals("Готово", task.result)
         assertNotNull(task.completedAt)
 
-        val resumed = repository.resumeCompletedTask(task.id, completed)
+        val resumed = repository.resumeCompletedTask(task.id, completed, comment = "Доработка")
         val reopened = resumed.tasks.single()
 
         assertEquals(TaskStatus.RUNNING, reopened.status)
         assertNull(reopened.completedAt)
         assertEquals(1, reopened.sessions.size)
         assertNull(reopened.sessions.single().endedAt)
+        assertEquals("Доработка", reopened.sessions.single().comment)
+    }
+
+    @Test
+    fun completeTask_requires_non_blank_result() {
+        val dir = tempDir()
+        val repository = TaskRepository(File(dir, "data.json"))
+        val created = repository.createTask("Need result", AppDataDto())
+        try {
+            repository.completeTask(created.tasks.single().id, created, result = "  ")
+            throw AssertionError("expected IllegalArgumentException")
+        } catch (_: IllegalArgumentException) {
+            // expected
+        }
+    }
+
+    @Test
+    fun updateTask_rejects_empty_result_for_completed() {
+        val dir = tempDir()
+        val repository = TaskRepository(File(dir, "data.json"))
+        val created = repository.createTask("Done", AppDataDto())
+        val completed = repository.completeTask(created.tasks.single().id, created, result = "Ok")
+        try {
+            repository.updateTask(completed.tasks.single().id, completed, result = "  ")
+            throw AssertionError("expected IllegalArgumentException")
+        } catch (_: IllegalArgumentException) {
+            // expected
+        }
     }
 }
