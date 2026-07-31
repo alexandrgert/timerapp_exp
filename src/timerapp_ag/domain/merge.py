@@ -14,6 +14,15 @@ def _session_total_seconds(task: Task) -> int:
     return sum(session.duration_seconds() for session in task.sessions)
 
 
+def _session_meta_score(session: Session) -> int:
+    score = 0
+    if (session.comment or "").strip():
+        score += 1
+    if session.bitrix_record_id and str(session.bitrix_record_id).strip():
+        score += 2
+    return score
+
+
 def _pick_richer_session(existing: Session, candidate: Session) -> Session:
     if existing.ended_at and not candidate.ended_at:
         return existing
@@ -23,6 +32,10 @@ def _pick_richer_session(existing: Session, candidate: Session) -> Session:
     candidate_seconds = duration_seconds(candidate.started_at, candidate.ended_at)
     if candidate_seconds != existing_seconds:
         return candidate if candidate_seconds > existing_seconds else existing
+    existing_meta = _session_meta_score(existing)
+    candidate_meta = _session_meta_score(candidate)
+    if candidate_meta != existing_meta:
+        return candidate if candidate_meta > existing_meta else existing
     return candidate
 
 
