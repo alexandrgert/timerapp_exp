@@ -114,7 +114,10 @@ private fun pickRicherSession(existing: SessionDto, candidate: SessionDto): Sess
     }
     val existingMeta = sessionMetaScore(existing)
     val candidateMeta = sessionMetaScore(candidate)
-    return if (candidateMeta > existingMeta) candidate else existing
+    if (candidateMeta != existingMeta) {
+        return if (candidateMeta > existingMeta) candidate else existing
+    }
+    return candidate
 }
 
 private fun sessionMetaScore(session: SessionDto): Int {

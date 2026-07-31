@@ -299,6 +299,107 @@ class DataMergeTest {
         assertEquals("Resume reason", merged.sessions.single().comment)
         assertEquals("42", merged.sessions.single().bitrixRecordId)
     }
+
+    @Test
+    fun pickRicherSession_equalMetaPrefersCandidate() {
+        val left = TaskDto(
+            id = "t1",
+            day = "2026-07-30",
+            title = "T",
+            createdAt = "2026-07-30T10:00:00+03:00",
+            sessions = listOf(
+                SessionDto("s1", "2026-07-30T10:00:00+03:00", "2026-07-30T11:00:00+03:00", comment = "a"),
+            ),
+        )
+        val right = TaskDto(
+            id = "t1",
+            day = "2026-07-30",
+            title = "T",
+            createdAt = "2026-07-30T10:00:00+03:00",
+            sessions = listOf(
+                SessionDto("s1", "2026-07-30T10:00:00+03:00", "2026-07-30T11:00:00+03:00", comment = "b"),
+            ),
+        )
+        assertEquals("b", mergeTaskPair(left, right).sessions.single().comment)
+    }
+
+    @Test
+    fun pickRicherSession_keepsBitrixWhenCandidateBlank() {
+        val withBitrix = TaskDto(
+            id = "t1",
+            day = "2026-07-30",
+            title = "T",
+            createdAt = "2026-07-30T10:00:00+03:00",
+            sessions = listOf(
+                SessionDto(
+                    "s1",
+                    "2026-07-30T10:00:00+03:00",
+                    "2026-07-30T10:30:00+03:00",
+                    bitrixRecordId = "42",
+                ),
+            ),
+        )
+        val withoutBitrix = TaskDto(
+            id = "t1",
+            day = "2026-07-30",
+            title = "T",
+            createdAt = "2026-07-30T10:00:00+03:00",
+            sessions = listOf(
+                SessionDto("s1", "2026-07-30T10:00:00+03:00", "2026-07-30T10:30:00+03:00"),
+            ),
+        )
+        assertEquals("42", mergeTaskPair(withBitrix, withoutBitrix).sessions.single().bitrixRecordId)
+        assertEquals("42", mergeTaskPair(withoutBitrix, withBitrix).sessions.single().bitrixRecordId)
+    }
+
+    @Test
+    fun goldenFixture_bitrixVsPlain() {
+        assertGoldenSession("merge_lockstep/case_bitrix_vs_plain")
+    }
+
+    @Test
+    fun goldenFixture_commentTie() {
+        assertGoldenSession("merge_lockstep/case_comment_tie")
+    }
+
+    @Test
+    fun goldenFixture_unionTwoIds() {
+        val left = loadTaskFixture("merge_lockstep/case_union_two_ids/left.json")
+        val right = loadTaskFixture("merge_lockstep/case_union_two_ids/right.json")
+        val expected = loadTaskFixture("merge_lockstep/case_union_two_ids/expected_task.json")
+        val merged = mergeTaskPair(left, right)
+        assertEquals(expected.sessions.map { it.id }, merged.sessions.map { it.id })
+        assertEquals(
+            expected.sessions.map { it.startedAt to it.endedAt },
+            merged.sessions.map { it.startedAt to it.endedAt },
+        )
+    }
+
+    private fun assertGoldenSession(caseDir: String) {
+        val left = loadTaskFixture("$caseDir/left.json")
+        val right = loadTaskFixture("$caseDir/right.json")
+        val expected = loadSessionFixture("$caseDir/expected_session.json")
+        val got = mergeTaskPair(left, right).sessions.single()
+        assertEquals(expected.id, got.id)
+        assertEquals(expected.startedAt, got.startedAt)
+        assertEquals(expected.endedAt, got.endedAt)
+        assertEquals(expected.comment, got.comment)
+        assertEquals(expected.bitrixRecordId, got.bitrixRecordId)
+    }
+
+    private fun loadTaskFixture(path: String): TaskDto {
+        val stream = requireNotNull(javaClass.classLoader).getResourceAsStream(path)
+            ?: error("Missing fixture: $path")
+        val text = stream.bufferedReader().use { it.readText() }
+        return AppJson.decodeFromString(TaskDto.serializer(), text)
+    }
+
+    private fun loadSessionFixture(path: String): SessionDto {
+        val stream = requireNotNull(javaClass.classLoader).getResourceAsStream(path)
+            ?: error("Missing fixture: $path")
+        val text = stream.bufferedReader().use { it.readText() }
+        return AppJson.decodeFromString(SessionDto.serializer(), text)
+    }
 }
 
 class WebDavMetaTest {
