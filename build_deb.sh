@@ -69,8 +69,7 @@ else
 fi
 
 deb_file="${PACKAGE_NAME}-${VERSION}-${TARGET_ARCH}.deb"
-deb_out="${DIST_DIR}/${deb_file}"
-package_title="${PACKAGE_TITLE:-TaskTimer Experiment}"
+PACKAGE_TITLE="${PACKAGE_TITLE:-TaskTimer Experiment}"
 
 echo "==> Сборка ${deb_file}"
 
@@ -78,118 +77,16 @@ echo "==> PyInstaller (TaskTimer-linux.spec)"
 cd "$PROJECT_DIR"
 "$PYTHON" -m PyInstaller --noconfirm --clean TaskTimer-linux.spec
 
-if [[ ! -x "$DIST_DIR/TaskTimer/TaskTimer" ]]; then
-  echo "Не найден бинарник: $DIST_DIR/TaskTimer/TaskTimer" >&2
-  exit 1
-fi
-
-build_root="$(mktemp -d)"
-opt_rel="${INSTALL_PREFIX#/}"
-install_dir="$build_root/$opt_rel"
-
-mkdir -p "$install_dir"
-cp -a "$DIST_DIR/TaskTimer/." "$install_dir/"
-echo "$VERSION" > "$install_dir/VERSION"
-
-mkdir -p "$build_root/usr/bin"
-cat > "$build_root/usr/bin/$BIN_NAME" <<EOF
-#!/bin/sh
-exec ${INSTALL_PREFIX}/TaskTimer "\$@"
-EOF
-chmod 755 "$build_root/usr/bin/$BIN_NAME"
-
-mkdir -p "$build_root/usr/share/applications"
-cat > "$build_root/usr/share/applications/timerapp-exp.desktop" <<EOF
-[Desktop Entry]
-Type=Application
-Name=${package_title}
-Name[ru]=${package_title}
-Comment=Experimental desktop task timer with Bitrix24 integration
-Comment[ru]=Экспериментальный таймер задач с интеграцией Битрикс24
-Exec=${BIN_NAME}
-Icon=timerapp-exp
-Terminal=false
-Categories=Office;Utility;
-StartupWMClass=timerapp-exp
-EOF
-
-mkdir -p "$build_root/usr/share/icons/hicolor/scalable/apps"
-cp "$PACKAGING_DIR/tasktimer.svg" "$build_root/usr/share/icons/hicolor/scalable/apps/timerapp-exp.svg"
-
-installed_size_kb="$(
-  du -sk "$build_root/$opt_rel" "$build_root/usr" 2>/dev/null | awk '{s += $1} END {print s}'
-)"
-
-mkdir -p "$build_root/DEBIAN"
-cat > "$build_root/DEBIAN/control" <<EOF
-Package: ${PACKAGE_NAME}
-Version: ${VERSION}
-Section: utils
-Priority: optional
-Architecture: ${TARGET_ARCH}
-Installed-Size: ${installed_size_kb}
-Maintainer: ${MAINTAINER}
-Depends: libc6 (>= 2.31), libglib2.0-0, libx11-6, libxcb1, libxkbcommon0, libdbus-1-3, libfontconfig1, libfreetype6, libgl1, libegl1, libxext6, libxrender1, libxi6, libxrandr2, libxss1, libxcursor1, libxinerama1, libtiff5 | libtiff6
-Description: ${package_title}
- Experimental desktop task timer: daily plan, focus mode, Bitrix24 tasks and smart-process projects.
-EOF
-
-cat > "$build_root/DEBIAN/preinst" <<EOF
-#!/bin/sh
-set -e
-PKG_NAME="${PACKAGE_NAME}"
-NEW_VERSION="${VERSION}"
-is_installed() { dpkg-query -W -f='\${Status}' "\$PKG_NAME" 2>/dev/null | grep -q "install ok installed"; }
-installed_version() { dpkg-query -W -f='\${Version}' "\$PKG_NAME" 2>/dev/null; }
-reject_downgrade() {
-  old_version="\$1"
-  if [ -z "\$old_version" ]; then return 0; fi
-  if dpkg --compare-versions "\$NEW_VERSION" lt "\$old_version"; then
-    echo "Ошибка: уже установлена более новая версия \$PKG_NAME (\$old_version)." >&2
-    exit 1
-  fi
+STAGING_DIR="$(mktemp -d)"
+cleanup_staging() {
+  rm -rf "$STAGING_DIR"
 }
-case "\$1" in
-  install) is_installed && reject_downgrade "\$(installed_version)" ;;
-  upgrade) reject_downgrade "\$2" ;;
-esac
-exit 0
-EOF
-chmod 755 "$build_root/DEBIAN/preinst"
+trap cleanup_staging EXIT
 
-cat > "$build_root/DEBIAN/postinst" <<EOF
-#!/bin/sh
-set -e
-if command -v update-desktop-database >/dev/null 2>&1; then
-  update-desktop-database -q /usr/share/applications 2>/dev/null || true
-fi
-if command -v gtk-update-icon-cache >/dev/null 2>&1; then
-  gtk-update-icon-cache -q /usr/share/icons/hicolor 2>/dev/null || true
-fi
-exit 0
-EOF
-chmod 755 "$build_root/DEBIAN/postinst"
+export STAGING_DIR VERSION INSTALL_PREFIX BIN_NAME PACKAGE_TITLE PACKAGING_DIR
+export PACKAGE_NAME TARGET_ARCH MAINTAINER DIST_DIR
+"$PACKAGING_DIR/stage_from_pyinstaller.sh"
+"$PACKAGING_DIR/package_deb_from_staging.sh"
 
-cat > "$build_root/DEBIAN/postrm" <<'EOF'
-#!/bin/sh
-set -e
-if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
-  if command -v update-desktop-database >/dev/null 2>&1; then
-    update-desktop-database -q /usr/share/applications 2>/dev/null || true
-  fi
-  if command -v gtk-update-icon-cache >/dev/null 2>&1; then
-    gtk-update-icon-cache -q /usr/share/icons/hicolor 2>/dev/null || true
-  fi
-fi
-exit 0
-EOF
-chmod 755 "$build_root/DEBIAN/postrm"
-
-mkdir -p "$DIST_DIR"
-rm -f "$deb_out"
-dpkg-deb --build --root-owner-group "$build_root" "$deb_out"
-rm -rf "$build_root"
-
-echo "Готово: $deb_out"
-ls -lh "$deb_out"
-dpkg-deb -I "$deb_out" | grep -E '^( Package| Version| Architecture| Installed-Size| Maintainer):'
+rm -rf "$STAGING_DIR"
+trap - EXIT
