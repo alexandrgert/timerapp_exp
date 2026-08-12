@@ -12,12 +12,14 @@ import com.timerapp.linkb24.data.TaskViewFilter
 import com.timerapp.linkb24.data.WebDavConfigRepository
 import com.timerapp.linkb24.data.buildDayReportMarkdown
 import com.timerapp.linkb24.data.filterTasks
+import com.timerapp.linkb24.data.filterTasksByTitle
 import com.timerapp.linkb24.data.formatDuration
 import com.timerapp.linkb24.data.isActive
 import com.timerapp.linkb24.data.needsPriorityBeforeStart
 import com.timerapp.linkb24.data.priorityFilterLevels
 import com.timerapp.linkb24.data.taskDurationSeconds
 import com.timerapp.linkb24.data.todayIsoDate
+import com.timerapp.linkb24.webdav.WebDavDataChangedBus
 import com.timerapp.linkb24.webdav.WebDavNotificationHelper
 import com.timerapp.linkb24.webdav.WebDavPromptBus
 import com.timerapp.linkb24.webdav.WebDavSync
@@ -32,11 +34,16 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.OffsetDateTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 data class TaskListUiState(
     val tasks: List<TaskDto> = emptyList(),
     val taskFilter: TaskViewFilter = TaskViewFilter.TODAY,
     val priorityFilter: Set<Int> = ALL_PRIORITIES,
+    val titleSearchDraft: String = "",
+    val titleSearchApplied: String = "",
     val selectedTaskIds: Set<String> = emptySet(),
     val tickMillis: Long = System.currentTimeMillis(),
     val newTaskTitle: String = "",
@@ -66,6 +73,12 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
                 if (prompt != null && _uiState.value.remoteChangePrompt == null) {
                     _uiState.update { it.copy(remoteChangePrompt = prompt) }
                 }
+            }
+        }
+
+        viewModelScope.launch {
+            WebDavDataChangedBus.events.collect {
+                reloadFromDiskAfterExternalSync()
             }
         }
 
@@ -121,7 +134,26 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
 
     fun onFilterChange(filter: TaskViewFilter) {
         _uiState.update {
-            it.copy(taskFilter = filter, tasks = visibleTasks(appData, filter))
+            it.copy(
+                taskFilter = filter,
+                titleSearchDraft = "",
+                titleSearchApplied = "",
+                tasks = visibleTasks(appData, filter, titleSearch = ""),
+            )
+        }
+    }
+
+    fun onTitleSearchDraftChange(value: String) {
+        _uiState.update { it.copy(titleSearchDraft = value) }
+    }
+
+    fun applyTitleSearch() {
+        val needle = _uiState.value.titleSearchDraft
+        _uiState.update {
+            it.copy(
+                titleSearchApplied = needle,
+                tasks = visibleTasks(appData, titleSearch = needle),
+            )
         }
     }
 
@@ -189,10 +221,11 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun startTaskWithPriority(taskId: String, priority: Int) {
+    fun startTaskWithPriority(taskId: String, priority: Int, keepPriority: Boolean = false) {
         mutateTasks("Не удалось запустить задачу") { data ->
-            val withPriority = repository.assignTaskPriority(taskId, data, priority)
-            repository.toggleTimer(taskId, withPriority)
+            var updated = repository.setKeepPriority(taskId, data, keepPriority)
+            updated = repository.assignTaskPriority(taskId, updated, priority)
+            repository.toggleTimer(taskId, updated)
         }
     }
 
@@ -208,16 +241,26 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun resumeTaskWithPriority(taskId: String, priority: Int, comment: String = "") {
+    fun resumeTaskWithPriority(
+        taskId: String,
+        priority: Int,
+        comment: String = "",
+        keepPriority: Boolean = false,
+    ) {
         mutateTasks("Не удалось возобновить задачу") { data ->
-            val withPriority = repository.assignTaskPriority(taskId, data, priority)
-            repository.resumeCompletedTask(taskId, withPriority, comment)
+            var updated = repository.setKeepPriority(taskId, data, keepPriority)
+            updated = repository.assignTaskPriority(taskId, updated, priority)
+            repository.resumeCompletedTask(taskId, updated, comment)
         }
     }
 
-    fun assignPriority(taskId: String, priority: Int) {
+    fun assignPriority(taskId: String, priority: Int, keepPriority: Boolean? = null) {
         mutateTasks("Не удалось назначить приоритет") { data ->
-            repository.assignTaskPriority(taskId, data, priority)
+            var updated = data
+            if (keepPriority != null) {
+                updated = repository.setKeepPriority(taskId, updated, keepPriority)
+            }
+            repository.assignTaskPriority(taskId, updated, priority)
         }
     }
 
@@ -238,7 +281,13 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun updateTask(taskId: String, title: String, description: String, result: String) {
+    fun updateTask(
+        taskId: String,
+        title: String,
+        description: String,
+        result: String,
+        keepPriority: Boolean,
+    ) {
         mutateTasks("Не удалось сохранить задачу") { data ->
             repository.updateTask(
                 taskId,
@@ -246,7 +295,17 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
                 title = title,
                 description = description,
                 result = result,
+                keepPriority = keepPriority,
             )
+        }
+    }
+
+    fun addHistorySession(taskId: String) {
+        mutateTasks("Не удалось добавить запись") { data ->
+            val now = OffsetDateTime.now(ZoneId.systemDefault())
+            val startedAt = now.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+            val endedAt = now.plusHours(1).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+            repository.addClosedSession(taskId, data, startedAt, endedAt)
         }
     }
 
@@ -340,6 +399,18 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private suspend fun reloadFromDiskAfterExternalSync() {
+        if (_uiState.value.isWebDavSyncing) {
+            return
+        }
+        runCatching {
+            withContext(Dispatchers.IO) { repository.load() }
+        }.onSuccess { loaded ->
+            appData = loaded
+            publishLoaded(_uiState.value.syncNotice)
+        }
+    }
+
     private fun publishLoaded(syncNotice: String?) {
         val selectedTaskIds = pruneSelection(_uiState.value.selectedTaskIds, appData.tasks)
         _uiState.update {
@@ -429,7 +500,8 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
     private fun visibleTasks(
         data: AppDataDto,
         filter: TaskViewFilter = _uiState.value.taskFilter,
+        titleSearch: String = _uiState.value.titleSearchApplied,
     ): List<TaskDto> {
-        return filterTasks(data, filter)
+        return filterTasksByTitle(filterTasks(data, filter), titleSearch)
     }
 }

@@ -79,6 +79,7 @@ def merge_task_pair(left: Task, right: Task) -> Task:
     daily_priorities = merge_daily_priorities(base.daily_priorities, other.daily_priorities)
     description = base.description or other.description
     result = base.result or other.result
+    keep_priority = bool(base.keep_priority or other.keep_priority)
     status, completed_at = _resolve_merged_status(left, right, merged_sessions)
     return replace(
         base,
@@ -87,6 +88,7 @@ def merge_task_pair(left: Task, right: Task) -> Task:
         daily_priorities=daily_priorities,
         description=description,
         result=result,
+        keep_priority=keep_priority,
         status=status,
         completed_at=completed_at,
     )

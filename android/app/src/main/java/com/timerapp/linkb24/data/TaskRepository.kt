@@ -40,8 +40,19 @@ class TaskRepository(
         get() = File(dataFile.parentFile, "${dataFile.name}.bak")
 
     fun load(): AppDataDto {
-        loadFromFile(dataFile)?.let { return it }
-        return loadFromFile(backupFile) ?: AppDataDto()
+        val raw = loadFromFile(dataFile) ?: loadFromFile(backupFile) ?: AppDataDto()
+        val prepared = prepareLoadedData(raw)
+        if (prepared != raw) {
+            save(prepared)
+        }
+        return prepared
+    }
+
+    companion object {
+        fun prepareLoadedData(data: AppDataDto): AppDataDto {
+            val normalized = normalizeRunningTasks(data)
+            return ensurePlanRollover(normalized).data
+        }
     }
 
     private fun loadFromFile(file: File): AppDataDto? {
@@ -136,6 +147,7 @@ class TaskRepository(
         title: String? = null,
         description: String? = null,
         result: String? = null,
+        keepPriority: Boolean? = null,
     ): AppDataDto {
         val tasks = data.tasks.map { task ->
             if (task.id != taskId) {
@@ -157,8 +169,18 @@ class TaskRepository(
                     }
                     updated = updated.copy(result = trimmedResult)
                 }
+                if (keepPriority != null) {
+                    updated = updated.copy(keepPriority = keepPriority)
+                }
                 updated
             }
+        }
+        return data.copy(tasks = tasks)
+    }
+
+    fun setKeepPriority(taskId: String, data: AppDataDto, keep: Boolean): AppDataDto {
+        val tasks = data.tasks.map { task ->
+            if (task.id != taskId) task else task.copy(keepPriority = keep)
         }
         return data.copy(tasks = tasks)
     }
@@ -166,6 +188,39 @@ class TaskRepository(
     fun assignTaskPriority(taskId: String, data: AppDataDto, priority: Int, dateIso: String = todayIsoDate()): AppDataDto {
         val tasks = data.tasks.map { task ->
             if (task.id != taskId) task else withTaskPriority(task, dateIso, priority)
+        }
+        return data.copy(tasks = tasks)
+    }
+
+    fun addClosedSession(
+        taskId: String,
+        data: AppDataDto,
+        startedAt: String,
+        endedAt: String,
+        comment: String = "",
+    ): AppDataDto {
+        val start = parseInstant(startedAt) ?: throw IllegalArgumentException("Некорректное начало.")
+        val end = parseInstant(endedAt) ?: throw IllegalArgumentException("Некорректное окончание.")
+        require(end.isAfter(start)) { "Окончание должно быть позже начала." }
+        val tasks = data.tasks.map { task ->
+            if (task.id != taskId) {
+                task
+            } else {
+                val session = SessionDto(
+                    id = UUID.randomUUID().toString().replace("-", ""),
+                    startedAt = startedAt,
+                    endedAt = endedAt,
+                    comment = comment.trim(),
+                )
+                val sessions = (task.sessions + session).sortedBy { it.startedAt }
+                val status = when {
+                    task.status == TaskStatus.COMPLETED -> task.status
+                    sessions.any { it.endedAt == null } -> TaskStatus.RUNNING
+                    sessions.isNotEmpty() -> TaskStatus.PAUSED
+                    else -> task.status
+                }
+                task.copy(sessions = sessions, status = status)
+            }
         }
         return data.copy(tasks = tasks)
     }

@@ -1,5 +1,7 @@
 package com.timerapp.linkb24.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,6 +17,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -25,12 +28,15 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -49,6 +55,32 @@ fun WebDavSettingsScreen(
     viewModel: WebDavSettingsViewModel = viewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val exportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json"),
+    ) { uri ->
+        if (uri == null) {
+            return@rememberLauncherForActivityResult
+        }
+        runCatching {
+            val payload = viewModel.exportSettingsJson()
+            context.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { writer ->
+                writer.write(payload)
+            } ?: error("Не удалось открыть файл")
+            uri.lastPathSegment ?: "settings.json"
+        }.onSuccess { name ->
+            viewModel.markExportOk(name)
+        }.onFailure { error ->
+            viewModel.markExportFailed(error.message ?: "Не удалось экспортировать настройки")
+        }
+    }
+    val importLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) {
+            viewModel.beginImportFromUri(uri)
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -261,6 +293,14 @@ fun WebDavSettingsScreen(
                 }
             }
 
+            FilledTonalButton(
+                onClick = viewModel::openLog,
+                enabled = !uiState.isTesting && !uiState.isSaving && !uiState.isSyncing,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(stringResource(R.string.webdav_log))
+            }
+
             uiState.statusMessage?.let { message ->
                 Text(message, style = MaterialTheme.typography.bodySmall)
             }
@@ -274,6 +314,10 @@ fun WebDavSettingsScreen(
             }
 
             Text(
+                text = stringResource(R.string.app_section_title),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
                 text = stringResource(
                     R.string.app_version_format,
                     BuildConfig.VERSION_NAME,
@@ -282,14 +326,167 @@ fun WebDavSettingsScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            SettingsCheckboxRow(
+                label = stringResource(R.string.check_updates),
+                checked = uiState.checkUpdates,
+                onCheckedChange = viewModel::onCheckUpdatesChange,
+            )
+            OutlinedTextField(
+                value = uiState.updateGithubRepo,
+                onValueChange = viewModel::onUpdateGithubRepoChange,
+                label = { Text(stringResource(R.string.update_github_repo)) },
+                placeholder = { Text(stringResource(R.string.update_github_repo_placeholder)) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Text(
+                text = stringResource(R.string.update_github_repo_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            OutlinedTextField(
+                value = uiState.updateCheckIntervalDays,
+                onValueChange = viewModel::onUpdateCheckIntervalDaysChange,
+                label = { Text(stringResource(R.string.update_check_interval_days)) },
+                enabled = uiState.checkUpdates,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Text(
+                text = stringResource(R.string.update_check_interval_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            FilledTonalButton(
+                onClick = viewModel::checkUpdatesNow,
+                enabled = !uiState.isCheckingUpdates,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    if (uiState.isCheckingUpdates) {
+                        stringResource(R.string.update_checking)
+                    } else {
+                        stringResource(R.string.update_check_now)
+                    },
+                )
+            }
+            uiState.updateStatusMessage?.let { message ->
+                Text(message, style = MaterialTheme.typography.bodySmall)
+            }
+            if (!uiState.updateReleaseUrl.isNullOrBlank()) {
+                TextButton(onClick = viewModel::openUpdateRelease) {
+                    Text(stringResource(R.string.update_open_release))
+                }
+            }
             Text(
                 text = stringResource(R.string.app_update_hint),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
+            Text(
+                text = stringResource(R.string.settings_io_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                FilledTonalButton(
+                    onClick = { exportLauncher.launch("timerapp-settings.json") },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(stringResource(R.string.settings_export))
+                }
+                FilledTonalButton(
+                    onClick = { importLauncher.launch(arrayOf("application/json", "text/*", "*/*")) },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(stringResource(R.string.settings_import))
+                }
+            }
+            uiState.settingsIoMessage?.let { message ->
+                Text(message, style = MaterialTheme.typography.bodySmall)
+            }
+
             Spacer(modifier = Modifier.height(16.dp))
         }
+    }
+
+    if (uiState.pendingImportConfirmStep == 1) {
+        AlertDialog(
+            onDismissRequest = viewModel::cancelImportConfirm,
+            title = { Text(stringResource(R.string.settings_import_confirm_title)) },
+            text = { Text(stringResource(R.string.settings_import_confirm_1)) },
+            confirmButton = {
+                TextButton(onClick = viewModel::advanceImportConfirm) {
+                    Text(stringResource(R.string.yes))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = viewModel::cancelImportConfirm) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
+    }
+    if (uiState.pendingImportConfirmStep == 2) {
+        AlertDialog(
+            onDismissRequest = viewModel::cancelImportConfirm,
+            title = { Text(stringResource(R.string.settings_import_confirm_title_2)) },
+            text = { Text(stringResource(R.string.settings_import_confirm_2)) },
+            confirmButton = {
+                TextButton(onClick = viewModel::advanceImportConfirm) {
+                    Text(stringResource(R.string.yes))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = viewModel::cancelImportConfirm) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
+    }
+
+    if (uiState.showLogDialog) {
+        AlertDialog(
+            onDismissRequest = viewModel::dismissLog,
+            title = { Text(stringResource(R.string.webdav_log_title)) },
+            text = {
+                Column {
+                    Text(
+                        text = stringResource(R.string.webdav_log_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = uiState.logText,
+                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(280.dp)
+                            .verticalScroll(rememberScrollState()),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = viewModel::refreshLog) {
+                    Text(stringResource(R.string.webdav_log_refresh))
+                }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = viewModel::clearLog) {
+                        Text(stringResource(R.string.webdav_log_clear))
+                    }
+                    TextButton(onClick = viewModel::dismissLog) {
+                        Text(stringResource(R.string.close))
+                    }
+                }
+            },
+        )
     }
 }
 

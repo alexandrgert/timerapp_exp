@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import time
 from datetime import datetime
+from pathlib import Path
 
 from PySide6.QtCore import (
     QDate,
@@ -35,6 +36,7 @@ from PySide6.QtWidgets import (
     QDateTimeEdit,
     QDialog,
     QDialogButtonBox,
+    QFileDialog,
     QFormLayout,
     QFrame,
     QHBoxLayout,
@@ -69,11 +71,30 @@ from .ui.tray_icon import (
 )
 from .bitrix_config import BitrixPortalConfig
 from .bitrix_transfer_journal import record_transfer_result
-from .app_info import APP_TITLE_BASE, resolve_app_title
+from .app_info import APP_TITLE_BASE, resolve_app_title, resolve_app_version_label
+from .app_prefs import (
+    DEFAULT_UPDATE_GITHUB_REPO,
+    MAX_UPDATE_CHECK_INTERVAL_DAYS,
+    MIN_UPDATE_CHECK_INTERVAL_DAYS,
+    AppPrefs,
+    load_app_prefs,
+    mark_update_check_done,
+    normalize_github_repo,
+    save_app_prefs,
+    should_run_auto_update_check,
+)
 from .controller import AppController, format_day_label, format_duration, format_hm
 from .domain.priority import DEFAULT_PRIORITY, filter_tasks_by_priority
+from .domain.queries import filter_tasks_by_title
 from .models import Task, TaskStatus
 from .runtime_info import build_about_report
+from .settings_bundle import (
+    SettingsExportPayload,
+    apply_settings_import,
+    export_settings_to_path,
+    load_settings_bundle_from_path,
+)
+from .update_check import UpdateCheckResult, check_for_update
 from .webdav_config import (
     REMIND_LATER_MINUTES_CHOICES,
     WebDavConfig,
@@ -97,6 +118,7 @@ from .ui.text_layout import (
     fit_wrapped_label_height,
     wrapped_text_height,
 )
+from .webdav_reconnect import WebDavReconnectGate
 from .webdav_sync import (
     RemoteCheckOutcome,
     SyncOutcome,
@@ -104,8 +126,10 @@ from .webdav_sync import (
     pull_and_merge,
     push_local,
     save_webdav_settings,
+    sync_webdav_on_reconnect,
     test_webdav_connection,
 )
+from .webdav_sync_log import clear_log, format_for_display
 
 _TRAY_TOOLTIP_FLOATING_AUTO = object()
 TRAY_ACTIVATION_DEBOUNCE_SECONDS = 0.35
@@ -124,7 +148,7 @@ SETTINGS_FIELD_MIN_HEIGHT = 36
 SETTINGS_DIALOG_MIN_WIDTH = 520
 SETTINGS_DIALOG_MIN_HEIGHT = 520
 SETTINGS_DIALOG_DEFAULT_WIDTH = 620
-SETTINGS_DIALOG_DEFAULT_HEIGHT = 860
+SETTINGS_DIALOG_DEFAULT_HEIGHT = 980
 SETTINGS_DIALOG_CHROME_HEIGHT = 132
 SETTINGS_DIALOG_SCREEN_HEIGHT_RATIO = 0.92
 SETTINGS_DIALOG_HORIZONTAL_INSET = 44
@@ -739,6 +763,46 @@ class _CallableThread(QThread):
         self.succeeded.emit(result)
 
 
+class WebDavSyncLogDialog(QDialog):
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Журнал WebDAV")
+        self.resize(720, 420)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(10)
+        hint = QLabel("Локальный журнал синхронизации (не отправляется в облако).")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+        self._text = QPlainTextEdit()
+        self._text.setReadOnly(True)
+        layout.addWidget(self._text, 1)
+        buttons = QDialogButtonBox()
+        refresh = buttons.addButton("Обновить", QDialogButtonBox.ButtonRole.ActionRole)
+        clear = buttons.addButton("Очистить", QDialogButtonBox.ButtonRole.ActionRole)
+        close = buttons.addButton(QDialogButtonBox.StandardButton.Close)
+        refresh.clicked.connect(self._reload)
+        clear.clicked.connect(self._clear)
+        close.clicked.connect(self.accept)
+        layout.addWidget(buttons)
+        self._reload()
+
+    def _reload(self) -> None:
+        self._text.setPlainText(format_for_display())
+
+    def _clear(self) -> None:
+        answer = QMessageBox.question(
+            self,
+            "Журнал WebDAV",
+            "Очистить журнал синхронизации?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        clear_log()
+        self._reload()
+
+
 class AboutDialog(QDialog):
     def __init__(self, controller: AppController, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -778,6 +842,7 @@ class SettingsDialog(QDialog):
         self._discover_thread: _CallableThread | None = None
         self._webdav_test_thread: _CallableThread | None = None
         self._webdav_sync_thread: _CallableThread | None = None
+        self._update_check_thread: _CallableThread | None = None
         portal = controller.bitrix_portal_config()
         webdav = load_webdav_config()
 
@@ -979,6 +1044,10 @@ class SettingsDialog(QDialog):
         self.webdav_push_button.clicked.connect(self._webdav_push_now)
         _configure_settings_action_button(self.webdav_push_button)
         webdav_layout.addWidget(self.webdav_push_button)
+        self.webdav_log_button = QPushButton("Лог")
+        self.webdav_log_button.clicked.connect(self._open_webdav_log)
+        _configure_settings_action_button(self.webdav_log_button)
+        webdav_layout.addWidget(self.webdav_log_button)
 
         self.webdav_status = QLabel(self._webdav_status_text(webdav))
         _configure_settings_status_label(self.webdav_status)
@@ -986,6 +1055,80 @@ class SettingsDialog(QDialog):
         _fit_settings_hint_label(self.webdav_status)
         webdav_layout.addStretch(1)
         tabs.addTab(_wrap_settings_tab(webdav_tab), "WebDAV")
+
+        app_tab = QWidget()
+        app_layout = QVBoxLayout(app_tab)
+        app_layout.setContentsMargins(0, 12, 0, 0)
+        app_layout.setSpacing(12)
+        app_prefs = load_app_prefs()
+        version_label = QLabel(f"Текущая версия: {resolve_app_version_label()}")
+        version_label.setWordWrap(True)
+        app_layout.addWidget(version_label)
+        _fit_settings_hint_label(version_label)
+        self.check_updates_checkbox = QCheckBox("Проверять обновления на GitHub")
+        self.check_updates_checkbox.setChecked(app_prefs.check_updates)
+        self.check_updates_checkbox.toggled.connect(self._sync_update_check_controls)
+        app_layout.addWidget(self.check_updates_checkbox)
+        update_form = QFormLayout()
+        _configure_settings_form_layout(update_form)
+        self.update_github_repo_edit = QLineEdit()
+        self.update_github_repo_edit.setText(app_prefs.update_github_repo or DEFAULT_UPDATE_GITHUB_REPO)
+        self.update_github_repo_edit.setPlaceholderText(DEFAULT_UPDATE_GITHUB_REPO)
+        self.update_github_repo_edit.setToolTip(
+            "Репозиторий в формате owner/name (например alexandrgert/timerapp_exp или alexandrgert/timer-app)."
+        )
+        _configure_settings_form_field(self.update_github_repo_edit)
+        update_form.addRow("Репозиторий GitHub", self.update_github_repo_edit)
+        self.update_check_interval_spin = QSpinBox()
+        self.update_check_interval_spin.setRange(
+            MIN_UPDATE_CHECK_INTERVAL_DAYS, MAX_UPDATE_CHECK_INTERVAL_DAYS
+        )
+        self.update_check_interval_spin.setSuffix(" дн.")
+        self.update_check_interval_spin.setValue(app_prefs.update_check_interval_days)
+        _configure_settings_form_field(self.update_check_interval_spin)
+        update_form.addRow("Период автопроверки", self.update_check_interval_spin)
+        app_layout.addLayout(update_form)
+        interval_hint = QLabel(
+            "Автопроверка выполняется при старте, если прошло не меньше указанного периода. "
+            "По умолчанию — 1 день. Репозиторий — owner/name на GitHub."
+        )
+        interval_hint.setWordWrap(True)
+        app_layout.addWidget(interval_hint)
+        _fit_settings_hint_label(interval_hint)
+        self.update_check_now_button = QPushButton("Проверить сейчас")
+        self.update_check_now_button.clicked.connect(self._check_updates_now)
+        _configure_settings_action_button(self.update_check_now_button)
+        app_layout.addWidget(self.update_check_now_button)
+        self.update_check_status = QLabel("")
+        _configure_settings_status_label(self.update_check_status)
+        app_layout.addWidget(self.update_check_status)
+        _fit_settings_hint_label(self.update_check_status)
+
+        settings_io_hint = QLabel(
+            "Экспорт сохраняет локальные настройки (WebDAV, Битрикс, приложение), "
+            "включая пароль WebDAV и вебхук. Файл не уходит в облако автоматически."
+        )
+        settings_io_hint.setWordWrap(True)
+        app_layout.addWidget(settings_io_hint)
+        _fit_settings_hint_label(settings_io_hint)
+        settings_io_row = QHBoxLayout()
+        self.export_settings_button = QPushButton("Экспорт настроек…")
+        self.export_settings_button.clicked.connect(self._export_settings)
+        _configure_settings_action_button(self.export_settings_button)
+        settings_io_row.addWidget(self.export_settings_button)
+        self.import_settings_button = QPushButton("Импорт настроек…")
+        self.import_settings_button.clicked.connect(self._import_settings)
+        _configure_settings_action_button(self.import_settings_button)
+        settings_io_row.addWidget(self.import_settings_button)
+        app_layout.addLayout(settings_io_row)
+        self.settings_io_status = QLabel("")
+        _configure_settings_status_label(self.settings_io_status)
+        app_layout.addWidget(self.settings_io_status)
+        _fit_settings_hint_label(self.settings_io_status)
+
+        app_layout.addStretch(1)
+        tabs.addTab(_wrap_settings_tab(app_tab), "Приложение")
+        self._sync_update_check_controls(self.check_updates_checkbox.isChecked())
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -1157,6 +1300,7 @@ class SettingsDialog(QDialog):
         self._set_portal_status(f"✗ {message}", ok=False)
 
     def portal_config(self) -> BitrixPortalConfig:
+        current = self.controller.bitrix_portal_config()
         fields = tuple(
             part.strip()
             for part in self.executor_fields_edit.text().split(",")
@@ -1164,9 +1308,14 @@ class SettingsDialog(QDialog):
         )
         return BitrixPortalConfig(
             projects_entity_type_id=self.entity_type_spin.value(),
-            projects_executor_fields=fields or BitrixPortalConfig().projects_executor_fields,
+            projects_executor_fields=fields or current.projects_executor_fields,
             projects_registry_title=self.registry_title_edit.text().strip()
-            or BitrixPortalConfig().projects_registry_title,
+            or current.projects_registry_title,
+            worklog_entity_type_id=current.worklog_entity_type_id,
+            worklog_parent_field=current.worklog_parent_field,
+            worklog_hours_field=current.worklog_hours_field,
+            worklog_comment_field=current.worklog_comment_field,
+            worklog_date_field=current.worklog_date_field,
         )
 
     def webdav_config(self) -> WebDavConfig:
@@ -1191,6 +1340,205 @@ class SettingsDialog(QDialog):
             pending_remote_hash=current.pending_remote_hash,
             pending_remote_remind_at=current.pending_remote_remind_at,
         )
+
+    def app_prefs(self) -> AppPrefs:
+        current = load_app_prefs()
+        return AppPrefs(
+            check_updates=self.check_updates_checkbox.isChecked(),
+            update_check_interval_days=self.update_check_interval_spin.value(),
+            update_github_repo=normalize_github_repo(self.update_github_repo_edit.text()),
+            last_update_check_at=current.last_update_check_at,
+            dismissed_update_version=current.dismissed_update_version,
+        )
+
+    def _sync_update_check_controls(self, enabled: bool) -> None:
+        self.update_check_interval_spin.setEnabled(bool(enabled))
+        self.update_github_repo_edit.setEnabled(True)
+
+    def _open_webdav_log(self) -> None:
+        WebDavSyncLogDialog(self).exec()
+
+    def _check_updates_now(self) -> None:
+        if self._update_check_thread is not None and self._update_check_thread.isRunning():
+            return
+        self.update_check_now_button.setEnabled(False)
+        self.update_check_status.setText("Проверяю обновления…")
+        self.update_check_status.setStyleSheet("color: #5f6b7c; background: transparent;")
+
+        def work() -> UpdateCheckResult:
+            prefs = self.app_prefs()
+            return check_for_update(
+                dismissed_version=prefs.dismissed_update_version,
+                respect_dismissed=False,
+                github_repo=prefs.update_github_repo,
+            )
+
+        self._update_check_thread = _CallableThread(work, self)
+        self._update_check_thread.succeeded.connect(self._on_manual_update_check_ok)
+        self._update_check_thread.failed.connect(self._on_manual_update_check_failed)
+        self._update_check_thread.finished.connect(
+            lambda: self.update_check_now_button.setEnabled(True)
+        )
+        self._update_check_thread.start()
+
+    def _on_manual_update_check_ok(self, result: object) -> None:
+        if not isinstance(result, UpdateCheckResult):
+            self.update_check_status.setText("✗ Неожиданный ответ проверки")
+            self.update_check_status.setStyleSheet("color: #9b3c3c; background: transparent;")
+            return
+        prefs = mark_update_check_done(self.app_prefs())
+        if not result.ok:
+            self.update_check_status.setText(f"✗ Не удалось проверить: {result.error}")
+            self.update_check_status.setStyleSheet("color: #9b3c3c; background: transparent;")
+            return
+        if result.update_available and result.latest is not None:
+            self.update_check_status.setText(
+                f"Доступна версия {result.latest.version} (сейчас {result.current_version})"
+            )
+            self.update_check_status.setStyleSheet("color: #2d6b40; background: transparent;")
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Icon.Information)
+            box.setWindowTitle("Обновление")
+            box.setText(
+                f"Доступна новая версия {result.latest.version}.\n"
+                f"Текущая: {result.current_version}."
+            )
+            open_btn = box.addButton("Открыть релиз", QMessageBox.ButtonRole.AcceptRole)
+            dismiss = box.addButton("Позже", QMessageBox.ButtonRole.RejectRole)
+            box.exec()
+            if box.clickedButton() is open_btn:
+                QDesktopServices.openUrl(QUrl(result.latest.html_url))
+                mark_update_check_done(prefs, dismissed_version=result.latest.version)
+            elif box.clickedButton() is dismiss:
+                mark_update_check_done(prefs, dismissed_version=result.latest.version)
+            return
+        self.update_check_status.setText("✓ Установлена актуальная версия")
+        self.update_check_status.setStyleSheet("color: #2d6b40; background: transparent;")
+
+    def _on_manual_update_check_failed(self, message: str) -> None:
+        self.update_check_status.setText(f"✗ Не удалось проверить: {message}")
+        self.update_check_status.setStyleSheet("color: #9b3c3c; background: transparent;")
+
+    def _export_settings(self) -> None:
+        path_str, _filter = QFileDialog.getSaveFileName(
+            self,
+            "Экспорт настроек",
+            "timerapp-settings.json",
+            "JSON (*.json)",
+        )
+        if not path_str:
+            return
+        path = Path(path_str)
+        if path.suffix.lower() != ".json":
+            path = path.with_suffix(".json")
+        try:
+            payload = SettingsExportPayload(
+                reminder_interval_minutes=self.reminder_spin.value(),
+                bitrix_webhook=self.webhook_edit.text().strip(),
+                bitrix_portal=self.portal_config(),
+                webdav=self.webdav_config(),
+                app=self.app_prefs(),
+            )
+            export_settings_to_path(path, payload)
+        except OSError as exc:
+            self.settings_io_status.setText(f"✗ Не удалось сохранить: {exc}")
+            self.settings_io_status.setStyleSheet("color: #9b3c3c; background: transparent;")
+            return
+        self.settings_io_status.setText(f"✓ Настройки экспортированы: {path.name}")
+        self.settings_io_status.setStyleSheet("color: #2d6b40; background: transparent;")
+
+    def _confirm_settings_import_twice(self) -> bool:
+        first = QMessageBox.warning(
+            self,
+            "Импорт настроек",
+            "Импорт перезапишет текущие настройки WebDAV, Битрикс24 и приложения "
+            "(включая пароль WebDAV и вебхук).\n\nПродолжить?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if first != QMessageBox.StandardButton.Yes:
+            return False
+        second = QMessageBox.warning(
+            self,
+            "Подтвердите ещё раз",
+            "Это действие перезапишет настройки на этом устройстве.\n"
+            "Отменить будет нельзя без резервной копии.\n\n"
+            "Точно импортировать и перезаписать настройки?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return second == QMessageBox.StandardButton.Yes
+
+    def _import_settings(self) -> None:
+        path_str, _filter = QFileDialog.getOpenFileName(
+            self,
+            "Импорт настроек",
+            "",
+            "JSON (*.json)",
+        )
+        if not path_str:
+            return
+        parsed = load_settings_bundle_from_path(Path(path_str))
+        if not parsed.ok:
+            self.settings_io_status.setText(f"✗ {parsed.error}")
+            self.settings_io_status.setStyleSheet("color: #9b3c3c; background: transparent;")
+            return
+        if not self._confirm_settings_import_twice():
+            self.settings_io_status.setText("Импорт отменён")
+            self.settings_io_status.setStyleSheet("color: #5f6b7c; background: transparent;")
+            return
+        applied = apply_settings_import(parsed)
+        if not applied.ok:
+            self.settings_io_status.setText(f"✗ {applied.error}")
+            self.settings_io_status.setStyleSheet("color: #9b3c3c; background: transparent;")
+            return
+        self._apply_imported_settings_to_form(applied)
+        if applied.reminder_interval_minutes is not None:
+            self.controller.set_reminder_interval_minutes(applied.reminder_interval_minutes)
+        if applied.bitrix_webhook is not None:
+            self.controller.set_bitrix_webhook(applied.bitrix_webhook)
+        if applied.bitrix_portal is not None:
+            self.controller.set_bitrix_portal_config(applied.bitrix_portal)
+        parent = self.parent()
+        if parent is not None and hasattr(parent, "_configure_webdav_periodic_timer"):
+            parent._configure_webdav_periodic_timer()
+        self.settings_io_status.setText("✓ Настройки импортированы и сохранены")
+        self.settings_io_status.setStyleSheet("color: #2d6b40; background: transparent;")
+
+    def _apply_imported_settings_to_form(self, applied) -> None:
+        if applied.reminder_interval_minutes is not None:
+            self.reminder_spin.setValue(applied.reminder_interval_minutes)
+        if applied.bitrix_webhook is not None:
+            self.webhook_edit.setText(applied.bitrix_webhook)
+        if applied.bitrix_portal is not None:
+            portal = applied.bitrix_portal
+            self.registry_title_edit.setText(portal.projects_registry_title)
+            self.entity_type_spin.setValue(portal.projects_entity_type_id)
+            self.executor_fields_edit.setText(", ".join(portal.projects_executor_fields))
+        if applied.webdav is not None:
+            webdav = applied.webdav
+            self.webdav_enabled_checkbox.setChecked(webdav.enabled)
+            self.webdav_url_edit.setText(webdav.url)
+            self.webdav_username_edit.setText(webdav.username)
+            self.webdav_password_edit.setText(webdav.password)
+            self.webdav_remote_path_edit.setText(webdav.remote_path)
+            self.webdav_sync_startup_checkbox.setChecked(webdav.sync_on_startup)
+            self.webdav_sync_shutdown_checkbox.setChecked(webdav.sync_on_shutdown)
+            self.webdav_shutdown_upload_only_checkbox.setChecked(webdav.shutdown_upload_only)
+            self.webdav_sync_interval_spin.setValue(webdav.sync_interval_minutes)
+            remind_index = (
+                REMIND_LATER_MINUTES_CHOICES.index(webdav.sync_remind_later_minutes)
+                if webdav.sync_remind_later_minutes in REMIND_LATER_MINUTES_CHOICES
+                else 2
+            )
+            self.webdav_remind_later_combo.setCurrentIndex(remind_index)
+            self._set_webdav_status(self._webdav_status_text(webdav), ok=None)
+        if applied.app is not None:
+            prefs = applied.app
+            self.check_updates_checkbox.setChecked(prefs.check_updates)
+            self.update_github_repo_edit.setText(prefs.update_github_repo)
+            self.update_check_interval_spin.setValue(prefs.update_check_interval_days)
+            self._sync_update_check_controls(prefs.check_updates)
 
     @staticmethod
     def _webdav_status_text(config: WebDavConfig) -> str:
@@ -1237,6 +1585,9 @@ class SettingsDialog(QDialog):
         def work() -> SyncOutcome:
             return pull_and_merge(self.controller.storage, config, require_enabled=False)
 
+        parent = self.parent()
+        if isinstance(parent, MainWindow):
+            parent._webdav_settings_sync_busy = True
         self._webdav_sync_thread = _CallableThread(work, self)
         self._webdav_sync_thread.succeeded.connect(self._on_webdav_pull_ok)
         self._webdav_sync_thread.failed.connect(
@@ -1257,6 +1608,9 @@ class SettingsDialog(QDialog):
         def work() -> SyncOutcome:
             return push_local(self.controller.storage, config, require_enabled=False)
 
+        parent = self.parent()
+        if isinstance(parent, MainWindow):
+            parent._webdav_settings_sync_busy = True
         self._webdav_sync_thread = _CallableThread(work, self)
         self._webdav_sync_thread.succeeded.connect(self._on_webdav_push_ok)
         self._webdav_sync_thread.failed.connect(
@@ -1290,11 +1644,16 @@ class SettingsDialog(QDialog):
         config = load_webdav_config()
         status_ok: bool | None = False if config.last_error else None
         self._set_webdav_status(self._webdav_status_text(config), ok=status_ok)
+        parent = self.parent()
+        if isinstance(parent, MainWindow):
+            parent._webdav_settings_sync_busy = False
+            parent._schedule_webdav_reconnect_if_deferred()
 
     def _set_webdav_buttons_enabled(self, enabled: bool) -> None:
         self.webdav_test_button.setEnabled(enabled)
         self.webdav_pull_button.setEnabled(enabled)
         self.webdav_push_button.setEnabled(enabled)
+        self.webdav_log_button.setEnabled(True)
 
     def _set_status(self, text: str, ok: bool | None) -> None:
         color = {True: "#2d6b40", False: "#9b3c3c", None: "#5f6b7c"}[ok]
@@ -1316,6 +1675,7 @@ class SettingsDialog(QDialog):
             self._discover_thread,
             self._webdav_test_thread,
             self._webdav_sync_thread,
+            self._update_check_thread,
         ):
             if thread is not None and thread.isRunning():
                 thread.wait(5000)
@@ -1568,6 +1928,13 @@ class TaskEditDialog(QDialog):
         form.addRow("Приоритет", self.priority_selector)
         layout.addLayout(form)
 
+        self.keep_priority_checkbox = QCheckBox("Сохранять приоритет", self)
+        self.keep_priority_checkbox.setToolTip(
+            "Не сбрасывать приоритет на следующий день при переносе плана"
+        )
+        self.keep_priority_checkbox.setChecked(bool(task.keep_priority))
+        layout.addWidget(self.keep_priority_checkbox)
+
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
@@ -1597,6 +1964,10 @@ class TaskEditDialog(QDialog):
                 result=self.result_edit.toPlainText(),
                 description=self.description_edit.toPlainText(),
             )
+            self.controller.set_keep_priority(
+                self.task_id,
+                self.keep_priority_checkbox.isChecked(),
+            )
             self.controller.assign_tasks_priority(
                 [self.task_id],
                 self.priority_selector.selected_priority,
@@ -1622,9 +1993,10 @@ class TaskPriorityDialog(QDialog):
         self.controller = controller
         self.task = task
         self.selected_priority = controller.task_priority(task)
+        self.keep_priority = bool(task.keep_priority)
         self.setWindowTitle(window_title)
         self.setModal(True)
-        self.resize(420, 180)
+        self.resize(420, 220)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 22, 24, 22)
@@ -1647,6 +2019,13 @@ class TaskPriorityDialog(QDialog):
         self._priority_buttons = self.priority_selector._priority_buttons
         layout.addWidget(self.priority_selector)
 
+        self.keep_priority_checkbox = QCheckBox("Сохранять приоритет", self)
+        self.keep_priority_checkbox.setToolTip(
+            "Не сбрасывать приоритет на следующий день при переносе плана"
+        )
+        self.keep_priority_checkbox.setChecked(self.keep_priority)
+        layout.addWidget(self.keep_priority_checkbox)
+
         dialog_buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
@@ -1662,6 +2041,7 @@ class TaskPriorityDialog(QDialog):
 
     def accept(self) -> None:
         self.selected_priority = self.priority_selector.selected_priority
+        self.keep_priority = self.keep_priority_checkbox.isChecked()
         super().accept()
 
 
@@ -1878,14 +2258,20 @@ class SessionEditDialog(QDialog):
         return self._session_id_at(row) if row >= 0 else None
 
     def _add_session(self) -> None:
-        start = self.start_edit.dateTime().toPython()
-        end = self.end_edit.dateTime().toPython()
+        start_q = QDateTime.currentDateTime()
+        end_q = start_q.addSecs(3600)
+        self.start_edit.setDateTime(start_q)
+        self.end_edit.setDateTime(end_q)
+        self.comment_edit.clear()
+        self.selected_session_id = None
+        start = start_q.toPython()
+        end = end_q.toPython()
         try:
             session = self.controller.add_session(
                 self.task.id,
                 start,
                 end,
-                comment=self.comment_edit.toPlainText(),
+                comment="",
             )
         except ValueError as exc:
             QMessageBox.warning(self, "Ошибка", str(exc))
@@ -2209,6 +2595,7 @@ class MainWindow(QMainWindow):
         self.app = app
         self._current_view = "plan"
         self._selected_date: str | None = None
+        self._title_search = ""
         self._portal_sync_queue: list = []
         self._portal_sync_busy = False
         self._task_rows: dict[str, TaskRow] = {}
@@ -2252,8 +2639,16 @@ class MainWindow(QMainWindow):
         self._webdav_periodic_timer.timeout.connect(self._webdav_periodic_sync)
         self._webdav_main_sync_thread: _CallableThread | None = None
         self._webdav_check_thread: _CallableThread | None = None
+        self._webdav_reconnect_thread: _CallableThread | None = None
+        self._update_check_thread: _CallableThread | None = None
         self._webdav_remote_prompt_open = False
+        self._webdav_settings_sync_busy = False
+        self._webdav_reconnect_gate = WebDavReconnectGate()
+        self._webdav_reconnect_debounce = QTimer(self)
+        self._webdav_reconnect_debounce.setSingleShot(True)
+        self._webdav_reconnect_debounce.timeout.connect(self._webdav_reconnect_push_fire)
         self._configure_webdav_periodic_timer()
+        self._configure_webdav_reconnect_monitor()
         QTimer.singleShot(0, self._run_deferred_startup_sync)
 
     def _run_deferred_startup_sync(self) -> None:
@@ -2262,6 +2657,7 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(0, self._offer_focus_resume_if_pending)
         QTimer.singleShot(300, self._show_startup_notices)
         QTimer.singleShot(350, self._offer_focus_resume_if_pending)
+        QTimer.singleShot(800, self._maybe_check_updates_on_startup)
 
     def _offer_focus_resume_if_pending(self) -> None:
         if not self.controller.focus_resume_offer_pending:
@@ -2596,6 +2992,26 @@ class MainWindow(QMainWindow):
         self.date_edit.dateChanged.connect(self._set_date)
         self.date_edit.calendarWidget().clicked.connect(self._set_date)
         sub.addWidget(self.date_edit)
+
+        self.title_search_edit = QLineEdit()
+        self.title_search_edit.setObjectName("taskSearch")
+        self.title_search_edit.setPlaceholderText("Поиск по названию…")
+        self.title_search_edit.setClearButtonEnabled(True)
+        self.title_search_edit.setFixedHeight(28)
+        self.title_search_edit.setMinimumWidth(160)
+        self.title_search_edit.setMaximumWidth(240)
+        self.title_search_edit.setToolTip("Введите подстроку и нажмите «Поиск» или Enter")
+        self.title_search_edit.returnPressed.connect(self._apply_title_search)
+        sub.addWidget(self.title_search_edit)
+
+        title_search_button = QPushButton("Поиск")
+        title_search_button.setObjectName("ghostButton")
+        title_search_button.setFixedHeight(28)
+        title_search_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        title_search_button.setToolTip("Применить фильтр по названию")
+        title_search_button.clicked.connect(self._apply_title_search)
+        self._title_search_button = title_search_button
+        sub.addWidget(title_search_button)
 
         sub.addStretch(1)
 
@@ -3362,6 +3778,8 @@ class MainWindow(QMainWindow):
         if self._current_view != "plan":
             tasks = sorted(tasks, key=lambda t: t.status == TaskStatus.COMPLETED)
 
+        tasks = filter_tasks_by_title(tasks, self._title_search)
+
         priority_enabled_view = self._current_view in {"plan", "in_progress", "all"}
 
         if not tasks:
@@ -3435,6 +3853,8 @@ class MainWindow(QMainWindow):
                 continue
             row.update_times(self.controller, task, reference_date)
     def _empty_hint(self) -> str:
+        if self._title_search.strip():
+            return "Ничего не найдено по запросу."
         if self._current_view == "plan":
             return (
                 "В плане на сегодня пусто. Добавь задачи кнопкой «В план» "
@@ -3445,6 +3865,17 @@ class MainWindow(QMainWindow):
         if self._current_view == "date" and self._selected_date:
             return f"Нет задач с затраченным временем за {format_day_label(self._selected_date)}."
         return "Пока нет задач."
+
+    def _apply_title_search(self) -> None:
+        self._title_search = self.title_search_edit.text()
+        self.refresh_ui()
+
+    def _clear_title_search(self) -> None:
+        self._title_search = ""
+        self.title_search_edit.blockSignals(True)
+        self.title_search_edit.clear()
+        self.title_search_edit.blockSignals(False)
+
     def _set_timer_running(self, running: bool) -> None:
         for widget in (self.timer_panel, self.timer_card):
             if bool(widget.property("running")) != running:
@@ -3530,6 +3961,7 @@ class MainWindow(QMainWindow):
             self.controller.set_bitrix_webhook(dialog.webhook_edit.text())
             self.controller.set_bitrix_portal_config(dialog.portal_config())
             save_webdav_settings(dialog.webdav_config())
+            save_app_prefs(dialog.app_prefs())
             self._configure_webdav_periodic_timer()
             self.refresh_ui()
 
@@ -3540,9 +3972,164 @@ class MainWindow(QMainWindow):
         else:
             self._webdav_periodic_timer.stop()
 
+    def _configure_webdav_reconnect_monitor(self) -> None:
+        try:
+            from PySide6.QtNetwork import QNetworkInformation
+        except ImportError:
+            return
+        if not QNetworkInformation.loadDefaultBackend():
+            return
+        info = QNetworkInformation.instance()
+        if info is None:
+            return
+        self._network_info = info
+        reachability = info.reachability()
+        online = reachability in (
+            QNetworkInformation.Reachability.Online,
+            QNetworkInformation.Reachability.Site,
+        )
+        if not online:
+            self._webdav_reconnect_gate.mark_offline()
+        info.reachabilityChanged.connect(self._on_network_reachability_changed)
+
+    def _on_network_reachability_changed(self, reachability: object) -> None:
+        try:
+            from PySide6.QtNetwork import QNetworkInformation
+        except ImportError:
+            return
+        online = reachability in (
+            QNetworkInformation.Reachability.Online,
+            QNetworkInformation.Reachability.Site,
+        )
+        if not online:
+            self._webdav_reconnect_gate.mark_offline()
+            self._webdav_reconnect_debounce.stop()
+            return
+        busy = self._webdav_busy_for_reconnect()
+        if self._webdav_reconnect_gate.on_online(busy=busy):
+            delay_ms = int(self._webdav_reconnect_gate.debounce_seconds * 1000)
+            self._webdav_reconnect_debounce.start(max(delay_ms, 1))
+
+    def _schedule_webdav_reconnect_if_deferred(self) -> None:
+        if self._webdav_busy_for_reconnect():
+            return
+        if self._webdav_reconnect_gate.on_busy_finished():
+            delay_ms = int(self._webdav_reconnect_gate.debounce_seconds * 1000)
+            self._webdav_reconnect_debounce.start(max(delay_ms, 1))
+
+    def _webdav_reconnect_push_fire(self) -> None:
+        if self._webdav_busy_for_reconnect():
+            self._webdav_reconnect_gate.defer_fire_until_idle()
+            return
+        if not self._webdav_reconnect_gate.begin_push():
+            return
+        config = load_webdav_config()
+        if not config.enabled or not config.is_configured():
+            self._webdav_reconnect_gate.end_push()
+            return
+        self.controller.save()
+
+        def work() -> SyncOutcome:
+            return sync_webdav_on_reconnect(self.controller.storage)
+
+        self._webdav_reconnect_thread = _CallableThread(work, self)
+        self._webdav_reconnect_thread.succeeded.connect(self._on_webdav_reconnect_ok)
+        self._webdav_reconnect_thread.failed.connect(self._on_webdav_reconnect_failed)
+        self._webdav_reconnect_thread.finished.connect(self._on_webdav_reconnect_finished)
+        self._webdav_reconnect_thread.start()
+
+    def _on_webdav_reconnect_finished(self) -> None:
+        self._webdav_reconnect_gate.end_push()
+        self._schedule_webdav_reconnect_if_deferred()
+
+    def _on_webdav_reconnect_ok(self, outcome: object) -> None:
+        if not isinstance(outcome, SyncOutcome):
+            return
+        if outcome.state is not None:
+            self.controller.state = outcome.state
+            self.controller.apply_loaded_state()
+            self.refresh_ui()
+        elif not outcome.error:
+            self.controller.reload_state_from_storage()
+            self.refresh_ui()
+        if outcome.error:
+            self._show_tray_message(
+                "WebDAV",
+                f"Не удалось выгрузить после восстановления сети: {outcome.error}",
+                icon=QSystemTrayIcon.MessageIcon.Warning,
+                timeout=8000,
+            )
+            return
+        if outcome.notice:
+            self._show_tray_message(
+                "WebDAV",
+                outcome.notice,
+                icon=QSystemTrayIcon.MessageIcon.Information,
+                timeout=6000,
+            )
+
+    def _on_webdav_reconnect_failed(self, message: str) -> None:
+        self._show_tray_message(
+            "WebDAV",
+            f"Не удалось выгрузить после восстановления сети: {message}",
+            icon=QSystemTrayIcon.MessageIcon.Warning,
+            timeout=8000,
+        )
+
+    def _maybe_check_updates_on_startup(self) -> None:
+        prefs = load_app_prefs()
+        if not should_run_auto_update_check(prefs):
+            return
+        if self._update_check_thread is not None and self._update_check_thread.isRunning():
+            return
+
+        def work() -> UpdateCheckResult:
+            return check_for_update(
+                dismissed_version=prefs.dismissed_update_version,
+                respect_dismissed=True,
+                github_repo=prefs.update_github_repo,
+            )
+
+        self._update_check_thread = _CallableThread(work, self)
+        self._update_check_thread.succeeded.connect(self._on_startup_update_check_ok)
+        self._update_check_thread.start()
+
+    def _on_startup_update_check_ok(self, result: object) -> None:
+        prefs = load_app_prefs()
+        if not isinstance(result, UpdateCheckResult):
+            mark_update_check_done(prefs)
+            return
+        if not result.ok:
+            mark_update_check_done(prefs)
+            return
+        if result.update_available and result.latest is not None:
+            self._show_tray_message(
+                "Обновление",
+                f"Доступна версия {result.latest.version}. Откройте Настройки → Приложение.",
+                icon=QSystemTrayIcon.MessageIcon.Information,
+                timeout=10000,
+            )
+            mark_update_check_done(prefs, dismissed_version=result.latest.version)
+            return
+        mark_update_check_done(prefs)
+
     def _webdav_sync_running(self) -> bool:
         thread = self._webdav_main_sync_thread
         return thread is not None and thread.isRunning()
+
+    def _webdav_busy_for_reconnect(self) -> bool:
+        return (
+            self._webdav_sync_running()
+            or bool(getattr(self, "_webdav_settings_sync_busy", False))
+            or (
+                self._webdav_reconnect_thread is not None
+                and self._webdav_reconnect_thread.isRunning()
+            )
+        )
+
+    def _on_main_webdav_sync_finished(self) -> None:
+        self._set_webdav_buttons_enabled(True)
+        self._schedule_webdav_reconnect_if_deferred()
 
     def _set_webdav_buttons_enabled(self, enabled: bool) -> None:
         if hasattr(self, "_webdav_pull_button"):
@@ -3566,9 +4153,7 @@ class MainWindow(QMainWindow):
         self._webdav_main_sync_thread = _CallableThread(work, self)
         self._webdav_main_sync_thread.succeeded.connect(self._on_main_webdav_sync_ok)
         self._webdav_main_sync_thread.failed.connect(self._on_main_webdav_sync_failed)
-        self._webdav_main_sync_thread.finished.connect(
-            lambda: self._set_webdav_buttons_enabled(True)
-        )
+        self._webdav_main_sync_thread.finished.connect(self._on_main_webdav_sync_finished)
         self._webdav_main_sync_thread.start()
 
     def _webdav_push_now_main(self) -> None:
@@ -3587,9 +4172,7 @@ class MainWindow(QMainWindow):
         self._webdav_main_sync_thread = _CallableThread(work, self)
         self._webdav_main_sync_thread.succeeded.connect(self._on_main_webdav_sync_ok)
         self._webdav_main_sync_thread.failed.connect(self._on_main_webdav_sync_failed)
-        self._webdav_main_sync_thread.finished.connect(
-            lambda: self._set_webdav_buttons_enabled(True)
-        )
+        self._webdav_main_sync_thread.finished.connect(self._on_main_webdav_sync_finished)
         self._webdav_main_sync_thread.start()
 
     def _webdav_periodic_sync(self) -> None:
@@ -3651,9 +4234,7 @@ class MainWindow(QMainWindow):
         self._webdav_main_sync_thread = _CallableThread(work, self)
         self._webdav_main_sync_thread.succeeded.connect(self._on_main_webdav_sync_ok)
         self._webdav_main_sync_thread.failed.connect(self._on_main_webdav_sync_failed)
-        self._webdav_main_sync_thread.finished.connect(
-            lambda: self._set_webdav_buttons_enabled(True)
-        )
+        self._webdav_main_sync_thread.finished.connect(self._on_main_webdav_sync_finished)
         self._webdav_main_sync_thread.start()
 
     def _on_main_webdav_sync_ok(self, outcome: object) -> None:
@@ -3744,6 +4325,7 @@ class MainWindow(QMainWindow):
         self._current_view = view
         self._pinned_task_row_id = None
         self._clear_task_selection()
+        self._clear_title_search()
         self.refresh_ui()
 
     def _set_date(self, qdate: QDate) -> None:
@@ -3751,6 +4333,7 @@ class MainWindow(QMainWindow):
         self._current_view = "date"
         self._pinned_task_row_id = None
         self._clear_task_selection()
+        self._clear_title_search()
         self.refresh_ui()
 
     def _clear_task_selection(self, task_ids: set[str] | None = None) -> None:
@@ -3826,7 +4409,7 @@ class MainWindow(QMainWindow):
         else:
             self._add_to_plan_with_priority_prompt(task_id)
 
-    def _prompt_plan_priority(self, task_id: str) -> int | None:
+    def _prompt_plan_priority(self, task_id: str) -> tuple[int, bool] | None:
         task = self.controller.find_task(task_id)
         dialog = TaskPriorityDialog(
             self.controller,
@@ -3838,15 +4421,17 @@ class MainWindow(QMainWindow):
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return None
-        return dialog.selected_priority
+        return dialog.selected_priority, dialog.keep_priority
 
     def _add_to_plan_with_priority_prompt(self, task_id: str) -> None:
         task = self.controller.find_task(task_id)
         current = self.controller.task_priority(task)
         if current == DEFAULT_PRIORITY:
-            priority = self._prompt_plan_priority(task_id)
-            if priority is None:
+            prompted = self._prompt_plan_priority(task_id)
+            if prompted is None:
                 return
+            priority, keep_priority = prompted
+            self.controller.set_keep_priority(task_id, keep_priority)
         else:
             priority = current
         self.controller.add_to_plan_with_priority(task_id, priority)
@@ -3892,6 +4477,7 @@ class MainWindow(QMainWindow):
         dialog = StartPriorityDialog(self.controller, task, self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return None
+        self.controller.set_keep_priority(task_id, dialog.keep_priority)
         return dialog.selected_priority
 
     def _resolve_start_priority(self, task_id: str) -> int | None:

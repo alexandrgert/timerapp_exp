@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 import pytest
-from PySide6.QtCore import QRect
+from PySide6.QtCore import QDate, QDateTime, QRect, QTime
 from PySide6.QtGui import QFont, QFontMetrics
 from PySide6.QtWidgets import (
     QApplication,
@@ -437,6 +437,7 @@ def test_create_task_dialog_emits_selected_priority(
 
 def test_task_edit_dialog_saves_selected_priority(
     controller: AppController,
+    qapp: QApplication,
 ) -> None:
     task = controller.create_task("Edit me", description="text")
     dialog = TaskEditDialog(controller, task)
@@ -446,6 +447,24 @@ def test_task_edit_dialog_saves_selected_priority(
 
     reloaded = controller.find_task(task.id)
     assert controller.task_priority(reloaded) == 3
+    assert reloaded.keep_priority is False
+
+
+def test_task_edit_dialog_saves_keep_priority(
+    controller: AppController,
+    qapp: QApplication,
+) -> None:
+    task = controller.create_task("Keep edit", description="text")
+    dialog = TaskEditDialog(controller, task)
+    assert dialog.keep_priority_checkbox.isChecked() is False
+    dialog.keep_priority_checkbox.setChecked(True)
+    dialog._priority_buttons[1].click()
+
+    dialog.accept()
+
+    reloaded = controller.find_task(task.id)
+    assert reloaded.keep_priority is True
+    assert controller.task_priority(reloaded) == 1
 
 
 def test_session_edit_dialog_keeps_selected_row_after_save(
@@ -477,6 +496,42 @@ def test_session_edit_dialog_keeps_selected_row_after_save(
     assert dialog.selected_session_id == second.id
     assert dialog._current_session_id() == second.id
     assert dialog.table.currentRow() == 1
+
+
+def test_session_edit_add_uses_now_and_plus_one_hour(
+    controller: AppController,
+    qapp: QApplication,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task = controller.create_task("Add now", description="text")
+    existing = controller.add_session(
+        task.id,
+        datetime(2026, 8, 12, 9, 33, 18),
+        datetime(2026, 8, 12, 11, 1, 26),
+        comment="old",
+    )
+    dialog = SessionEditDialog(controller, controller.find_task(task.id))
+    dialog.table.selectRow(0)
+    dialog._load_current_session()
+    assert dialog.start_edit.dateTime().toPython().replace(tzinfo=None) == datetime(
+        2026, 8, 12, 9, 33, 18
+    )
+
+    fixed = QDateTime(QDate(2026, 8, 12), QTime(15, 30, 0))
+    monkeypatch.setattr(QDateTime, "currentDateTime", staticmethod(lambda: fixed))
+
+    dialog._add_session()
+
+    sessions = controller.find_task(task.id).sessions
+    assert len(sessions) == 2
+    added = next(session for session in sessions if session.id != existing.id)
+    assert added.comment == ""
+    assert datetime.fromisoformat(added.started_at).replace(tzinfo=None) == datetime(
+        2026, 8, 12, 15, 30, 0
+    )
+    assert datetime.fromisoformat(added.ended_at or "").replace(tzinfo=None) == datetime(
+        2026, 8, 12, 16, 30, 0
+    )
 
 
 def test_task_row_update_times_refreshes_labels(
@@ -854,7 +909,7 @@ def test_add_to_plan_prompts_priority_and_shows_on_today_tab(
         planned_days=[],
     )
     controller.state.tasks.append(task)
-    monkeypatch.setattr(main_window, "_prompt_plan_priority", lambda _task_id: 2)
+    monkeypatch.setattr(main_window, "_prompt_plan_priority", lambda _task_id: (2, False))
 
     main_window._set_view("all")
     main_window.refresh_ui()
@@ -1214,6 +1269,42 @@ def test_priority_filter_hides_tasks_by_level_in_in_progress_view(
 
     titles = {controller.find_task(task_id).title for task_id in main_window._task_rows}
     assert titles == {"High progress"}
+
+
+def test_title_search_filters_rows_on_top_of_view(
+    main_window: MainWindow,
+    controller: AppController,
+) -> None:
+    controller.create_task("Alpha report")
+    controller.create_task("Beta task")
+    main_window._set_view("all")
+    main_window.title_search_edit.setText("alp")
+    assert {controller.find_task(task_id).title for task_id in main_window._task_rows} == {
+        "Alpha report",
+        "Beta task",
+    }
+    main_window._apply_title_search()
+    titles = {controller.find_task(task_id).title for task_id in main_window._task_rows}
+    assert titles == {"Alpha report"}
+
+
+def test_title_search_clears_on_view_switch(
+    main_window: MainWindow,
+    controller: AppController,
+) -> None:
+    controller.create_task("Alpha report")
+    controller.create_task("Beta task")
+    main_window._set_view("all")
+    main_window.title_search_edit.setText("alp")
+    main_window._apply_title_search()
+    assert {controller.find_task(task_id).title for task_id in main_window._task_rows} == {
+        "Alpha report",
+    }
+    main_window._set_view("in_progress")
+    assert main_window.title_search_edit.text() == ""
+    assert main_window._title_search == ""
+    titles = {controller.find_task(task_id).title for task_id in main_window._task_rows}
+    assert titles == {"Alpha report", "Beta task"}
 
 
 def test_priority_filter_clears_pinned_task(

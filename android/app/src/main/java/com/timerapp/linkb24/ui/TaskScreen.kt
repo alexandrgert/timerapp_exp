@@ -55,6 +55,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -185,6 +188,7 @@ private fun TaskListScreen(
             SessionHistoryDialog(
                 task = task,
                 onDismiss = { historyTaskId = null },
+                onAddSession = { viewModel.addHistorySession(taskId) },
             )
         } else {
             historyTaskId = null
@@ -197,8 +201,8 @@ private fun TaskListScreen(
             EditTaskDialog(
                 task = task,
                 onDismiss = { editTaskId = null },
-                onConfirm = { title, description, result ->
-                    viewModel.updateTask(taskId, title, description, result)
+                onConfirm = { title, description, result, keepPriority ->
+                    viewModel.updateTask(taskId, title, description, result, keepPriority)
                     editTaskId = null
                 },
             )
@@ -214,13 +218,20 @@ private fun TaskListScreen(
                 title = stringResource(R.string.priority_start_title),
                 taskTitle = task.title,
                 initialPriority = taskPriority(task, todayIsoDate()),
+                initialKeepPriority = task.keepPriority,
+                showKeepPriority = true,
                 onDismiss = { priorityStartRequest = null },
-                onConfirm = { priority ->
+                onConfirm = { priority, keepPriority ->
                     val resumeComment = request.resumeComment
                     if (resumeComment != null) {
-                        viewModel.resumeTaskWithPriority(request.taskId, priority, resumeComment)
+                        viewModel.resumeTaskWithPriority(
+                            request.taskId,
+                            priority,
+                            resumeComment,
+                            keepPriority,
+                        )
                     } else {
-                        viewModel.startTaskWithPriority(request.taskId, priority)
+                        viewModel.startTaskWithPriority(request.taskId, priority, keepPriority)
                     }
                     priorityStartRequest = null
                 },
@@ -238,8 +249,10 @@ private fun TaskListScreen(
                 uiState.selectedTaskIds.size,
             ),
             initialPriority = 1,
+            initialKeepPriority = false,
+            showKeepPriority = false,
             onDismiss = { showBatchPriorityDialog = false },
-            onConfirm = { priority ->
+            onConfirm = { priority, _ ->
                 viewModel.assignPriorityToSelected(priority)
                 showBatchPriorityDialog = false
             },
@@ -301,6 +314,25 @@ private fun TaskListScreen(
                     onClick = { viewModel.onFilterChange(TaskViewFilter.ALL) },
                     label = { Text(stringResource(R.string.filter_all)) },
                 )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                OutlinedTextField(
+                    modifier = Modifier.weight(1f),
+                    value = uiState.titleSearchDraft,
+                    onValueChange = viewModel::onTitleSearchDraftChange,
+                    label = { Text(stringResource(R.string.title_search_label)) },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = { viewModel.applyTitleSearch() }),
+                )
+                FilledTonalButton(onClick = viewModel::applyTitleSearch) {
+                    Text(stringResource(R.string.title_search_button))
+                }
             }
 
             Row(
@@ -397,10 +429,14 @@ private fun TaskListScreen(
                 CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
             } else if (uiState.tasks.isEmpty()) {
                 Text(
-                    text = when (uiState.taskFilter) {
-                        TaskViewFilter.TODAY -> stringResource(R.string.empty_tasks_today)
-                        TaskViewFilter.IN_PROGRESS -> stringResource(R.string.empty_tasks_in_progress)
-                        TaskViewFilter.ALL -> stringResource(R.string.empty_tasks_all)
+                    text = when {
+                        uiState.titleSearchApplied.isNotBlank() ->
+                            stringResource(R.string.empty_tasks_search)
+                        uiState.taskFilter == TaskViewFilter.TODAY ->
+                            stringResource(R.string.empty_tasks_today)
+                        uiState.taskFilter == TaskViewFilter.IN_PROGRESS ->
+                            stringResource(R.string.empty_tasks_in_progress)
+                        else -> stringResource(R.string.empty_tasks_all)
                     },
                     style = MaterialTheme.typography.bodyMedium,
                 )
@@ -683,11 +719,12 @@ private fun ResumeTaskDialog(
 private fun EditTaskDialog(
     task: TaskDto,
     onDismiss: () -> Unit,
-    onConfirm: (title: String, description: String, result: String) -> Unit,
+    onConfirm: (title: String, description: String, result: String, keepPriority: Boolean) -> Unit,
 ) {
     var title by rememberSaveable(task.id) { mutableStateOf(task.title) }
     var description by rememberSaveable(task.id) { mutableStateOf(task.description) }
     var result by rememberSaveable(task.id) { mutableStateOf(task.result) }
+    var keepPriority by rememberSaveable(task.id) { mutableStateOf(task.keepPriority) }
     var error by remember { mutableStateOf<String?>(null) }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -720,6 +757,16 @@ private fun EditTaskDialog(
                     label = { Text(stringResource(R.string.description_field)) },
                     minLines = 2,
                 )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Checkbox(
+                        checked = keepPriority,
+                        onCheckedChange = { keepPriority = it },
+                    )
+                    Text(stringResource(R.string.keep_priority_label))
+                }
                 error?.let {
                     Text(it, color = MaterialTheme.colorScheme.error)
                 }
@@ -733,7 +780,7 @@ private fun EditTaskDialog(
                         task.status == TaskStatus.COMPLETED && result.trim().isEmpty() -> {
                             error = "Введите результат выполнения задачи."
                         }
-                        else -> onConfirm(title, description, result)
+                        else -> onConfirm(title, description, result, keepPriority)
                     }
                 },
             ) {
@@ -753,10 +800,13 @@ private fun PriorityPickDialog(
     title: String,
     taskTitle: String,
     initialPriority: Int,
+    initialKeepPriority: Boolean,
+    showKeepPriority: Boolean,
     onDismiss: () -> Unit,
-    onConfirm: (Int) -> Unit,
+    onConfirm: (priority: Int, keepPriority: Boolean) -> Unit,
 ) {
     var selected by rememberSaveable { mutableStateOf(initialPriority.coerceIn(1, 4)) }
+    var keepPriority by rememberSaveable { mutableStateOf(initialKeepPriority) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
@@ -772,10 +822,22 @@ private fun PriorityPickDialog(
                         )
                     }
                 }
+                if (showKeepPriority) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Checkbox(
+                            checked = keepPriority,
+                            onCheckedChange = { keepPriority = it },
+                        )
+                        Text(stringResource(R.string.keep_priority_label))
+                    }
+                }
             }
         },
         confirmButton = {
-            TextButton(onClick = { onConfirm(selected) }) {
+            TextButton(onClick = { onConfirm(selected, keepPriority) }) {
                 Text(stringResource(R.string.save))
             }
         },
@@ -791,6 +853,7 @@ private fun PriorityPickDialog(
 private fun SessionHistoryDialog(
     task: TaskDto,
     onDismiss: () -> Unit,
+    onAddSession: () -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -804,6 +867,9 @@ private fun SessionHistoryDialog(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(task.title, style = MaterialTheme.typography.bodyMedium)
+                TextButton(onClick = onAddSession) {
+                    Text(stringResource(R.string.history_add_session))
+                }
                 if (task.sessions.isEmpty()) {
                     Text(stringResource(R.string.history_empty))
                 } else {

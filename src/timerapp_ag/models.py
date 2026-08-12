@@ -74,6 +74,7 @@ class Task:
     bitrix: dict[str, Any] | None = None
     planned_days: list[str] = field(default_factory=list)
     daily_priorities: dict[str, int] = field(default_factory=dict)
+    keep_priority: bool = False
 
     def total_seconds(self, now: datetime | None = None) -> int:
         return sum(session.duration_seconds(now=now) for session in self.sessions)
@@ -105,6 +106,8 @@ class Task:
             payload["result"] = self.result
         if self.daily_priorities:
             payload["daily_priorities"] = dict(self.daily_priorities)
+        if self.keep_priority:
+            payload["keep_priority"] = True
         return payload
 
     @classmethod
@@ -127,4 +130,5 @@ class Task:
                 for key, value in (data.get("daily_priorities") or {}).items()
                 if isinstance(value, int) and 1 <= value <= 4
             },
+            keep_priority=bool(data.get("keep_priority", False)),
         )

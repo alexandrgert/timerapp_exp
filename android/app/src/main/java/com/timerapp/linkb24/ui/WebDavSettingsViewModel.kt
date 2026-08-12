@@ -1,16 +1,28 @@
 package com.timerapp.linkb24.ui
 
 import android.app.Application
+import android.content.Intent
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.timerapp.linkb24.data.AppPrefs
+import com.timerapp.linkb24.data.AppPrefsRepository
+import com.timerapp.linkb24.data.DEFAULT_UPDATE_CHECK_INTERVAL_DAYS
+import com.timerapp.linkb24.data.DEFAULT_UPDATE_GITHUB_REPO
+import com.timerapp.linkb24.data.MAX_UPDATE_CHECK_INTERVAL_DAYS
+import com.timerapp.linkb24.data.MIN_UPDATE_CHECK_INTERVAL_DAYS
+import com.timerapp.linkb24.data.SettingsBundle
 import com.timerapp.linkb24.data.TaskRepository
 import com.timerapp.linkb24.data.WebDavConfig
 import com.timerapp.linkb24.data.WebDavConfigRepository
+import com.timerapp.linkb24.data.normalizeGithubRepo
 import com.timerapp.linkb24.data.normalizeSyncIntervalMinutes
 import com.timerapp.linkb24.data.validateWebDavConfig
+import com.timerapp.linkb24.update.UpdateChecker
 import com.timerapp.linkb24.webdav.WebDavClient
 import com.timerapp.linkb24.webdav.WebDavException
 import com.timerapp.linkb24.webdav.WebDavSync
+import com.timerapp.linkb24.webdav.WebDavSyncLog
 import com.timerapp.linkb24.webdav.normalizeRemindLaterMinutes
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -38,13 +50,26 @@ data class WebDavSettingsUiState(
     val isTesting: Boolean = false,
     val isSaving: Boolean = false,
     val isSyncing: Boolean = false,
+    val isCheckingUpdates: Boolean = false,
     val errorMessage: String? = null,
     val savedMessage: String? = null,
+    val checkUpdates: Boolean = false,
+    val updateCheckIntervalDays: String = DEFAULT_UPDATE_CHECK_INTERVAL_DAYS.toString(),
+    val updateGithubRepo: String = DEFAULT_UPDATE_GITHUB_REPO,
+    val updateStatusMessage: String? = null,
+    val updateReleaseUrl: String? = null,
+    val showLogDialog: Boolean = false,
+    val logText: String = "",
+    val settingsIoMessage: String? = null,
+    val pendingImportConfirmStep: Int = 0,
+    val pendingImportUri: String? = null,
 )
 
 class WebDavSettingsViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = WebDavConfigRepository(application)
-    private val webDavSync = WebDavSync(TaskRepository(application), repository)
+    private val appPrefsRepository = AppPrefsRepository(application)
+    private val syncLog = WebDavSyncLog(application)
+    private val webDavSync = WebDavSync(TaskRepository(application), repository, syncLog)
 
     private val _uiState = MutableStateFlow(WebDavSettingsUiState())
     val uiState: StateFlow<WebDavSettingsUiState> = _uiState.asStateFlow()
@@ -55,7 +80,8 @@ class WebDavSettingsViewModel(application: Application) : AndroidViewModel(appli
 
     fun load() {
         val config = repository.load()
-        _uiState.value = config.toUiState()
+        val prefs = appPrefsRepository.load()
+        _uiState.value = config.toUiState(prefs)
     }
 
     fun onEnabledChange(value: Boolean) {
@@ -98,8 +124,144 @@ class WebDavSettingsViewModel(application: Application) : AndroidViewModel(appli
         _uiState.update { it.copy(syncRemindLaterMinutes = value, savedMessage = null) }
     }
 
+    fun onCheckUpdatesChange(value: Boolean) {
+        _uiState.update { it.copy(checkUpdates = value, savedMessage = null) }
+    }
+
+    fun onUpdateCheckIntervalDaysChange(value: String) {
+        _uiState.update {
+            it.copy(
+                updateCheckIntervalDays = value.filter { ch -> ch.isDigit() },
+                savedMessage = null,
+            )
+        }
+    }
+
+    fun onUpdateGithubRepoChange(value: String) {
+        _uiState.update { it.copy(updateGithubRepo = value, savedMessage = null) }
+    }
+
     fun toggleShowPassword() {
         _uiState.update { it.copy(showPassword = !it.showPassword) }
+    }
+
+    fun exportSettingsJson(): String {
+        val webdav = _uiState.value.toConfig()
+        val app = _uiState.value.toAppPrefs()
+        return SettingsBundle.exportJson(webdav, app)
+    }
+
+    fun beginImportFromUri(uri: Uri) {
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    val context = getApplication<Application>()
+                    val raw = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                        ?: error("Не удалось прочитать файл")
+                    val parsed = SettingsBundle.parse(raw)
+                    if (!parsed.ok) {
+                        error(parsed.error)
+                    }
+                }
+            }.onSuccess {
+                _uiState.update {
+                    it.copy(
+                        pendingImportUri = uri.toString(),
+                        pendingImportConfirmStep = 1,
+                        settingsIoMessage = null,
+                    )
+                }
+            }.onFailure { error ->
+                _uiState.update {
+                    it.copy(
+                        pendingImportConfirmStep = 0,
+                        pendingImportUri = null,
+                        settingsIoMessage = error.message ?: "Не удалось прочитать файл настроек",
+                    )
+                }
+            }
+        }
+    }
+
+    fun cancelImportConfirm() {
+        _uiState.update {
+            it.copy(pendingImportConfirmStep = 0, pendingImportUri = null)
+        }
+    }
+
+    fun advanceImportConfirm() {
+        val step = _uiState.value.pendingImportConfirmStep
+        when (step) {
+            1 -> _uiState.update { it.copy(pendingImportConfirmStep = 2) }
+            2 -> {
+                val uriText = _uiState.value.pendingImportUri
+                _uiState.update { it.copy(pendingImportConfirmStep = 0, pendingImportUri = null) }
+                if (!uriText.isNullOrBlank()) {
+                    applyImportFromUri(Uri.parse(uriText))
+                }
+            }
+            else -> cancelImportConfirm()
+        }
+    }
+
+    private fun applyImportFromUri(uri: Uri) {
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    val context = getApplication<Application>()
+                    val raw = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                        ?: error("Не удалось прочитать файл")
+                    val parsed = SettingsBundle.parse(raw)
+                    if (!parsed.ok) {
+                        error(parsed.error)
+                    }
+                    val currentWebdav = repository.load()
+                    if (parsed.webdav != null) {
+                        repository.save(SettingsBundle.mergeImportedWebDav(parsed.webdav, currentWebdav))
+                    }
+                    if (parsed.app != null) {
+                        appPrefsRepository.save(parsed.app)
+                    }
+                }
+            }.onSuccess {
+                load()
+                (getApplication() as com.timerapp.linkb24.TimerApplication).restartWebDavPeriodicMonitor()
+                _uiState.update {
+                    it.copy(settingsIoMessage = "Настройки импортированы и сохранены")
+                }
+            }.onFailure { error ->
+                _uiState.update {
+                    it.copy(settingsIoMessage = error.message ?: "Не удалось импортировать настройки")
+                }
+            }
+        }
+    }
+
+    fun markExportOk(name: String) {
+        _uiState.update { it.copy(settingsIoMessage = "Настройки экспортированы: $name") }
+    }
+
+    fun markExportFailed(message: String) {
+        _uiState.update { it.copy(settingsIoMessage = message) }
+    }
+
+    fun openLog() {
+        _uiState.update {
+            it.copy(showLogDialog = true, logText = syncLog.formatForDisplay())
+        }
+    }
+
+    fun refreshLog() {
+        _uiState.update { it.copy(logText = syncLog.formatForDisplay()) }
+    }
+
+    fun clearLog() {
+        syncLog.clear()
+        _uiState.update { it.copy(logText = syncLog.formatForDisplay()) }
+    }
+
+    fun dismissLog() {
+        _uiState.update { it.copy(showLogDialog = false) }
     }
 
     fun save(): Boolean {
@@ -114,6 +276,7 @@ class WebDavSettingsViewModel(application: Application) : AndroidViewModel(appli
             runCatching {
                 withContext(Dispatchers.IO) {
                     repository.save(config.withDeviceId())
+                    appPrefsRepository.save(_uiState.value.toAppPrefs())
                 }
             }.onSuccess {
                 (getApplication() as com.timerapp.linkb24.TimerApplication).restartWebDavPeriodicMonitor()
@@ -167,6 +330,52 @@ class WebDavSettingsViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
+    fun checkUpdatesNow() {
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(isCheckingUpdates = true, updateStatusMessage = null, updateReleaseUrl = null)
+            }
+            val result = withContext(Dispatchers.IO) {
+                val prefs = appPrefsRepository.load()
+                val repo = normalizeGithubRepo(_uiState.value.updateGithubRepo)
+                UpdateChecker.checkForUpdate(
+                    dismissedVersion = prefs.dismissedUpdateVersion,
+                    respectDismissed = false,
+                    githubRepo = repo,
+                )
+            }
+            appPrefsRepository.markCheckDone(
+                dismissedVersion = if (result.updateAvailable) result.latest?.version else null,
+            )
+            _uiState.update {
+                when {
+                    !result.ok -> it.copy(
+                        isCheckingUpdates = false,
+                        updateStatusMessage = result.error.ifBlank { "Не удалось проверить обновления" },
+                    )
+                    result.updateAvailable && result.latest != null -> it.copy(
+                        isCheckingUpdates = false,
+                        updateStatusMessage = "Доступна версия ${result.latest.version}",
+                        updateReleaseUrl = result.latest.htmlUrl,
+                    )
+                    else -> it.copy(
+                        isCheckingUpdates = false,
+                        updateStatusMessage = "Установлена актуальная версия",
+                        updateReleaseUrl = null,
+                    )
+                }
+            }
+        }
+    }
+
+    fun openUpdateRelease() {
+        val url = _uiState.value.updateReleaseUrl ?: return
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        getApplication<Application>().startActivity(intent)
+    }
+
     fun pullNow(onComplete: () -> Unit = {}) {
         if (!persistFormConfig()) {
             return
@@ -193,6 +402,7 @@ class WebDavSettingsViewModel(application: Application) : AndroidViewModel(appli
             return false
         }
         repository.save(config.withDeviceId())
+        appPrefsRepository.save(_uiState.value.toAppPrefs())
         return true
     }
 
@@ -231,7 +441,7 @@ class WebDavSettingsViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
-    private fun WebDavConfig.toUiState(): WebDavSettingsUiState {
+    private fun WebDavConfig.toUiState(prefs: AppPrefs): WebDavSettingsUiState {
         return WebDavSettingsUiState(
             enabled = enabled,
             url = url,
@@ -246,6 +456,9 @@ class WebDavSettingsViewModel(application: Application) : AndroidViewModel(appli
             lastSyncAt = lastSyncAt,
             lastError = lastError,
             statusMessage = statusText(this),
+            checkUpdates = prefs.checkUpdates,
+            updateCheckIntervalDays = prefs.updateCheckIntervalDays.toString(),
+            updateGithubRepo = prefs.updateGithubRepo,
         )
     }
 
@@ -271,6 +484,18 @@ class WebDavSettingsViewModel(application: Application) : AndroidViewModel(appli
             pendingRemoteHash = current.pendingRemoteHash,
             pendingRemoteRemindAt = current.pendingRemoteRemindAt,
         ).withDeviceId()
+    }
+
+    private fun WebDavSettingsUiState.toAppPrefs(): AppPrefs {
+        val current = appPrefsRepository.load()
+        val days = updateCheckIntervalDays.toIntOrNull()
+            ?.coerceIn(MIN_UPDATE_CHECK_INTERVAL_DAYS, MAX_UPDATE_CHECK_INTERVAL_DAYS)
+            ?: DEFAULT_UPDATE_CHECK_INTERVAL_DAYS
+        return current.copy(
+            checkUpdates = checkUpdates,
+            updateCheckIntervalDays = days,
+            updateGithubRepo = normalizeGithubRepo(updateGithubRepo),
+        )
     }
 
     private fun statusText(config: WebDavConfig): String {

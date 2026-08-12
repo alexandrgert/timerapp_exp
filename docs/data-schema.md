@@ -35,6 +35,7 @@
 | `bitrix` | object \| null | нет | `{"source": "task"\|"project", "id": "..."}` |
 | `planned_days` | string[] | нет | ISO dates — план на день |
 | `daily_priorities` | object | нет | ISO date → `1`…`4`; отсутствие ключа = `4` |
+| `keep_priority` | bool | нет | если `true`, overnight rollover копирует вчерашний приоритет на сегодня; по умолчанию `false` |
 
 ## Session
 

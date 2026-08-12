@@ -147,4 +147,22 @@ class TaskRepositoryTest {
             // expected
         }
     }
+
+    @Test
+    fun addClosedSession_appends_hour_interval() {
+        val dir = tempDir()
+        val repository = TaskRepository(File(dir, "data.json"))
+        val created = repository.createTask("Hist", AppDataDto())
+        val taskId = created.tasks.single().id
+        val updated = repository.addClosedSession(
+            taskId,
+            created,
+            startedAt = "2026-08-12T15:30:00+03:00",
+            endedAt = "2026-08-12T16:30:00+03:00",
+        )
+        val session = updated.tasks.single().sessions.single()
+        assertEquals("2026-08-12T15:30:00+03:00", session.startedAt)
+        assertEquals("2026-08-12T16:30:00+03:00", session.endedAt)
+        assertEquals("", session.comment)
+    }
 }

@@ -133,3 +133,13 @@ def test_task_from_dict_applies_defaults() -> None:
     assert restored.status == TaskStatus.OPEN
     assert restored.sessions == []
     assert restored.continuation_of is None
+    assert restored.keep_priority is False
+
+
+def test_task_keep_priority_round_trip() -> None:
+    task = Task(id="t1", day="2026-01-01", title="Sticky", keep_priority=True)
+    payload = task.to_dict()
+    assert payload["keep_priority"] is True
+    restored = Task.from_dict(payload)
+    assert restored.keep_priority is True
+    assert "keep_priority" not in Task(id="t2", day="2026-01-01", title="X").to_dict()

@@ -90,6 +90,8 @@ def ensure_plan_rollover(state: AppState, *, today: str | None = None) -> bool:
             continue
         if yesterday in (task.planned_days or []) and today not in task.planned_days:
             task.planned_days.append(today)
+            if task.keep_priority and yesterday in (task.daily_priorities or {}):
+                task.daily_priorities[today] = task.daily_priorities[yesterday]
     state.ui["plan_rollover_day"] = today
     return True
 

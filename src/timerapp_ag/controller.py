@@ -315,6 +315,14 @@ class AppController:
         if changed:
             self.save()
 
+    def set_keep_priority(self, task_id: str, keep: bool) -> None:
+        task = self.find_task(task_id)
+        value = bool(keep)
+        if task.keep_priority == value:
+            return
+        task.keep_priority = value
+        self.save()
+
     def remove_from_plan(self, task_id: str, today: str | None = None) -> None:
         if plan_domain.remove_from_plan(self.state, task_id, today or self.today_str()):
             self.save()

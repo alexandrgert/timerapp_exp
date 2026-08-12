@@ -48,6 +48,16 @@ class TaskFiltersTest {
     }
 
     @Test
+    fun filterTasksByTitle_casefold_substring() {
+        val tasks = listOf(
+            task("a").copy(title = "Alpha report"),
+            task("b").copy(title = "Beta task"),
+        )
+        assertEquals(listOf("a"), filterTasksByTitle(tasks, "alp").map { it.id })
+        assertEquals(tasks.map { it.id }, filterTasksByTitle(tasks, "  ").map { it.id })
+    }
+
+    @Test
     fun active_task_moves_to_top() {
         val running = task(
             id = "running",

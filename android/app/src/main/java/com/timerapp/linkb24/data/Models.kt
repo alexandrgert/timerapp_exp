@@ -48,6 +48,7 @@ data class TaskDto(
     val bitrix: BitrixLinkDto? = null,
     @SerialName("planned_days") val plannedDays: List<String> = emptyList(),
     @SerialName("daily_priorities") val dailyPriorities: Map<String, Int> = emptyMap(),
+    @SerialName("keep_priority") val keepPriority: Boolean = false,
 )
 
 @Serializable

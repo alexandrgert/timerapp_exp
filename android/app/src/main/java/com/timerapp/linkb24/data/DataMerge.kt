@@ -41,6 +41,7 @@ fun mergeTaskPair(left: TaskDto, right: TaskDto): TaskDto {
     val description = base.description.ifBlank { other.description }
     val result = base.result.ifBlank { other.result }
     val dailyPriorities = mergeDailyPriorities(base.dailyPriorities, other.dailyPriorities)
+    val keepPriority = base.keepPriority || other.keepPriority
     val (status, completedAt) = resolveMergedStatus(left, right, mergedSessions)
     return base.copy(
         sessions = mergedSessions,
@@ -48,6 +49,7 @@ fun mergeTaskPair(left: TaskDto, right: TaskDto): TaskDto {
         description = description,
         result = result,
         dailyPriorities = dailyPriorities,
+        keepPriority = keepPriority,
         status = status,
         completedAt = completedAt,
     )

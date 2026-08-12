@@ -61,6 +61,14 @@ def view_sorted(state: AppState, tasks: list[Task]) -> list[Task]:
     return ordered
 
 
+def filter_tasks_by_title(tasks: list[Task], needle: str) -> list[Task]:
+    """Keep tasks whose title contains needle (case-insensitive substring). Empty needle → all."""
+    query = (needle or "").strip().casefold()
+    if not query:
+        return list(tasks)
+    return [task for task in tasks if query in (task.title or "").casefold()]
+
+
 def tasks_all(state: AppState) -> list[Task]:
     return view_sorted(state, state.tasks)
 

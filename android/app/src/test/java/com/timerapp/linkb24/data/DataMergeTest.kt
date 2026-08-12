@@ -301,6 +301,26 @@ class DataMergeTest {
     }
 
     @Test
+    fun mergeTaskPair_prefers_keepPriority_true() {
+        val local = TaskDto(
+            id = "t1",
+            day = "2026-07-10",
+            title = "Local",
+            keepPriority = false,
+            createdAt = "2026-07-10T10:00:00+03:00",
+        )
+        val remote = TaskDto(
+            id = "t1",
+            day = "2026-07-10",
+            title = "Remote",
+            keepPriority = true,
+            createdAt = "2026-07-10T09:00:00+03:00",
+        )
+        assertTrue(mergeTaskPair(local, remote).keepPriority)
+        assertTrue(mergeTaskPair(remote, local).keepPriority)
+    }
+
+    @Test
     fun pickRicherSession_equalMetaPrefersCandidate() {
         val left = TaskDto(
             id = "t1",

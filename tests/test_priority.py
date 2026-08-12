@@ -401,6 +401,55 @@ def test_plan_rollover_carried_task_not_visible_on_today_plan(
     assert "Rolled over" not in titles
 
 
+def test_plan_rollover_keep_priority_copies_yesterday_level(
+    controller: AppController,
+) -> None:
+    today = controller.today_str()
+    yesterday = (date.fromisoformat(today) - timedelta(days=1)).isoformat()
+    task = Task(
+        id=make_id(),
+        day=yesterday,
+        title="Keep me",
+        planned_days=[yesterday],
+        daily_priorities={yesterday: 2},
+        keep_priority=True,
+        status=TaskStatus.OPEN,
+    )
+    controller.state.tasks.append(task)
+    controller.state.ui["plan_rollover_day"] = yesterday
+
+    controller.ensure_plan_rollover(today)
+
+    stored = controller.find_task(task.id)
+    assert today in stored.planned_days
+    assert stored.daily_priorities.get(today) == 2
+    titles = {item.title for item in controller.tasks_today_plan(today)}
+    assert "Keep me" in titles
+
+
+def test_plan_rollover_keep_priority_copies_lowest_level(
+    controller: AppController,
+) -> None:
+    today = controller.today_str()
+    yesterday = (date.fromisoformat(today) - timedelta(days=1)).isoformat()
+    task = Task(
+        id=make_id(),
+        day=yesterday,
+        title="Keep low",
+        planned_days=[yesterday],
+        daily_priorities={yesterday: 4},
+        keep_priority=True,
+        status=TaskStatus.OPEN,
+    )
+    controller.state.tasks.append(task)
+    controller.state.ui["plan_rollover_day"] = yesterday
+
+    controller.ensure_plan_rollover(today)
+
+    stored = controller.find_task(task.id)
+    assert stored.daily_priorities.get(today) == 4
+
+
 def test_rollover_in_today_plan_but_not_visible_on_today_tab(
     controller: AppController,
 ) -> None:

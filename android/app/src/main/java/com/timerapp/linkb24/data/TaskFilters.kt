@@ -49,6 +49,14 @@ fun showInTodayPlan(task: TaskDto, today: String): Boolean {
     return hasExplicitPriority(task, today)
 }
 
+fun filterTasksByTitle(tasks: List<TaskDto>, needle: String): List<TaskDto> {
+    val query = needle.trim().lowercase()
+    if (query.isEmpty()) {
+        return tasks
+    }
+    return tasks.filter { query in it.title.lowercase() }
+}
+
 fun filterTasks(
     data: AppDataDto,
     filter: TaskViewFilter,

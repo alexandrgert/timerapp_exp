@@ -14,7 +14,10 @@ import com.timerapp.linkb24.ui.RemoteChangePrompt
 
 object WebDavNotificationHelper {
     const val CHANNEL_ID = "webdav_remote_changes"
+    const val ERROR_CHANNEL_ID = "webdav_sync_errors"
     const val NOTIFICATION_ID = 4101
+    const val ERROR_NOTIFICATION_ID = 4102
+    const val UPDATE_NOTIFICATION_ID = 4103
 
     const val ACTION_CONFIRM = "com.timerapp.exp.webdav.ACTION_CONFIRM"
     const val ACTION_LATER = "com.timerapp.exp.webdav.ACTION_LATER"
@@ -43,6 +46,44 @@ object WebDavNotificationHelper {
         NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification)
     }
 
+    fun showSyncError(context: Context, message: String) {
+        ensureErrorChannel(context)
+        val text = message.trim().ifBlank {
+            context.getString(R.string.webdav_reconnect_push_failed_generic)
+        }
+        val notification = NotificationCompat.Builder(context, ERROR_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_launcher)
+            .setContentTitle(context.getString(R.string.webdav_reconnect_push_failed_title))
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setAutoCancel(true)
+            .setContentIntent(openAppIntent(context, ""))
+            .build()
+        NotificationManagerCompat.from(context).notify(ERROR_NOTIFICATION_ID, notification)
+    }
+
+    fun showUpdateAvailable(context: Context, latestVersion: String, currentVersion: String, htmlUrl: String) {
+        ensureErrorChannel(context)
+        val text = context.getString(R.string.update_available_message, latestVersion, currentVersion)
+        val openRelease = PendingIntent.getActivity(
+            context,
+            4,
+            Intent(Intent.ACTION_VIEW, android.net.Uri.parse(htmlUrl)),
+            pendingIntentFlags(),
+        )
+        val notification = NotificationCompat.Builder(context, ERROR_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_launcher)
+            .setContentTitle(context.getString(R.string.update_available_title))
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setAutoCancel(true)
+            .setContentIntent(openRelease)
+            .build()
+        NotificationManagerCompat.from(context).notify(UPDATE_NOTIFICATION_ID, notification)
+    }
+
     fun cancel(context: Context) {
         NotificationManagerCompat.from(context).cancel(NOTIFICATION_ID)
     }
@@ -59,6 +100,22 @@ object WebDavNotificationHelper {
             CHANNEL_ID,
             context.getString(R.string.webdav_remote_change_channel),
             NotificationManager.IMPORTANCE_HIGH,
+        )
+        manager.createNotificationChannel(channel)
+    }
+
+    private fun ensureErrorChannel(context: Context) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            return
+        }
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (manager.getNotificationChannel(ERROR_CHANNEL_ID) != null) {
+            return
+        }
+        val channel = NotificationChannel(
+            ERROR_CHANNEL_ID,
+            context.getString(R.string.webdav_sync_error_channel),
+            NotificationManager.IMPORTANCE_DEFAULT,
         )
         manager.createNotificationChannel(channel)
     }
