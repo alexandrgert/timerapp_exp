@@ -23,7 +23,7 @@
 
 Спецификация модели «план на день»: [`docs/superpowers/specs/2026-06-11-task-views-and-plan-design.md`](docs/superpowers/specs/2026-06-11-task-views-and-plan-design.md).
 
-Документация: [архитектура](docs/architecture-cross-platform.md) · [схема данных](docs/data-schema.md) · [WebDAV (техн.)](docs/webdav-sync.md) · [системные требования](docs/system-requirements.md) · [релиз 0.5.51](docs/release-notes-v0.5.51.md)
+Документация: [архитектура](docs/architecture-cross-platform.md) · [схема данных](docs/data-schema.md) · [WebDAV (техн.)](docs/webdav-sync.md) · [системные требования](docs/system-requirements.md) · [релиз 0.10.0](docs/release-notes-v0.10.0.md)
 
 ## Быстрый старт
 
@@ -114,21 +114,24 @@ python scripts/check_version_sync.py
 Готовые сборки Experiment — [GitHub Releases timerapp_exp](https://github.com/alexandrgert/timerapp_exp/releases).  
 **Системные требования:** [`docs/system-requirements.md`](docs/system-requirements.md).
 
-**Текущая версия в ветке:** **0.5.51** — [release notes](docs/release-notes-v0.5.51.md)
+**Текущая версия в ветке:** **0.10.0** — [release notes](docs/release-notes-v0.10.0.md)
 
 | Платформа | Файл (Experiment) |
 |-----------|-------------------|
-| Linux amd64 | `timerapp-exp-0.5.51-amd64.deb` |
+| Linux amd64 | `timerapp-exp-0.10.0-amd64.deb` |
+| Windows x64 | `timerapp-exp-0.10.0-win64.exe` |
+| macOS arm64 | `timerapp-exp-0.10.0-macos-arm64.zip` |
+| Android 10+ | `timerapp-exp-0.10.0-android.apk` |
 
 Linux (локальная сборка или релиз):
 
 ```bash
-sudo dpkg -i dist/timerapp-exp-0.5.51-amd64.deb
+sudo dpkg -i dist/timerapp-exp-0.10.0-amd64.deb
 sudo apt-get install -f
 timerapp-exp
 ```
 
-> Полный набор платформ (Windows, macOS, Android) — в [timer-app](https://github.com/alexandrgert/timer-app/releases).
+> Релизы Experiment: [timerapp_exp/releases](https://github.com/alexandrgert/timerapp_exp/releases). Стабильный продукт — [timer-app](https://github.com/alexandrgert/timer-app/releases).
 
 ## Зависимости
 

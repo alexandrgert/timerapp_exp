@@ -2,7 +2,7 @@
 
 Минимальные требования для **установленных** сборок (не для разработки из исходников).
 
-Текущая версия в ветке **timerapp_exp**: **0.5.51** (см. [`pyproject.toml`](../pyproject.toml)).  
+Текущая версия в ветке **timerapp_exp**: **0.10.0** (см. [`pyproject.toml`](../pyproject.toml)).  
 Стабильные релизы **TaskTimer link B24** — [timer-app](https://github.com/alexandrgert/timer-app/releases).
 
 ---
@@ -112,17 +112,20 @@
 | ОЗУ | 512 МБ |
 | Диск | ~50 МБ |
 
-### Функциональность (0.5.51 Experiment — desktop)
+### Функциональность (0.10.0 Experiment — desktop)
 
-- Локальный таймер задач, фильтры **Сегодня / В работе / Все**, возобновление завершённых задач.
-- **Дневные приоритеты 1–4**, фильтр и массовое применение (десктоп).
-- **WebDAV** — синхронизация `data.json` с десктопом; поле `daily_priorities` сохраняется при merge.
+- Локальный таймер задач, фильтры **Сегодня / В работе / Все**, поиск по названию, возобновление завершённых задач.
+- **Дневные приоритеты 1–4**, фильтр, массовое применение, опция **«Сохранять приоритет»** (`keep_priority`).
+- Результат при завершении, отчёт дня, история сессий.
+- **WebDAV** — синхронизация `data.json`; reconnect-push после сети; журнал операций («Лог»).
+- Проверка обновлений на GitHub Releases; экспорт / импорт локальных настроек.
 
-### Функциональность (Android, timer-app)
+### Функциональность (Android, Experiment)
 
-- Локальный таймер задач, фильтры **Сегодня / В работе / Все**, возобновление завершённых задач.
-- **WebDAV** — синхронизация `data.json` с десктопом; экран настроек, pull/push, фоновая проверка.
-- **Битрикс24** — интеграция на Android в разработке (на десктопе полностью доступна).
+- Локальный таймер задач, фильтры **Сегодня / В работе / Все**, поиск, возобновление, приоритеты, отчёт дня.
+- **WebDAV** — экран настроек, pull/push, reconnect-push, журнал, фоновая проверка.
+- Проверка обновлений и экспорт / импорт настроек.
+- **Битрикс24** — на Android в разработке (на десктопе полностью доступна).
 
 ### WebDAV (Android)
 
@@ -137,7 +140,7 @@
 
 - Linux или macOS с JDK 17, curl, unzip
 - Перед сборкой: `python scripts/check_version_sync.py`
-- Команда: `./build_apk.sh` → `dist/tasktimer-link-b24-<версия>-android.apk`
+- Команда: `./build_apk.sh` → `dist/timerapp-exp-<версия>-android.apk`
 - SDK и Gradle подтягиваются в `android/.android-sdk`, `android/.jdk17`
 
 Release APK подписан **debug-ключом** — для публикации в Google Play нужен release keystore.
@@ -164,12 +167,12 @@ Release APK подписан **debug-ключом** — для публикац�
 | Файл | Платформа |
 |------|-----------|
 | `timerapp-exp-*-amd64.deb` | Linux (Experiment) |
-| `tasktimer-link-b24-*-amd64.deb` | Linux (timer-app) |
-| `tasktimer-link-b24-*-win64.exe` | Windows |
-| `tasktimer-link-b24-*-macos-arm64.zip` / `*-macos-x86_64.zip` | macOS |
-| `tasktimer-link-b24-*-android.apk` | Android |
+| `timerapp-exp-*-win64.exe` | Windows (Experiment) |
+| `timerapp-exp-*-macos-arm64.zip` | macOS (Experiment) |
+| `timerapp-exp-*-android.apk` | Android (Experiment) |
+| `tasktimer-link-b24-*` | стабильный продукт [timer-app](https://github.com/alexandrgert/timer-app/releases) |
 
-**Текущая версия Experiment (ветка):** **0.5.51** — Linux `.deb` локально или из CI.
+**Текущая версия Experiment (ветка):** **0.10.0** — все платформы из CI / [Releases](https://github.com/alexandrgert/timerapp_exp/releases).
 
 CI (`.github/workflows/ci.yml`) при push в `main` собирает **Linux .deb**, **Windows .exe**, **macOS .zip** и **Android .apk**.
 
@@ -179,4 +182,4 @@ CI (`.github/workflows/ci.yml`) при push в `main` собирает **Linux .
 
 - [ИНСТРУКЦИЯ.md](../ИНСТРУКЦИЯ.md) — для пользователей
 - [architecture-cross-platform.md](architecture-cross-platform.md) — архитектура
-- [release-notes-v0.5.51.md](release-notes-v0.5.51.md) — что нового в Experiment 0.5.51
+- [release-notes-v0.10.0.md](release-notes-v0.10.0.md) — что нового в Experiment 0.10.0
