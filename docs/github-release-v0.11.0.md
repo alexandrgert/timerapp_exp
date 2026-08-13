@@ -12,7 +12,14 @@
 - AppImage: pin `appimagetool` 1.9.1 + SHA-256 в CI
 - Snap: offline `snap pack` (без Snap Store на runner)
 
-Продуктовые фичи без изменений относительно 0.10.0 (WebDAV reconnect/лог, updates, settings I/O, поиск, `keep_priority`).
+### Проверка обновлений на GitHub (с 0.10.0)
+
+- Desktop: **Параметры → Приложение**; Android: настройки WebDAV.
+- Смотрит последний Release репозитория `owner/name` (по умолчанию `alexandrgert/timerapp_exp`; можно указать, например, `alexandrgert/timer-app`).
+- Автопроверка опциональна (период 1…30 дней); **«Проверить сейчас»** всегда доступна.
+- Только уведомление — пакет сам не ставится. Подробности и примеры — [release-notes-v0.11.0.md](https://github.com/alexandrgert/timerapp_exp/blob/main/docs/release-notes-v0.11.0.md).
+
+Остальное из 0.10.0 без изменений: WebDAV reconnect/лог, экспорт/импорт настроек, поиск, `keep_priority`.
 
 ## Установка (Linux amd64)
 
