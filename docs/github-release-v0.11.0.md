@@ -15,9 +15,9 @@
 ### Проверка обновлений на GitHub (с 0.10.0)
 
 - Desktop: **Параметры → Приложение**; Android: настройки WebDAV.
-- Смотрит последний Release репозитория `owner/name` (по умолчанию `alexandrgert/timerapp_exp`; можно указать, например, `alexandrgert/timer-app`).
+- Смотрит последний Release **только** `alexandrgert/timerapp_exp` (репозиторий этой сборки; смена недоступна).
 - Автопроверка опциональна (период 1…30 дней); **«Проверить сейчас»** всегда доступна.
-- Только уведомление — пакет сам не ставится. Подробности и примеры — [release-notes-v0.11.0.md](https://github.com/alexandrgert/timerapp_exp/blob/main/docs/release-notes-v0.11.0.md).
+- Только уведомление — пакет сам не ставится. Подробности — [release-notes-v0.11.0.md](https://github.com/alexandrgert/timerapp_exp/blob/main/docs/release-notes-v0.11.0.md).
 
 Остальное из 0.10.0 без изменений: WebDAV reconnect/лог, экспорт/импорт настроек, поиск, `keep_priority`.
 

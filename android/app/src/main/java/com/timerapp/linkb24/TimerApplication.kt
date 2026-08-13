@@ -6,6 +6,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import com.timerapp.linkb24.data.AppPrefsRepository
+import com.timerapp.linkb24.data.DEFAULT_UPDATE_GITHUB_REPO
 import com.timerapp.linkb24.data.TaskRepository
 import com.timerapp.linkb24.data.WebDavConfigRepository
 import com.timerapp.linkb24.update.UpdateChecker
@@ -69,7 +70,7 @@ class TimerApplication : Application() {
             val result = UpdateChecker.checkForUpdate(
                 dismissedVersion = prefs.dismissedUpdateVersion,
                 respectDismissed = true,
-                githubRepo = prefs.updateGithubRepo,
+                githubRepo = DEFAULT_UPDATE_GITHUB_REPO,
             )
             if (!result.ok) {
                 appPrefsRepository.markCheckDone()

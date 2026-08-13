@@ -108,7 +108,7 @@
     <string name="update_github_repo_placeholder">alexandrgert/timerapp_exp</string>
     <string name="update_github_repo_hint">Формат owner/name. Можно указать timer-app или другой публичный репозиторий с Releases.</string>
     <string name="update_check_interval_days">Период автопроверки (дней)</string>
-    <string name="update_check_interval_hint">Автопроверка при запуске, если прошло не меньше указанного периода. По умолчанию — 1 день.</string>
+    <string name="update_check_interval_hint">Автопроверка при запуске, если прошло не меньше указанного периода. По умолчанию — 1 день. Источник: GitHub Releases alexandrgert/timerapp_exp (репозиторий этой сборки).</string>
     <string name="update_check_now">Проверить сейчас</string>
     <string name="update_checking">Проверка…</string>
     <string name="update_up_to_date">Установлена актуальная версия</string>

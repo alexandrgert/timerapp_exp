@@ -15,7 +15,6 @@ import com.timerapp.linkb24.data.SettingsBundle
 import com.timerapp.linkb24.data.TaskRepository
 import com.timerapp.linkb24.data.WebDavConfig
 import com.timerapp.linkb24.data.WebDavConfigRepository
-import com.timerapp.linkb24.data.normalizeGithubRepo
 import com.timerapp.linkb24.data.normalizeSyncIntervalMinutes
 import com.timerapp.linkb24.data.validateWebDavConfig
 import com.timerapp.linkb24.update.UpdateChecker
@@ -135,10 +134,6 @@ class WebDavSettingsViewModel(application: Application) : AndroidViewModel(appli
                 savedMessage = null,
             )
         }
-    }
-
-    fun onUpdateGithubRepoChange(value: String) {
-        _uiState.update { it.copy(updateGithubRepo = value, savedMessage = null) }
     }
 
     fun toggleShowPassword() {
@@ -337,11 +332,10 @@ class WebDavSettingsViewModel(application: Application) : AndroidViewModel(appli
             }
             val result = withContext(Dispatchers.IO) {
                 val prefs = appPrefsRepository.load()
-                val repo = normalizeGithubRepo(_uiState.value.updateGithubRepo)
                 UpdateChecker.checkForUpdate(
                     dismissedVersion = prefs.dismissedUpdateVersion,
                     respectDismissed = false,
-                    githubRepo = repo,
+                    githubRepo = DEFAULT_UPDATE_GITHUB_REPO,
                 )
             }
             appPrefsRepository.markCheckDone(
@@ -494,7 +488,7 @@ class WebDavSettingsViewModel(application: Application) : AndroidViewModel(appli
         return current.copy(
             checkUpdates = checkUpdates,
             updateCheckIntervalDays = days,
-            updateGithubRepo = normalizeGithubRepo(updateGithubRepo),
+            updateGithubRepo = DEFAULT_UPDATE_GITHUB_REPO,
         )
     }
 

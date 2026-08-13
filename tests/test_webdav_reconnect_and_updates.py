@@ -120,6 +120,18 @@ def test_normalize_github_repo() -> None:
     assert normalize_github_repo("bad") == "alexandrgert/timerapp_exp"
 
 
+def test_app_prefs_ignores_custom_update_repo() -> None:
+    from timerapp_ag.app_prefs import AppPrefs, DEFAULT_UPDATE_GITHUB_REPO
+
+    loaded = AppPrefs.from_dict(
+        {
+            "check_updates": True,
+            "update_github_repo": "alexandrgert/timer-app",
+        }
+    )
+    assert loaded.update_github_repo == DEFAULT_UPDATE_GITHUB_REPO
+
+
 def test_app_prefs_auto_check_interval(tmp_path: Path, monkeypatch) -> None:
     path = tmp_path / "app.json"
     monkeypatch.setattr("timerapp_ag.app_prefs.app_prefs_path", lambda: path)

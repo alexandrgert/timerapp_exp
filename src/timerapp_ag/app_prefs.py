@@ -40,9 +40,8 @@ class AppPrefs:
         return cls(
             check_updates=bool(payload.get("check_updates", False)),
             update_check_interval_days=interval,
-            update_github_repo=normalize_github_repo(
-                str(payload.get("update_github_repo") or DEFAULT_UPDATE_GITHUB_REPO)
-            ),
+            # Always the Experiment releases repo — UI no longer allows override.
+            update_github_repo=DEFAULT_UPDATE_GITHUB_REPO,
             last_update_check_at=str(payload.get("last_update_check_at") or ""),
             dismissed_update_version=str(payload.get("dismissed_update_version") or ""),
         )
@@ -124,7 +123,7 @@ def mark_update_check_done(
     updated = AppPrefs(
         check_updates=prefs.check_updates,
         update_check_interval_days=prefs.update_check_interval_days,
-        update_github_repo=normalize_github_repo(prefs.update_github_repo),
+        update_github_repo=DEFAULT_UPDATE_GITHUB_REPO,
         last_update_check_at=stamp.astimezone(timezone.utc).isoformat(),
         dismissed_update_version=(
             dismissed_version

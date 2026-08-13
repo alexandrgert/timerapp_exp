@@ -109,6 +109,6 @@ fun AppPrefs.normalized(): AppPrefs {
     )
     return copy(
         updateCheckIntervalDays = days,
-        updateGithubRepo = normalizeGithubRepo(updateGithubRepo),
+        updateGithubRepo = DEFAULT_UPDATE_GITHUB_REPO,
     )
 }

@@ -332,19 +332,6 @@ fun WebDavSettingsScreen(
                 onCheckedChange = viewModel::onCheckUpdatesChange,
             )
             OutlinedTextField(
-                value = uiState.updateGithubRepo,
-                onValueChange = viewModel::onUpdateGithubRepoChange,
-                label = { Text(stringResource(R.string.update_github_repo)) },
-                placeholder = { Text(stringResource(R.string.update_github_repo_placeholder)) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Text(
-                text = stringResource(R.string.update_github_repo_hint),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            OutlinedTextField(
                 value = uiState.updateCheckIntervalDays,
                 onValueChange = viewModel::onUpdateCheckIntervalDaysChange,
                 label = { Text(stringResource(R.string.update_check_interval_days)) },

@@ -79,7 +79,6 @@ from .app_prefs import (
     AppPrefs,
     load_app_prefs,
     mark_update_check_done,
-    normalize_github_repo,
     save_app_prefs,
     should_run_auto_update_check,
 )
@@ -1071,14 +1070,6 @@ class SettingsDialog(QDialog):
         app_layout.addWidget(self.check_updates_checkbox)
         update_form = QFormLayout()
         _configure_settings_form_layout(update_form)
-        self.update_github_repo_edit = QLineEdit()
-        self.update_github_repo_edit.setText(app_prefs.update_github_repo or DEFAULT_UPDATE_GITHUB_REPO)
-        self.update_github_repo_edit.setPlaceholderText(DEFAULT_UPDATE_GITHUB_REPO)
-        self.update_github_repo_edit.setToolTip(
-            "Репозиторий в формате owner/name (например alexandrgert/timerapp_exp или alexandrgert/timer-app)."
-        )
-        _configure_settings_form_field(self.update_github_repo_edit)
-        update_form.addRow("Репозиторий GitHub", self.update_github_repo_edit)
         self.update_check_interval_spin = QSpinBox()
         self.update_check_interval_spin.setRange(
             MIN_UPDATE_CHECK_INTERVAL_DAYS, MAX_UPDATE_CHECK_INTERVAL_DAYS
@@ -1090,7 +1081,8 @@ class SettingsDialog(QDialog):
         app_layout.addLayout(update_form)
         interval_hint = QLabel(
             "Автопроверка выполняется при старте, если прошло не меньше указанного периода. "
-            "По умолчанию — 1 день. Репозиторий — owner/name на GitHub."
+            f"По умолчанию — 1 день. Источник: GitHub Releases `{DEFAULT_UPDATE_GITHUB_REPO}` "
+            "(репозиторий этой сборки; смена недоступна)."
         )
         interval_hint.setWordWrap(True)
         app_layout.addWidget(interval_hint)
@@ -1346,14 +1338,13 @@ class SettingsDialog(QDialog):
         return AppPrefs(
             check_updates=self.check_updates_checkbox.isChecked(),
             update_check_interval_days=self.update_check_interval_spin.value(),
-            update_github_repo=normalize_github_repo(self.update_github_repo_edit.text()),
+            update_github_repo=DEFAULT_UPDATE_GITHUB_REPO,
             last_update_check_at=current.last_update_check_at,
             dismissed_update_version=current.dismissed_update_version,
         )
 
     def _sync_update_check_controls(self, enabled: bool) -> None:
         self.update_check_interval_spin.setEnabled(bool(enabled))
-        self.update_github_repo_edit.setEnabled(True)
 
     def _open_webdav_log(self) -> None:
         WebDavSyncLogDialog(self).exec()
@@ -1370,7 +1361,7 @@ class SettingsDialog(QDialog):
             return check_for_update(
                 dismissed_version=prefs.dismissed_update_version,
                 respect_dismissed=False,
-                github_repo=prefs.update_github_repo,
+                github_repo=DEFAULT_UPDATE_GITHUB_REPO,
             )
 
         self._update_check_thread = _CallableThread(work, self)
@@ -1536,7 +1527,6 @@ class SettingsDialog(QDialog):
         if applied.app is not None:
             prefs = applied.app
             self.check_updates_checkbox.setChecked(prefs.check_updates)
-            self.update_github_repo_edit.setText(prefs.update_github_repo)
             self.update_check_interval_spin.setValue(prefs.update_check_interval_days)
             self._sync_update_check_controls(prefs.check_updates)
 
@@ -4087,7 +4077,7 @@ class MainWindow(QMainWindow):
             return check_for_update(
                 dismissed_version=prefs.dismissed_update_version,
                 respect_dismissed=True,
-                github_repo=prefs.update_github_repo,
+                github_repo=DEFAULT_UPDATE_GITHUB_REPO,
             )
 
         self._update_check_thread = _CallableThread(work, self)
