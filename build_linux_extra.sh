@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build RPM, tarballs, and AppImage from an existing PyInstaller onedir.
+# Build the full Linux package matrix from an existing PyInstaller onedir.
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -26,3 +26,9 @@ export VERSION STAGING_DIR ONEDIR DIST_DIR
 "$PACKAGING_DIR/package_tarballs_from_staging.sh"
 "$PACKAGING_DIR/package_rpm_from_staging.sh"
 "$PACKAGING_DIR/package_appimage_from_onedir.sh"
+"$PACKAGING_DIR/package_flatpak_from_onedir.sh"
+"$PACKAGING_DIR/package_snap_from_onedir.sh"
+"$PACKAGING_DIR/package_ebuild_from_staging.sh"
+"$PACKAGING_DIR/package_pisi_from_staging.sh"
+"$PACKAGING_DIR/package_pet_from_staging.sh"
+"$PACKAGING_DIR/package_lzm_from_staging.sh"
