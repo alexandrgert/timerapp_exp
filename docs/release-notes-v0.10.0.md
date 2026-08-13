@@ -60,6 +60,10 @@
 | Платформа | Файл |
 |-----------|------|
 | Linux amd64 | `timerapp-exp-0.10.0-amd64.deb` |
+| Linux rpm | `timerapp-exp-0.10.0-amd64.rpm` |
+| Linux tar.xz | `timerapp-exp-0.10.0-linux-amd64.tar.xz` |
+| Linux tgz | `timerapp-exp-0.10.0-linux-amd64.tgz` |
+| Linux AppImage | `timerapp-exp-0.10.0-x86_64.AppImage` |
 | Android 10+ | `timerapp-exp-0.10.0-android.apk` |
 | Windows | `timerapp-exp-0.10.0-win64.exe` |
 | macOS | `timerapp-exp-0.10.0-macos-arm64.zip` |
