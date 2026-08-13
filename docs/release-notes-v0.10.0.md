@@ -68,6 +68,9 @@
 | Windows | `timerapp-exp-0.10.0-win64.exe` |
 | macOS | `timerapp-exp-0.10.0-macos-arm64.zip` |
 
+> В опубликованный GitHub Release **v0.10.0** вошли только `.deb` / `.apk` / `.exe` / macOS `.zip`.  
+> Полная матрица Linux (включая rpm/AppImage/Flatpak/Snap/…) — в **[v0.11.0](release-notes-v0.11.0.md)**.
+
 **Linux:**
 
 ```bash

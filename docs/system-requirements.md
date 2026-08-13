@@ -2,7 +2,7 @@
 
 Минимальные требования для **установленных** сборок (не для разработки из исходников).
 
-Текущая версия в ветке **timerapp_exp**: **0.10.0** (см. [`pyproject.toml`](../pyproject.toml)).  
+Текущая версия в ветке **timerapp_exp**: **0.11.0** (см. [`pyproject.toml`](../pyproject.toml)).  
 Стабильные релизы **TaskTimer link B24** — [timer-app](https://github.com/alexandrgert/timer-app/releases).
 
 ---
@@ -131,7 +131,7 @@
 | ОЗУ | 512 МБ |
 | Диск | ~50 МБ |
 
-### Функциональность (0.10.0 Experiment — desktop)
+### Функциональность (0.11.0 Experiment — desktop)
 
 - Локальный таймер задач, фильтры **Сегодня / В работе / Все**, поиск по названию, возобновление завершённых задач.
 - **Дневные приоритеты 1–4**, фильтр, массовое применение, опция **«Сохранять приоритет»** (`keep_priority`).
@@ -202,7 +202,7 @@ Release APK подписан **debug-ключом** — для публикац�
 | `timerapp-exp-*-android.apk` | Android (Experiment) |
 | `tasktimer-link-b24-*` | стабильный продукт [timer-app](https://github.com/alexandrgert/timer-app/releases) |
 
-**Текущая версия Experiment (ветка):** **0.10.0** — все платформы из CI / [Releases](https://github.com/alexandrgert/timerapp_exp/releases).
+**Текущая версия Experiment (ветка):** **0.11.0** — все платформы из CI / [Releases](https://github.com/alexandrgert/timerapp_exp/releases).
 
 CI (`.github/workflows/ci.yml`) при push в `main` собирает полную матрицу **Linux** (`.deb`, `.rpm`, `.tar.xz`, `.tgz`, `.AppImage`, Flatpak, Snap, ebuild/overlay, PiSi, PET, PUP, LZM), **Windows .exe**, **macOS .zip** и **Android .apk**.
 
@@ -212,4 +212,4 @@ CI (`.github/workflows/ci.yml`) при push в `main` собирает полн�
 
 - [ИНСТРУКЦИЯ.md](../ИНСТРУКЦИЯ.md) — для пользователей
 - [architecture-cross-platform.md](architecture-cross-platform.md) — архитектура
-- [release-notes-v0.10.0.md](release-notes-v0.10.0.md) — что нового в Experiment 0.10.0
+- [release-notes-v0.11.0.md](release-notes-v0.11.0.md) — что нового в Experiment 0.11.0

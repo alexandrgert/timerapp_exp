@@ -23,16 +23,16 @@ timerapp-exp
 
 ## Артефакты
 
+В **опубликованный** GitHub Release v0.10.0 вошли только:
+
 | Платформа | Файл |
 |-----------|------|
 | Linux deb | [`timerapp-exp-0.10.0-amd64.deb`](https://github.com/alexandrgert/timerapp_exp/releases/download/v0.10.0/timerapp-exp-0.10.0-amd64.deb) |
-| Linux rpm | `timerapp-exp-0.10.0-amd64.rpm` *(CI с этого PR; в релиз v0.10.0 ещё не входило — следующий релиз)* |
-| Linux tar.xz | `timerapp-exp-0.10.0-linux-amd64.tar.xz` *(следующий релиз)* |
-| Linux tgz | `timerapp-exp-0.10.0-linux-amd64.tgz` *(следующий релиз)* |
-| Linux AppImage | `timerapp-exp-0.10.0-x86_64.AppImage` *(следующий релиз)* |
 | Android | [`timerapp-exp-0.10.0-android.apk`](https://github.com/alexandrgert/timerapp_exp/releases/download/v0.10.0/timerapp-exp-0.10.0-android.apk) |
 | Windows | [`timerapp-exp-0.10.0-win64.exe`](https://github.com/alexandrgert/timerapp_exp/releases/download/v0.10.0/timerapp-exp-0.10.0-win64.exe) |
 | macOS | [`timerapp-exp-0.10.0-macos-arm64.zip`](https://github.com/alexandrgert/timerapp_exp/releases/download/v0.10.0/timerapp-exp-0.10.0-macos-arm64.zip) |
+
+Полная матрица Linux (rpm/tar/AppImage/Flatpak/Snap/…) впервые в релизе **[v0.11.0](https://github.com/alexandrgert/timerapp_exp/releases/tag/v0.11.0)** — см. [github-release-v0.11.0.md](github-release-v0.11.0.md).
 
 ## Документация
 
