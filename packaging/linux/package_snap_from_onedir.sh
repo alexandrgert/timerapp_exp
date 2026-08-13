@@ -27,6 +27,10 @@ require_x86_64_host
 
 [[ -x "$ONEDIR/TaskTimer" ]] || { echo "Missing onedir" >&2; exit 1; }
 command -v snapcraft >/dev/null
+command -v unsquashfs >/dev/null || {
+  echo "Error: unsquashfs required for snap acceptance check; install squashfs-tools." >&2
+  exit 1
+}
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
@@ -77,11 +81,13 @@ mkdir -p "$DIST_DIR"
 
 # If snapcraft wrote its default name, normalize it.
 if [[ ! -f "$OUT" ]]; then
-  built="$(find "$work" -maxdepth 2 -name 'timerapp-exp_*.snap' | head -n1)"
+  built="$(find "$work" -maxdepth 2 -name 'timerapp-exp_*.snap' -print -quit)"
   [[ -n "$built" ]] || { echo "snapcraft produced no .snap" >&2; exit 1; }
   cp -f "$built" "$OUT"
 fi
 
 echo "Готово: $OUT"
 ls -lh "$OUT"
-unsquashfs -l "$OUT" | head -n 40
+unsquashfs -l "$OUT" >/dev/null
+mapfile -t _snap_listing < <(unsquashfs -l "$OUT")
+printf '%s\n' "${_snap_listing[@]:0:40}"
