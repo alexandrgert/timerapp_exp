@@ -26,7 +26,7 @@ fi
 require_x86_64_host
 
 [[ -x "$ONEDIR/TaskTimer" ]] || { echo "Missing onedir" >&2; exit 1; }
-command -v snapcraft >/dev/null
+command -v snap >/dev/null
 command -v unsquashfs >/dev/null || {
   echo "Error: unsquashfs required for snap acceptance check; install squashfs-tools." >&2
   exit 1
@@ -34,18 +34,20 @@ command -v unsquashfs >/dev/null || {
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
+prime_dir="$work/prime"
 
-mkdir -p "$work/prime-src/bin" "$work/prime-src/lib/timerapp-exp"
-cp -a "$ONEDIR/." "$work/prime-src/lib/timerapp-exp/"
-cat > "$work/prime-src/bin/timerapp-exp" <<'EOF'
+mkdir -p "$prime_dir/bin" "$prime_dir/lib/timerapp-exp" "$prime_dir/meta/gui"
+cp -a "$ONEDIR/." "$prime_dir/lib/timerapp-exp/"
+cat > "$prime_dir/bin/timerapp-exp" <<'EOF'
 #!/bin/sh
 exec "$SNAP/lib/timerapp-exp/TaskTimer" "$@"
 EOF
-chmod 755 "$work/prime-src/bin/timerapp-exp"
-cp "$PROJECT_DIR/packaging/linux/tasktimer.svg" "$work/prime-src/timerapp-exp.svg"
-cp "$PROJECT_DIR/packaging/linux/timerapp-exp.desktop" "$work/prime-src/timerapp-exp.desktop"
+chmod 755 "$prime_dir/bin/timerapp-exp"
+cp "$PROJECT_DIR/packaging/linux/tasktimer.svg" "$prime_dir/timerapp-exp.svg"
+cp "$PROJECT_DIR/packaging/linux/timerapp-exp.desktop" \
+  "$prime_dir/meta/gui/timerapp-exp.desktop"
 
-cat > "$work/snapcraft.yaml" <<EOF
+cat > "$prime_dir/meta/snap.yaml" <<EOF
 name: timerapp-exp
 base: core22
 version: '${VERSION}'
@@ -54,37 +56,23 @@ description: |
   Experimental desktop task timer with Bitrix24 integration.
 grade: devel
 confinement: strict
+architectures: [amd64]
 
 apps:
   timerapp-exp:
     command: bin/timerapp-exp
     plugs: [network, desktop, desktop-legacy, wayland, x11, opengl, home, gsettings]
-    desktop: timerapp-exp.desktop
+    desktop: meta/gui/timerapp-exp.desktop
     common-id: com.timerapp.exp
-
-parts:
-  app:
-    plugin: dump
-    source: ./prime-src
-    stage-packages: []
 EOF
 
 # Keep ${SNAP} literal: the desktop launcher expands it when the snap runs.
-sed -i 's|^Exec=.*|Exec=timerapp-exp|' "$work/prime-src/timerapp-exp.desktop"
-sed -i 's|^Icon=.*|Icon=\${SNAP}/timerapp-exp.svg|' "$work/prime-src/timerapp-exp.desktop"
+sed -i 's|^Exec=.*|Exec=timerapp-exp|' "$prime_dir/meta/gui/timerapp-exp.desktop"
+sed -i 's|^Icon=.*|Icon=\${SNAP}/timerapp-exp.svg|' \
+  "$prime_dir/meta/gui/timerapp-exp.desktop"
 
 mkdir -p "$DIST_DIR"
-(
-  cd "$work"
-  snapcraft pack --destructive-mode -o "$OUT" || snapcraft pack --destructive-mode
-)
-
-# If snapcraft wrote its default name, normalize it.
-if [[ ! -f "$OUT" ]]; then
-  built="$(find "$work" -maxdepth 2 -name 'timerapp-exp_*.snap' -print -quit)"
-  [[ -n "$built" ]] || { echo "snapcraft produced no .snap" >&2; exit 1; }
-  cp -f "$built" "$OUT"
-fi
+snap pack "$prime_dir" "$DIST_DIR" --filename="$(basename "$OUT")"
 
 echo "Готово: $OUT"
 ls -lh "$OUT"
