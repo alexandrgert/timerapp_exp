@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=TaskTimer Experiment
+Comment=Experimental desktop task timer with Bitrix24 integration
+Exec=TaskTimer
+Icon=timerapp-exp
+Terminal=false
+Categories=Office;Utility;
+StartupWMClass=timerapp-exp
