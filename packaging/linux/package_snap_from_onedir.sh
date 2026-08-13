@@ -71,7 +71,7 @@ EOF
 
 # Keep ${SNAP} literal: the desktop launcher expands it when the snap runs.
 sed -i 's|^Exec=.*|Exec=timerapp-exp|' "$work/prime-src/timerapp-exp.desktop"
-sed -i 's|^Icon=.*|Icon=${SNAP}/timerapp-exp.svg|' "$work/prime-src/timerapp-exp.desktop"
+sed -i 's|^Icon=.*|Icon=\${SNAP}/timerapp-exp.svg|' "$work/prime-src/timerapp-exp.desktop"
 
 mkdir -p "$DIST_DIR"
 (
