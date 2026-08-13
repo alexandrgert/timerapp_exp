@@ -18,6 +18,7 @@ if [[ ! -d "$STAGING_DIR" ]]; then
   echo "Missing staging directory: $STAGING_DIR" >&2
   exit 1
 fi
+STAGING_DIR="$(cd "$STAGING_DIR" && pwd)"
 
 for required_path in opt usr; do
   if [[ ! -e "$STAGING_DIR/$required_path" ]]; then
@@ -137,8 +138,9 @@ cat > "$metadata_xml" <<EOF
 </PISI>
 EOF
 
-output="${DIST_DIR}/${PACKAGE_NAME}-${VERSION}-${PISI_ARCH}.pisi"
 mkdir -p "$DIST_DIR"
+DIST_DIR="$(cd "$DIST_DIR" && pwd)"
+output="${DIST_DIR}/${PACKAGE_NAME}-${VERSION}-${PISI_ARCH}.pisi"
 rm -f "$output"
 (
   cd "$pisi_dir"
