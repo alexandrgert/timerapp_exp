@@ -91,8 +91,12 @@ files_xml="$pisi_dir/files.xml"
     printf '    <Uid>%s</Uid>\n' "$fuid"
     printf '    <Gid>%s</Gid>\n' "$fgid"
     printf '    <Mode>0o%s</Mode>\n' "$fmode"
-    if [[ -f "$abs_path" || -L "$abs_path" ]]; then
+    if [[ -f "$abs_path" && ! -L "$abs_path" ]]; then
       fhash="$(sha1sum "$abs_path" | awk '{print $1}')"
+      printf '    <Hash>%s</Hash>\n' "$fhash"
+    elif [[ -L "$abs_path" ]]; then
+      link_target="$(readlink -n "$abs_path")"
+      fhash="$(printf '%s' "$link_target" | sha1sum | awk '{print $1}')"
       printf '    <Hash>%s</Hash>\n' "$fhash"
     fi
     printf '%s\n' '  </File>'
