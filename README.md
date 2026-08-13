@@ -66,7 +66,9 @@ pytest
 
 ### Linux (amd64)
 
-**Локально** — только **`.deb` amd64** (`./build_deb.sh`). В **CI** дополнительно: `.rpm`, `.tar.xz`, `.tgz`, `.AppImage` (см. [системные требования](docs/system-requirements.md)). **AppImage** поддерживается; **Flatpak / Snap** — в планах.
+**Локально** — только **`.deb` amd64** (`./build_deb.sh`). Полная матрица Linux собирается только в **CI**: `.deb`, `.rpm`, `.tar.xz`, `.tgz`, `.AppImage`, Flatpak, Snap, Gentoo ebuild + overlay, PiSi, PET, PUP и Slax LZM (см. [системные требования](docs/system-requirements.md)).
+
+Flatpak использует ID `com.timerapp.exp`; Snap — имя `timerapp-exp` и strict confinement. Форматы ebuild/PiSi/PET/PUP/LZM помечены **experimental**.
 
 ```bash
 ./build_deb.sh
@@ -79,9 +81,7 @@ pytest
 | `./build_deb.sh` | мелкие правки → **patch** (в т.ч. локальная сборка) |
 | `BUMP=minor ./build_deb.sh` | новые фичи → **minor** |
 
-Результат (локально): `dist/timerapp-exp-<версия>-amd64.deb`. Команда в меню: `timerapp-exp`.
-
-CI также публикует: `timerapp-exp-<версия>-amd64.rpm`, `-linux-amd64.tar.xz`, `-linux-amd64.tgz`, `-x86_64.AppImage`.
+Результат (локально): `dist/timerapp-exp-<версия>-amd64.deb`. Команда в меню: `timerapp-exp`. Остальные Linux-форматы публикует CI.
 
 ### macOS (`.app` в `.zip`)
 
@@ -107,7 +107,7 @@ python scripts/check_version_sync.py
 
 ### CI
 
-При push в `main` GitHub Actions собирает **Linux** (`.deb`, `.rpm`, `.tar.xz`, `.tgz`, `.AppImage`), **`.exe`**, **macOS `.zip`** и **`.apk`** (артефакты в workflow run).
+При push в `main` GitHub Actions собирает полную матрицу **Linux** (`.deb`, `.rpm`, `.tar.xz`, `.tgz`, `.AppImage`, Flatpak, Snap, ebuild + overlay, PiSi, PET, PUP, LZM), **`.exe`**, **macOS `.zip`** и **`.apk`** (артефакты в workflow run).
 
 Ручной bump без сборки: `python scripts/bump_version.py minor`
 
@@ -125,6 +125,13 @@ python scripts/check_version_sync.py
 | Linux amd64 (tar.xz) | `timerapp-exp-0.10.0-linux-amd64.tar.xz` |
 | Linux amd64 (.tgz) | `timerapp-exp-0.10.0-linux-amd64.tgz` |
 | Linux amd64 (AppImage) | `timerapp-exp-0.10.0-x86_64.AppImage` |
+| Linux amd64 (Flatpak, ID `com.timerapp.exp`) | `timerapp-exp-0.10.0-x86_64.flatpak` |
+| Linux amd64 (Snap `timerapp-exp`, strict) | `timerapp-exp-0.10.0-amd64.snap` |
+| Linux amd64 (Gentoo ebuild + overlay, **experimental**) | `timerapp-exp-0.10.0.ebuild`, `timerapp-exp-0.10.0-gentoo-overlay.tar.xz` |
+| Linux amd64 (PiSi, **experimental**) | `timerapp-exp-0.10.0-x86_64.pisi` |
+| Linux amd64 (PET, **experimental**) | `timerapp-exp-0.10.0-amd64.pet` |
+| Linux amd64 (PUP, **experimental**) | `timerapp-exp-0.10.0-amd64.pup` |
+| Linux amd64 (Slax LZM, **experimental**) | `timerapp-exp-0.10.0-amd64.lzm` |
 | Windows x64 | `timerapp-exp-0.10.0-win64.exe` |
 | macOS arm64 | `timerapp-exp-0.10.0-macos-arm64.zip` |
 | Android 10+ | `timerapp-exp-0.10.0-android.apk` |

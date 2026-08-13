@@ -17,9 +17,9 @@ alwaysApply: true
 | Где | Что собирать |
 |-----|----------------|
 | **Локально** | **только** `./build_deb.sh` |
-| **GitHub CI / Release** | `.apk`, `.exe`, macOS, Linux **`.rpm` / `.tar.xz` / `.tgz` / `.AppImage`** и остальные артефакты **после коммита и push** |
+| **GitHub CI / Release** | `.apk`, `.exe`, macOS и полная матрица Linux extras: **`.rpm` / `.tar.xz` / `.tgz` / `.AppImage` / Flatpak / Snap / ebuild + overlay / PiSi / PET / PUP / LZM** — только **после коммита и push** |
 
-Не запускать локально `./build_apk.sh`, `./build_exe.ps1`, `./build_macos.sh`, `./build_linux_extra.sh` (кроме явного override «локально вопреки правилу»). Linux extras (rpm, tar, AppImage) — **только CI**.
+Не запускать локально `./build_apk.sh`, `./build_exe.ps1`, `./build_macos.sh`, `./build_linux_extra.sh` (кроме явного override «локально вопреки правилу»). Все Linux extras — rpm, tar.xz, tgz, AppImage, Flatpak, Snap и experimental niche-форматы ebuild/PiSi/PET/PUP/LZM — **только CI**.
 
 | Запрос | Действие |
 |--------|----------|

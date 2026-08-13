@@ -11,12 +11,12 @@
 
 | Платформа | Артефакт | ОС | Процессор | ОЗУ | Диск | Сеть |
 |-----------|----------|-----|-----------|-----|------|------|
-| **Linux** | `.deb` / `.rpm` / `.tar.xz` / `.tgz` / `.AppImage` amd64 | Debian 11+, Ubuntu 20.04+, Fedora/RHEL, Mint, Astra и др. с **glibc ≥ 2.31** | x86_64 (64-bit) | 512 МБ | ~200 МБ | для Битрикс24 / WebDAV |
+| **Linux** | `.deb`, `.rpm`, `.tar.xz`, `.tgz`, `.AppImage`, Flatpak, Snap, ebuild/overlay, PiSi, PET, PUP, LZM | Debian 11+, Ubuntu 20.04+, Fedora/RHEL, Mint, Astra и др. с **glibc ≥ 2.31** | x86_64 (64-bit) | 512 МБ | ~200 МБ | для Битрикс24 / WebDAV |
 | **Windows** | `.exe` win64 | Windows **10** (64-bit) или **11** | x86_64 (AMD64) | 512 МБ | ~150 МБ | для Битрикс24 / WebDAV |
 | **macOS** | `.app` в `.zip` | **macOS 11** Big Sur и новее | Apple Silicon (**arm64**) в релизе; Intel — отдельная сборка | 512 МБ | ~200 МБ | для Битрикс24 / WebDAV |
 | **Android** | `.apk` | **Android 10** (API 29) и новее | arm64-v8a, armeabi-v7a | 512 МБ | ~50 МБ | для WebDAV; Битрикс24 — в планах |
 
-**Не поддерживается:** 32-bit Linux/Windows, iOS (в планах). **Flatpak / Snap** — в планах.
+**Не поддерживается:** 32-bit Linux/Windows, iOS (в планах). Flatpak (`com.timerapp.exp`) и Snap (`timerapp-exp`, strict) входят в Linux-матрицу; ebuild/PiSi/PET/PUP/LZM имеют статус **experimental**.
 
 ---
 
@@ -31,8 +31,15 @@
 | `timerapp-exp-*-linux-amd64.tar.xz` | универсальный архив (распаковка в `/`) |
 | `timerapp-exp-*-linux-amd64.tgz` | то же, gzip (удобнее на старых системах) |
 | `timerapp-exp-*-x86_64.AppImage` | portable, без установки (`chmod +x` и запуск) |
+| `timerapp-exp-*-x86_64.flatpak` | Flatpak bundle, application ID `com.timerapp.exp` |
+| `timerapp-exp-*-amd64.snap` | Snap `timerapp-exp`, strict confinement |
+| `timerapp-exp-*.ebuild` + `timerapp-exp-*-gentoo-overlay.tar.xz` | Gentoo ebuild + overlay (**experimental**) |
+| `timerapp-exp-*-x86_64.pisi` | PiSi (**experimental**) |
+| `timerapp-exp-*-amd64.pet` | Puppy PET (**experimental**) |
+| `timerapp-exp-*-amd64.pup` | Puppy PUP (**experimental**) |
+| `timerapp-exp-*-amd64.lzm` | Slax LZM (**experimental**) |
 
-Все форматы собираются в **CI** из одного PyInstaller onedir. Локально разработчик собирает только `.deb` (`./build_deb.sh`).
+Полная матрица собирается в **CI** из одного PyInstaller onedir. Локально разработчик собирает только `.deb` (`./build_deb.sh`); Flatpak, Snap и experimental niche-форматы локально не собираются.
 
 ### Минимум для работы (все Linux-форматы)
 
@@ -183,6 +190,13 @@ Release APK подписан **debug-ключом** — для публикац�
 | `timerapp-exp-*-linux-amd64.tar.xz` | Linux — универсальный архив (Experiment) |
 | `timerapp-exp-*-linux-amd64.tgz` | Linux — универсальный архив gzip (Experiment) |
 | `timerapp-exp-*-x86_64.AppImage` | Linux — portable (Experiment) |
+| `timerapp-exp-*-x86_64.flatpak` | Linux — Flatpak `com.timerapp.exp` (Experiment) |
+| `timerapp-exp-*-amd64.snap` | Linux — Snap `timerapp-exp`, strict (Experiment) |
+| `timerapp-exp-*.ebuild` + `timerapp-exp-*-gentoo-overlay.tar.xz` | Linux — Gentoo (**experimental**) |
+| `timerapp-exp-*-x86_64.pisi` | Linux — PiSi (**experimental**) |
+| `timerapp-exp-*-amd64.pet` | Linux — Puppy PET (**experimental**) |
+| `timerapp-exp-*-amd64.pup` | Linux — Puppy PUP (**experimental**) |
+| `timerapp-exp-*-amd64.lzm` | Linux — Slax LZM (**experimental**) |
 | `timerapp-exp-*-win64.exe` | Windows (Experiment) |
 | `timerapp-exp-*-macos-arm64.zip` | macOS (Experiment) |
 | `timerapp-exp-*-android.apk` | Android (Experiment) |
@@ -190,7 +204,7 @@ Release APK подписан **debug-ключом** — для публикац�
 
 **Текущая версия Experiment (ветка):** **0.10.0** — все платформы из CI / [Releases](https://github.com/alexandrgert/timerapp_exp/releases).
 
-CI (`.github/workflows/ci.yml`) при push в `main` собирает **Linux** (`.deb`, `.rpm`, `.tar.xz`, `.tgz`, `.AppImage`), **Windows .exe**, **macOS .zip** и **Android .apk**.
+CI (`.github/workflows/ci.yml`) при push в `main` собирает полную матрицу **Linux** (`.deb`, `.rpm`, `.tar.xz`, `.tgz`, `.AppImage`, Flatpak, Snap, ebuild/overlay, PiSi, PET, PUP, LZM), **Windows .exe**, **macOS .zip** и **Android .apk**.
 
 ---
 

@@ -49,10 +49,10 @@ Mobile (Android/iOS) — **отдельные нативные клиенты**,
 | Платформа | Сборка | Артефакт |
 |-----------|--------|----------|
 | **Windows** | `build_exe.ps1` (CI) | `timerapp-exp-<ver>-win64.exe` |
-| **Linux** | `build_deb.sh` (локально); CI — все форматы | `.deb`, `.rpm`, `.tar.xz`, `.tgz`, `.AppImage` **amd64** |
+| **Linux** | `build_deb.sh` (локально); CI — полная матрица | `.deb`, `.rpm`, `.tar.xz`, `.tgz`, `.AppImage`, Flatpak, Snap, ebuild/overlay, PiSi, PET, PUP, LZM **amd64** |
 | **macOS** | `build_macos.sh` (CI) | `timerapp-exp-<ver>-macos-<arch>.zip` |
 
-**Linux:** локально — только **`.deb` amd64** (`./build_deb.sh`). В **CI** (job `build-deb`) из одного PyInstaller onedir дополнительно собираются `.rpm`, `.tar.xz`, `.tgz` и `.AppImage` (`build_linux_extra.sh`). **AppImage** поддерживается; **Flatpak / Snap** — в планах.
+**Linux:** локально — только **`.deb` amd64** (`./build_deb.sh`). В **CI** (job `build-deb`) из одного PyInstaller onedir собирается полная матрица: `.deb`, `.rpm`, `.tar.xz`, `.tgz`, `.AppImage`, Flatpak (`com.timerapp.exp`), Snap (`timerapp-exp`, strict), ebuild + overlay, PiSi, PET, PUP и LZM (`build_linux_extra.sh`). Ebuild/PiSi/PET/PUP/LZM — **experimental**.
 
 ```bash
 ./build_deb.sh   # локально — только .deb
@@ -116,7 +116,6 @@ src/timerapp_ag/
 
 - Один PySide6 бинарник на Android/iOS
 - PWA как единственный mobile-клиент (ненадёжный фоновый таймер)
-- Локальная сборка rpm / tar / AppImage (только CI; локально — `.deb` amd64)
-- Flatpak / Snap для Linux (в планах)
+- Локальная сборка Linux extras: rpm / tar / AppImage / Flatpak / Snap / ebuild / PiSi / PET / PUP / LZM (только CI; локально — `.deb` amd64)
 - Хранение webhook в `data.json`
 - Разные schema на платформах
