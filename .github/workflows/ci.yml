@@ -66,10 +66,35 @@ jobs:
           export VERSION="$PACKAGE_VERSION"
           ALLOW_NO_BUMP=1 NO_BUMP=1 ./build_deb.sh
 
+      - name: Install Linux extra packaging tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ruby ruby-dev build-essential rpm curl ca-certificates file
+          sudo gem install fpm --no-document
+          mkdir -p "$HOME/linuxdeploy"
+          curl -fL \
+            https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage \
+            -o "$HOME/linuxdeploy/linuxdeploy-x86_64.AppImage"
+          curl -fL \
+            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage \
+            -o "$HOME/linuxdeploy/appimagetool-x86_64.AppImage"
+          chmod +x "$HOME/linuxdeploy/"*.AppImage
+          echo "LINUXDEPLOY=$HOME/linuxdeploy/linuxdeploy-x86_64.AppImage" >> "$GITHUB_ENV"
+          echo "APPIMAGETOOL=$HOME/linuxdeploy/appimagetool-x86_64.AppImage" >> "$GITHUB_ENV"
+
+      - name: Build rpm, tarballs, AppImage
+        run: ./build_linux_extra.sh
+
       - uses: actions/upload-artifact@v5
         with:
-          name: deb-amd64
-          path: dist/timerapp-exp-*-amd64.deb
+          name: linux-packages
+          path: |
+            dist/timerapp-exp-*-amd64.deb
+            dist/timerapp-exp-*-amd64.rpm
+            dist/timerapp-exp-*-linux-amd64.tar.xz
+            dist/timerapp-exp-*-linux-amd64.tgz
+            dist/timerapp-exp-*-x86_64.AppImage
           if-no-files-found: error
 
   build-exe:
