@@ -17,9 +17,9 @@ alwaysApply: true
 | Где | Что собирать |
 |-----|----------------|
 | **Локально** | **только** `./build_deb.sh` |
-| **GitHub CI / Release** | `.apk`, `.exe`, macOS и остальные артефакты **после коммита и push** |
+| **GitHub CI / Release** | `.apk`, `.exe`, macOS, Linux **`.rpm` / `.tar.xz` / `.tgz` / `.AppImage`** и остальные артефакты **после коммита и push** |
 
-Не запускать локально `./build_apk.sh`, `./build_exe.ps1`, `./build_macos.sh` (кроме явного override «локально вопреки правилу»).
+Не запускать локально `./build_apk.sh`, `./build_exe.ps1`, `./build_macos.sh`, `./build_linux_extra.sh` (кроме явного override «локально вопреки правилу»). Linux extras (rpm, tar, AppImage) — **только CI**.
 
 | Запрос | Действие |
 |--------|----------|
@@ -112,7 +112,7 @@ BUMP=minor ./build_deb.sh
 
 - После правок **сначала спросить** про deb; `./build_deb.sh` — только после явного «собери» / «да» / «пересобери».
 - **Локально** — только `./build_deb.sh` (не APK/exe/macOS).
-- **Не запускать** `./build_apk.sh` / exe / macOS локально; направлять на **commit + push → GitHub CI**.
+- **Не запускать** `./build_apk.sh` / exe / macOS / `./build_linux_extra.sh` локально; направлять на **commit + push → GitHub CI**.
 - Перед **push** (не перед локальным apk): выровнять `versionName`/`versionCode` с `pyproject.toml`, прогнать `check_version_sync.py`.
 - После **фич** при подтверждённой сборке — `BUMP=minor ./build_deb.sh`. После **фиксов** — `./build_deb.sh` (patch). **Никогда** не пропускать bump «потому что проверка».
 

@@ -48,14 +48,14 @@ Mobile (Android/iOS) — **отдельные нативные клиенты**,
 
 | Платформа | Сборка | Артефакт |
 |-----------|--------|----------|
-| **Windows** | `build_exe.ps1` | `tasktimer-link-b24-<ver>-win64.exe` |
-| **Linux** | `build_deb.sh` | `.deb` **amd64** |
-| **macOS** | `build_macos.sh` | `TaskTimer link B24.app` в `.zip` |
+| **Windows** | `build_exe.ps1` (CI) | `timerapp-exp-<ver>-win64.exe` |
+| **Linux** | `build_deb.sh` (локально); CI — все форматы | `.deb`, `.rpm`, `.tar.xz`, `.tgz`, `.AppImage` **amd64** |
+| **macOS** | `build_macos.sh` (CI) | `timerapp-exp-<ver>-macos-<arch>.zip` |
 
-**Linux:** единственный формат дистрибуции — **Debian-пакет amd64** (`dpkg-deb`). Flatpak, AppImage и другие store-форматы **не используются**. Сборка — на x86_64; CI: job `build-deb` в `.github/workflows/ci.yml`.
+**Linux:** локально — только **`.deb` amd64** (`./build_deb.sh`). В **CI** (job `build-deb`) из одного PyInstaller onedir дополнительно собираются `.rpm`, `.tar.xz`, `.tgz` и `.AppImage` (`build_linux_extra.sh`). **AppImage** поддерживается; **Flatpak / Snap** — в планах.
 
 ```bash
-./build_deb.sh
+./build_deb.sh   # локально — только .deb
 ```
 
 Подробности WebDAV: [`webdav-sync.md`](webdav-sync.md).
@@ -116,6 +116,7 @@ src/timerapp_ag/
 
 - Один PySide6 бинарник на Android/iOS
 - PWA как единственный mobile-клиент (ненадёжный фоновый таймер)
-- Flatpak / AppImage для Linux (только `.deb` amd64)
+- Локальная сборка rpm / tar / AppImage (только CI; локально — `.deb` amd64)
+- Flatpak / Snap для Linux (в планах)
 - Хранение webhook в `data.json`
 - Разные schema на платформах

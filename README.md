@@ -64,9 +64,9 @@ pytest
 
 Результат: `dist\tasktimer-link-b24-<версия>-win64.exe`. Сборка только на **Windows 10/11 x64**.
 
-### Linux (`.deb` amd64)
+### Linux (amd64)
 
-Единственный формат дистрибуции для Linux — **Debian-пакет amd64** (не Flatpak).
+**Локально** — только **`.deb` amd64** (`./build_deb.sh`). В **CI** дополнительно: `.rpm`, `.tar.xz`, `.tgz`, `.AppImage` (см. [системные требования](docs/system-requirements.md)). **AppImage** поддерживается; **Flatpak / Snap** — в планах.
 
 ```bash
 ./build_deb.sh
@@ -79,7 +79,9 @@ pytest
 | `./build_deb.sh` | мелкие правки → **patch** (в т.ч. локальная сборка) |
 | `BUMP=minor ./build_deb.sh` | новые фичи → **minor** |
 
-Результат: `dist/timerapp-exp-<версия>-amd64.deb`. Команда в меню: `timerapp-exp`.
+Результат (локально): `dist/timerapp-exp-<версия>-amd64.deb`. Команда в меню: `timerapp-exp`.
+
+CI также публикует: `timerapp-exp-<версия>-amd64.rpm`, `-linux-amd64.tar.xz`, `-linux-amd64.tgz`, `-x86_64.AppImage`.
 
 ### macOS (`.app` в `.zip`)
 
@@ -105,7 +107,7 @@ python scripts/check_version_sync.py
 
 ### CI
 
-При push в `main` GitHub Actions собирает **`.deb`**, **`.exe`**, **macOS `.zip`** и **`.apk`** (артефакты в workflow run).
+При push в `main` GitHub Actions собирает **Linux** (`.deb`, `.rpm`, `.tar.xz`, `.tgz`, `.AppImage`), **`.exe`**, **macOS `.zip`** и **`.apk`** (артефакты в workflow run).
 
 Ручной bump без сборки: `python scripts/bump_version.py minor`
 
@@ -118,18 +120,24 @@ python scripts/check_version_sync.py
 
 | Платформа | Файл (Experiment) |
 |-----------|-------------------|
-| Linux amd64 | `timerapp-exp-0.10.0-amd64.deb` |
+| Linux amd64 (.deb) | `timerapp-exp-0.10.0-amd64.deb` |
+| Linux amd64 (.rpm) | `timerapp-exp-0.10.0-amd64.rpm` |
+| Linux amd64 (tar.xz) | `timerapp-exp-0.10.0-linux-amd64.tar.xz` |
+| Linux amd64 (.tgz) | `timerapp-exp-0.10.0-linux-amd64.tgz` |
+| Linux amd64 (AppImage) | `timerapp-exp-0.10.0-x86_64.AppImage` |
 | Windows x64 | `timerapp-exp-0.10.0-win64.exe` |
 | macOS arm64 | `timerapp-exp-0.10.0-macos-arm64.zip` |
 | Android 10+ | `timerapp-exp-0.10.0-android.apk` |
 
-Linux (локальная сборка или релиз):
+Linux — установка `.deb` (локальная сборка или релиз):
 
 ```bash
 sudo dpkg -i dist/timerapp-exp-0.10.0-amd64.deb
 sudo apt-get install -f
 timerapp-exp
 ```
+
+AppImage: `chmod +x timerapp-exp-0.10.0-x86_64.AppImage && ./timerapp-exp-0.10.0-x86_64.AppImage`
 
 > Релизы Experiment: [timerapp_exp/releases](https://github.com/alexandrgert/timerapp_exp/releases). Стабильный продукт — [timer-app](https://github.com/alexandrgert/timer-app/releases).
 

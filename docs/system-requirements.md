@@ -11,16 +11,30 @@
 
 | Платформа | Артефакт | ОС | Процессор | ОЗУ | Диск | Сеть |
 |-----------|----------|-----|-----------|-----|------|------|
-| **Linux** | `.deb` amd64 | Debian 11+, Ubuntu 20.04+, Mint, Astra и др. с **glibc ≥ 2.31** | x86_64 (64-bit) | 512 МБ | ~200 МБ | для Битрикс24 / WebDAV |
+| **Linux** | `.deb` / `.rpm` / `.tar.xz` / `.tgz` / `.AppImage` amd64 | Debian 11+, Ubuntu 20.04+, Fedora/RHEL, Mint, Astra и др. с **glibc ≥ 2.31** | x86_64 (64-bit) | 512 МБ | ~200 МБ | для Битрикс24 / WebDAV |
 | **Windows** | `.exe` win64 | Windows **10** (64-bit) или **11** | x86_64 (AMD64) | 512 МБ | ~150 МБ | для Битрикс24 / WebDAV |
 | **macOS** | `.app` в `.zip` | **macOS 11** Big Sur и новее | Apple Silicon (**arm64**) в релизе; Intel — отдельная сборка | 512 МБ | ~200 МБ | для Битрикс24 / WebDAV |
 | **Android** | `.apk` | **Android 10** (API 29) и новее | arm64-v8a, armeabi-v7a | 512 МБ | ~50 МБ | для WebDAV; Битрикс24 — в планах |
 
-**Не поддерживается:** 32-bit Linux/Windows, iOS (в планах), Flatpak/AppImage.
+**Не поддерживается:** 32-bit Linux/Windows, iOS (в планах). **Flatpak / Snap** — в планах.
 
 ---
 
-## Linux (`.deb` amd64)
+## Linux (amd64)
+
+### Форматы дистрибуции
+
+| Файл | Назначение |
+|------|------------|
+| `timerapp-exp-*-amd64.deb` | Debian, Ubuntu, Mint и др. (`dpkg -i`) |
+| `timerapp-exp-*-amd64.rpm` | Fedora, RHEL, openSUSE и др. (`dnf` / `rpm -i`) |
+| `timerapp-exp-*-linux-amd64.tar.xz` | универсальный архив (распаковка в `/`) |
+| `timerapp-exp-*-linux-amd64.tgz` | то же, gzip (удобнее на старых системах) |
+| `timerapp-exp-*-x86_64.AppImage` | portable, без установки (`chmod +x` и запуск) |
+
+Все форматы собираются в **CI** из одного PyInstaller onedir. Локально разработчик собирает только `.deb` (`./build_deb.sh`).
+
+### `.deb` amd64
 
 ### Минимум для работы
 
@@ -166,7 +180,11 @@ Release APK подписан **debug-ключом** — для публикац�
 
 | Файл | Платформа |
 |------|-----------|
-| `timerapp-exp-*-amd64.deb` | Linux (Experiment) |
+| `timerapp-exp-*-amd64.deb` | Linux — Debian/Ubuntu (Experiment) |
+| `timerapp-exp-*-amd64.rpm` | Linux — Fedora/RHEL (Experiment) |
+| `timerapp-exp-*-linux-amd64.tar.xz` | Linux — универсальный архив (Experiment) |
+| `timerapp-exp-*-linux-amd64.tgz` | Linux — универсальный архив gzip (Experiment) |
+| `timerapp-exp-*-x86_64.AppImage` | Linux — portable (Experiment) |
 | `timerapp-exp-*-win64.exe` | Windows (Experiment) |
 | `timerapp-exp-*-macos-arm64.zip` | macOS (Experiment) |
 | `timerapp-exp-*-android.apk` | Android (Experiment) |
@@ -174,7 +192,7 @@ Release APK подписан **debug-ключом** — для публикац�
 
 **Текущая версия Experiment (ветка):** **0.10.0** — все платформы из CI / [Releases](https://github.com/alexandrgert/timerapp_exp/releases).
 
-CI (`.github/workflows/ci.yml`) при push в `main` собирает **Linux .deb**, **Windows .exe**, **macOS .zip** и **Android .apk**.
+CI (`.github/workflows/ci.yml`) при push в `main` собирает **Linux** (`.deb`, `.rpm`, `.tar.xz`, `.tgz`, `.AppImage`), **Windows .exe**, **macOS .zip** и **Android .apk**.
 
 ---
 
