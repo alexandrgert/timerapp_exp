@@ -13,6 +13,32 @@ if [[ ! "$VERSION" =~ ^[0-9]+(\.[0-9]+){2}([._-][[:alnum:]]+)*$ ]]; then
   exit 1
 fi
 
+manifest_line() {
+  local kind="$1"
+  local file="$2"
+  local name size sha512 blake2b
+
+  name="$(basename "$file")"
+  size="$(stat -c%s "$file")"
+  sha512="$(sha512sum "$file" | awk '{print $1}')"
+
+  if command -v b2sum >/dev/null 2>&1; then
+    blake2b="$(b2sum "$file" | awk '{print $1}')"
+    printf '%s %s %s BLAKE2B %s SHA512 %s\n' "$kind" "$name" "$size" "$blake2b" "$sha512"
+  elif blake2b="$(openssl dgst -blake2b512 "$file" 2>/dev/null | awk '{print $NF}')" && [[ -n "$blake2b" ]]; then
+    printf '%s %s %s BLAKE2B %s SHA512 %s\n' "$kind" "$name" "$size" "$blake2b" "$sha512"
+  else
+    printf '%s %s %s SHA512 %s\n' "$kind" "$name" "$size" "$sha512"
+  fi
+}
+
+distfile="${DIST_DIR}/${PACKAGE_NAME}-${VERSION}-linux-amd64.tar.xz"
+if [[ ! -f "$distfile" ]]; then
+  echo "Missing distfile: $distfile" >&2
+  echo "timerapp-exp-${VERSION}-linux-amd64.tar.xz must exist in DIST_DIR before ebuild packaging so Manifest can include a real DIST checksum." >&2
+  exit 1
+fi
+
 metadata="$GENTOO_PACKAGE_DIR/metadata.xml"
 if [[ ! -f "$metadata" ]]; then
   echo "Missing Gentoo metadata: $metadata" >&2
@@ -48,6 +74,10 @@ overlay_package_dir="$overlay/app-misc/$PACKAGE_NAME"
 mkdir -p "$overlay_package_dir" "$overlay/profiles" "$overlay/metadata" "$DIST_DIR"
 cp "$metadata" "$overlay_package_dir/"
 cp "$generated_ebuild" "$overlay_package_dir/${PACKAGE_NAME}-${VERSION}.ebuild"
+{
+  manifest_line EBUILD "$overlay_package_dir/${PACKAGE_NAME}-${VERSION}.ebuild"
+  manifest_line DIST "$distfile"
+} > "$overlay_package_dir/Manifest"
 printf '%s\n' 'timerapp-exp' > "$overlay/profiles/repo_name"
 cat > "$overlay/metadata/layout.conf" <<'EOF'
 masters = gentoo
