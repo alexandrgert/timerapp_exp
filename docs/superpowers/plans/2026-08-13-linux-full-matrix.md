@@ -486,7 +486,7 @@ sudo snap install snapcraft --classic
 If `snap install snapcraft` fails on runner, install via:
 
 ```bash
-curl -fL -o /tmp/snapcraft.snap https://api.snapcraft.io/api/v1/snaps/download/... 
+curl -fL -o /tmp/snapcraft.snap https://api.snapcraft.io/api/v1/snaps/download/...
 # Prefer documented GHA pattern: `sudo snap install snapcraft --classic` after ensuring snapd service.
 # Fallback used in many projects: pipx install snapcraft — pin a known version if needed.
 ```

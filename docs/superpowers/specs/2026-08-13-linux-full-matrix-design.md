@@ -1,8 +1,8 @@
 # Linux full package matrix (этап 2) — design
 
-**Дата:** 2026-08-13  
-**Репозиторий:** только [alexandrgert/timerapp_exp](https://github.com/alexandrgert/timerapp_exp) (Experiment)  
-**Статус:** approved  
+**Дата:** 2026-08-13
+**Репозиторий:** только [alexandrgert/timerapp_exp](https://github.com/alexandrgert/timerapp_exp) (Experiment)
+**Статус:** approved
 **Предшественник:** [2026-08-12-linux-extra-packages-design.md](2026-08-12-linux-extra-packages-design.md) (этап 1: deb/rpm/tar/AppImage)
 
 ## Цель
