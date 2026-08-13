@@ -73,9 +73,33 @@ jobs:
             ruby ruby-dev build-essential rpm curl ca-certificates file \
             flatpak flatpak-builder ostree squashfs-tools zip unzip snapd
           sudo gem install fpm --no-document
-          sudo systemctl enable --now snapd.socket
-          sudo snap wait system seed.loaded
-          sudo snap install snapcraft --classic
+          sudo systemctl enable --now snapd.socket || true
+          sudo systemctl start snapd || true
+          sudo snap wait system seed.loaded || true
+          # Snap Store can time out on GHA; retry then fall back to offline snap download.
+          snapcraft_ok=0
+          for attempt in 1 2 3 4 5; do
+            if sudo snap install snapcraft --classic; then
+              snapcraft_ok=1
+              break
+            fi
+            echo "snapcraft install attempt ${attempt} failed; retrying..." >&2
+            sleep $((attempt * 10))
+          done
+          if [[ "$snapcraft_ok" -ne 1 ]]; then
+            tmp="$(mktemp -d)"
+            (
+              cd "$tmp"
+              for attempt in 1 2 3; do
+                snap download snapcraft --basename snapcraft && break
+                sleep $((attempt * 10))
+              done
+              sudo snap ack snapcraft.assert
+              sudo snap install snapcraft.snap --classic
+            )
+            rm -rf "$tmp"
+          fi
+          command -v snapcraft
           mkdir -p "$HOME/linuxdeploy"
           curl -fL \
             https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage \
