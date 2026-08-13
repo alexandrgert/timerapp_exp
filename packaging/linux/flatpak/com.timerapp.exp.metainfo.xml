@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.timerapp.exp</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>Proprietary</project_license>
+  <name>TaskTimer Experiment</name>
+  <summary>Experimental desktop task timer with Bitrix24 integration</summary>
+  <developer id="timerapp">
+    <name>TimerApp</name>
+  </developer>
+  <launchable type="desktop-id">com.timerapp.exp.desktop</launchable>
+</component>
