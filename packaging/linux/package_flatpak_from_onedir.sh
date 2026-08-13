@@ -7,13 +7,32 @@ ONEDIR="${ONEDIR:-$PROJECT_DIR/dist/TaskTimer}"
 VERSION="${VERSION:?VERSION required}"
 DIST_DIR="${DIST_DIR:-$PROJECT_DIR/dist}"
 APP_ID="com.timerapp.exp"
+FLATPAK_ARCH="x86_64"
 RUNTIME_BRANCH="24.08"
+RUNTIME_REF="org.freedesktop.Platform/${FLATPAK_ARCH}/${RUNTIME_BRANCH}"
+SDK_REF="org.freedesktop.Sdk/${FLATPAK_ARCH}/${RUNTIME_BRANCH}"
 FLATPAK_DIR="$PROJECT_DIR/packaging/linux/flatpak"
 OUT="${DIST_DIR}/timerapp-exp-${VERSION}-x86_64.flatpak"
 
+require_x86_64_host() {
+  case "$(uname -m)" in
+    x86_64) ;;
+    *)
+      echo "Error: Flatpak packaging requires an x86_64 (amd64) host; got $(uname -m)." >&2
+      exit 1
+      ;;
+  esac
+}
+
+if [[ -n "${ARCH:-}" && "${ARCH}" != "amd64" && "${ARCH}" != "x86_64" ]]; then
+  echo "Unsupported ARCH=${ARCH}; expected amd64 or x86_64." >&2
+  exit 1
+fi
+
+require_x86_64_host
+
 [[ -x "$ONEDIR/TaskTimer" ]] || { echo "Missing onedir" >&2; exit 1; }
 command -v flatpak >/dev/null
-command -v flatpak-builder >/dev/null || true  # may use build-init path only
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
@@ -28,10 +47,11 @@ cp "$FLATPAK_DIR/com.timerapp.exp.desktop" "$source_dir/"
 cp "$FLATPAK_DIR/com.timerapp.exp.metainfo.xml" "$source_dir/"
 cp "$PROJECT_DIR/packaging/linux/tasktimer.svg" "$source_dir/"
 
-flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo || true
-flatpak install -y --user flathub "org.freedesktop.Platform//${RUNTIME_BRANCH}" "org.freedesktop.Sdk//${RUNTIME_BRANCH}"
+flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+flatpak install -y --user --arch="$FLATPAK_ARCH" flathub "$RUNTIME_REF" "$SDK_REF"
 
-flatpak build-init "$builddir" "$APP_ID" org.freedesktop.Sdk org.freedesktop.Platform "$RUNTIME_BRANCH"
+flatpak build-init --arch="$FLATPAK_ARCH" "$builddir" "$APP_ID" \
+  "org.freedesktop.Sdk/${FLATPAK_ARCH}" "org.freedesktop.Platform/${FLATPAK_ARCH}" "$RUNTIME_BRANCH"
 
 # Install binary tree under /app
 flatpak build "$builddir" mkdir -p /app/lib/timerapp-exp /app/bin /app/share/applications \
@@ -58,7 +78,8 @@ flatpak build-finish "$builddir" \
 mkdir -p "$repo"
 flatpak build-export "$repo" "$builddir"
 mkdir -p "$DIST_DIR"
-flatpak build-bundle "$repo" "$OUT" "$APP_ID" --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo
+flatpak build-bundle --arch="$FLATPAK_ARCH" "$repo" "$OUT" "$APP_ID" \
+  --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo
 
 echo "Готово: $OUT"
 ls -lh "$OUT"
