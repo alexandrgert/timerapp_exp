@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE pkgmetadata SYSTEM "https://www.gentoo.org/dtd/metadata.dtd">
+<pkgmetadata>
+  <maintainer type="person">
+    <email>noreply@example.com</email>
+    <name>TaskTimer Experiment</name>
+  </maintainer>
+  <upstream>
+    <remote-id type="github">alexandrgert/timerapp_exp</remote-id>
+  </upstream>
+</pkgmetadata>
