@@ -74,9 +74,11 @@ jobs:
             flatpak flatpak-builder librsvg2-common ostree squashfs-tools zip unzip snapd
           sudo gem install fpm --no-document
           mkdir -p "$HOME/linuxdeploy"
-          curl -fL \
-            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage \
-            -o "$HOME/linuxdeploy/appimagetool-x86_64.AppImage"
+          APPIMAGETOOL_URL="https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage"
+          # Bump APPIMAGETOOL_SHA256 when intentionally updating the pinned release.
+          APPIMAGETOOL_SHA256="ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0"
+          curl -fL "$APPIMAGETOOL_URL" -o "$HOME/linuxdeploy/appimagetool-x86_64.AppImage"
+          echo "${APPIMAGETOOL_SHA256}  $HOME/linuxdeploy/appimagetool-x86_64.AppImage" | sha256sum -c -
           chmod +x "$HOME/linuxdeploy/appimagetool-x86_64.AppImage"
           echo "APPIMAGETOOL=$HOME/linuxdeploy/appimagetool-x86_64.AppImage" >> "$GITHUB_ENV"
 

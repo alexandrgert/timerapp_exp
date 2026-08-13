@@ -318,7 +318,7 @@ git commit -m "build: add rpm packaging from staging via fpm"
 #   timerapp-exp.desktop with Exec=TaskTimer
 #   timerapp-exp.svg / .png
 # Prefer: copy entire onedir to AppDir/usr/lib/timerapp-exp/ and AppRun exec that binary
-# Then: "$LINUXDEPLOY" --appdir AppDir --desktop-file=... --icon-file=... 
+# Then: "$LINUXDEPLOY" --appdir AppDir --desktop-file=... --icon-file=...
 #       "$APPIMAGETOOL" AppDir "$DIST_DIR/timerapp-exp-${VERSION}-x86_64.AppImage"
 ```
 

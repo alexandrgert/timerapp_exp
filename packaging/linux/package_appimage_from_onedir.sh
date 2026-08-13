@@ -4,8 +4,9 @@
 # PyInstaller already bundles Qt/libs — do NOT run linuxdeploy (it rescans
 # system deps and fails on incomplete runner packages).
 #
-# CI / local tool download (continuous x86_64):
-# https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+# CI downloads pinned release (keep in sync with .github/workflows/ci.yml):
+# https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage
+# SHA-256: ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
