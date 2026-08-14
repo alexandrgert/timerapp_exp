@@ -23,7 +23,7 @@
 
 Спецификация модели «план на день»: [`docs/superpowers/specs/2026-06-11-task-views-and-plan-design.md`](docs/superpowers/specs/2026-06-11-task-views-and-plan-design.md).
 
-Документация: [архитектура](docs/architecture-cross-platform.md) · [схема данных](docs/data-schema.md) · [WebDAV (техн.)](docs/webdav-sync.md) · [системные требования](docs/system-requirements.md) · [релиз 0.11.1](docs/release-notes-v0.11.1.md)
+Документация: [архитектура](docs/architecture-cross-platform.md) · [схема данных](docs/data-schema.md) · [WebDAV (техн.)](docs/webdav-sync.md) · [системные требования](docs/system-requirements.md) · [релиз 0.11.5](docs/release-notes-v0.11.5.md)
 
 ## Быстрый старт
 
@@ -116,35 +116,35 @@ python scripts/check_version_sync.py
 Готовые сборки Experiment — [GitHub Releases timerapp_exp](https://github.com/alexandrgert/timerapp_exp/releases).  
 **Системные требования:** [`docs/system-requirements.md`](docs/system-requirements.md).
 
-**Текущая версия в ветке:** **0.11.1** — [release notes](docs/release-notes-v0.11.1.md)
+**Текущая версия в ветке:** **0.11.5** — [release notes](docs/release-notes-v0.11.5.md)
 
 | Платформа | Файл (Experiment) |
 |-----------|-------------------|
-| Linux amd64 (.deb) | `timerapp-exp-0.11.1-amd64.deb` |
-| Linux amd64 (.rpm) | `timerapp-exp-0.11.1-amd64.rpm` |
-| Linux amd64 (tar.xz) | `timerapp-exp-0.11.1-linux-amd64.tar.xz` |
-| Linux amd64 (.tgz) | `timerapp-exp-0.11.1-linux-amd64.tgz` |
-| Linux amd64 (AppImage) | `timerapp-exp-0.11.1-x86_64.AppImage` |
-| Linux amd64 (Flatpak, ID `com.timerapp.exp`) | `timerapp-exp-0.11.1-x86_64.flatpak` |
-| Linux amd64 (Snap `timerapp-exp`, strict) | `timerapp-exp-0.11.1-amd64.snap` |
-| Linux amd64 (Gentoo ebuild + overlay, **experimental**) | `timerapp-exp-0.11.1.ebuild`, `timerapp-exp-0.11.1-gentoo-overlay.tar.xz` |
-| Linux amd64 (PiSi, **experimental**) | `timerapp-exp-0.11.1-x86_64.pisi` |
-| Linux amd64 (PET, **experimental**) | `timerapp-exp-0.11.1-amd64.pet` |
-| Linux amd64 (PUP, **experimental**) | `timerapp-exp-0.11.1-amd64.pup` |
-| Linux amd64 (Slax LZM, **experimental**) | `timerapp-exp-0.11.1-amd64.lzm` |
-| Windows x64 | `timerapp-exp-0.11.1-win64.exe` |
-| macOS arm64 | `timerapp-exp-0.11.1-macos-arm64.zip` |
-| Android 10+ | `timerapp-exp-0.11.1-android.apk` |
+| Linux amd64 (.deb) | `timerapp-exp-0.11.5-amd64.deb` |
+| Linux amd64 (.rpm) | `timerapp-exp-0.11.5-amd64.rpm` |
+| Linux amd64 (tar.xz) | `timerapp-exp-0.11.5-linux-amd64.tar.xz` |
+| Linux amd64 (.tgz) | `timerapp-exp-0.11.5-linux-amd64.tgz` |
+| Linux amd64 (AppImage) | `timerapp-exp-0.11.5-x86_64.AppImage` |
+| Linux amd64 (Flatpak, ID `com.timerapp.exp`) | `timerapp-exp-0.11.5-x86_64.flatpak` |
+| Linux amd64 (Snap `timerapp-exp`, strict) | `timerapp-exp-0.11.5-amd64.snap` |
+| Linux amd64 (Gentoo ebuild + overlay, **experimental**) | `timerapp-exp-0.11.5.ebuild`, `timerapp-exp-0.11.5-gentoo-overlay.tar.xz` |
+| Linux amd64 (PiSi, **experimental**) | `timerapp-exp-0.11.5-x86_64.pisi` |
+| Linux amd64 (PET, **experimental**) | `timerapp-exp-0.11.5-amd64.pet` |
+| Linux amd64 (PUP, **experimental**) | `timerapp-exp-0.11.5-amd64.pup` |
+| Linux amd64 (Slax LZM, **experimental**) | `timerapp-exp-0.11.5-amd64.lzm` |
+| Windows x64 | `timerapp-exp-0.11.5-win64.exe` |
+| macOS arm64 | `timerapp-exp-0.11.5-macos-arm64.zip` |
+| Android 10+ | `timerapp-exp-0.11.5-android.apk` |
 
 Linux — установка `.deb` (локальная сборка или релиз):
 
 ```bash
-sudo dpkg -i dist/timerapp-exp-0.11.1-amd64.deb
+sudo dpkg -i dist/timerapp-exp-0.11.5-amd64.deb
 sudo apt-get install -f
 timerapp-exp
 ```
 
-AppImage: `chmod +x timerapp-exp-0.11.1-x86_64.AppImage && ./timerapp-exp-0.11.1-x86_64.AppImage`
+AppImage: `chmod +x timerapp-exp-0.11.5-x86_64.AppImage && ./timerapp-exp-0.11.5-x86_64.AppImage`
 
 > Релизы Experiment: [timerapp_exp/releases](https://github.com/alexandrgert/timerapp_exp/releases). Стабильный продукт — [timer-app](https://github.com/alexandrgert/timer-app/releases).
 
