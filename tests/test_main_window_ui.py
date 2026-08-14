@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import pytest
 from PySide6.QtCore import QDate, QDateTime, QRect, QTime
@@ -1993,6 +1994,48 @@ def test_settings_dialog_default_height_fits_webdav_tab(
     assert inner is not None
     assert scroll.viewport().height() >= inner.minimumHeight()
     assert inner.height() >= inner.minimumHeight()
+
+
+def test_settings_dialog_update_check_status_visible_after_click(
+    qapp: QApplication,
+    controller: AppController,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from timerapp_ag.main_window import SettingsDialog
+    from timerapp_ag.update_check import UpdateCheckResult
+
+    monkeypatch.setattr(
+        "timerapp_ag.app_prefs.app_prefs_path", lambda: tmp_path / "app-prefs.json"
+    )
+
+    def fake_check(**kwargs: object) -> UpdateCheckResult:
+        return UpdateCheckResult(
+            ok=True,
+            current_version="0.11.4",
+            latest=None,
+            update_available=False,
+        )
+
+    monkeypatch.setattr("timerapp_ag.main_window.check_for_update", fake_check)
+    dialog = SettingsDialog(controller)
+    dialog.show()
+    qapp.processEvents()
+    dialog.resize(620, 980)
+    qapp.processEvents()
+
+    tabs = _settings_dialog_tabs(dialog)
+    tabs.setCurrentIndex(2)
+    qapp.processEvents()
+    assert dialog.update_check_status.height() == 0
+
+    dialog.update_check_now_button.click()
+    dialog._manual_update_check.wait(5000)
+    qapp.processEvents()
+
+    assert "актуальн" in dialog.update_check_status.text().lower()
+    assert dialog.update_check_status.height() > 0
+    dialog.close()
 
 
 def test_settings_dialog_chrome_height_matches_layout(

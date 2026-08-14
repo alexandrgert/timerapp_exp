@@ -87,11 +87,17 @@ ensure_release_keystore() {
   if [[ -f "$props" ]] && [[ -f "$keystore" ]]; then
     return
   fi
+  # CI must use the pinned keystore from GitHub Secrets — never mint a new key.
+  if [[ "${CI:-}" == "true" ]]; then
+    echo "CI: нет android/keystore.properties + tasktimer-release.jks." >&2
+    echo "Ожидаются secrets ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD." >&2
+    exit 1
+  fi
   if [[ ! -f "$ANDROID_DIR/keystore.properties.example" ]]; then
     echo "Не найден android/keystore.properties — нужен для стабильной подписи APK." >&2
     exit 1
   fi
-  echo "==> Подготовка release keystore (один ключ для всех сборок — обновление без удаления)"
+  echo "==> Локальный release keystore (sideload). CI подписывает ключом из GitHub Secrets."
   mkdir -p "$ANDROID_DIR/keystore"
   cp -f "$ANDROID_DIR/keystore.properties.example" "$props"
   keytool -genkeypair -v \
@@ -125,8 +131,6 @@ build_apk() {
   echo ""
   echo "Установка / обновление:"
   echo "  adb install -r dist/timerapp-exp-${version}-android.apk"
-  echo "Если Android отказывает (несовместимая подпись) — один раз удалите старую версию,"
-  echo "затем установите заново. WebDAV-настройки придётся ввести снова."
 }
 
 require_cmd java

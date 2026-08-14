@@ -162,7 +162,7 @@
 - Команда: `./build_apk.sh` → `dist/timerapp-exp-<версия>-android.apk`
 - SDK и Gradle подтягиваются в `android/.android-sdk`, `android/.jdk17`
 
-Release APK подписан **debug-ключом** — для публикации в Google Play нужен release keystore.
+Release APK из CI подписан постоянным ключом (GitHub Secrets). Для Google Play нужен отдельный Play App Signing / release keystore.
 
 ---
 

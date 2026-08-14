@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import time
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
@@ -762,6 +763,90 @@ class _CallableThread(QThread):
         self.succeeded.emit(result)
 
 
+class _ManualUpdateCheckHelper:
+    """GitHub Releases check shared by Settings and About."""
+
+    def __init__(
+        self,
+        parent: QWidget,
+        *,
+        button: QPushButton,
+        status: QLabel,
+        prefs_loader: Callable[[], AppPrefs],
+        on_status_changed: Callable[[], None] | None = None,
+    ) -> None:
+        self._parent = parent
+        self._button = button
+        self._status = status
+        self._prefs_loader = prefs_loader
+        self._on_status_changed = on_status_changed
+        self.thread: _CallableThread | None = None
+
+    def start(self) -> None:
+        if self.thread is not None and self.thread.isRunning():
+            return
+        self._button.setEnabled(False)
+        self._set_status("Проверяю обновления…", "#5f6b7c")
+
+        def work() -> UpdateCheckResult:
+            prefs = self._prefs_loader()
+            return check_for_update(
+                dismissed_version=prefs.dismissed_update_version,
+                respect_dismissed=False,
+                github_repo=DEFAULT_UPDATE_GITHUB_REPO,
+            )
+
+        self.thread = _CallableThread(work, self._parent)
+        self.thread.succeeded.connect(self._on_ok)
+        self.thread.failed.connect(self._on_failed)
+        self.thread.finished.connect(lambda: self._button.setEnabled(True))
+        self.thread.start()
+
+    def wait(self, msec: int = 5000) -> None:
+        if self.thread is not None and self.thread.isRunning():
+            self.thread.wait(msec)
+
+    def _set_status(self, text: str, color: str) -> None:
+        self._status.setText(text)
+        self._status.setStyleSheet(f"color: {color}; background: transparent;")
+        if self._on_status_changed is not None:
+            self._on_status_changed()
+
+    def _on_ok(self, result: object) -> None:
+        if not isinstance(result, UpdateCheckResult):
+            self._set_status("✗ Неожиданный ответ проверки", "#9b3c3c")
+            return
+        prefs = mark_update_check_done(self._prefs_loader())
+        if not result.ok:
+            self._set_status(f"✗ Не удалось проверить: {result.error}", "#9b3c3c")
+            return
+        if result.update_available and result.latest is not None:
+            self._set_status(
+                f"Доступна версия {result.latest.version} (сейчас {result.current_version})",
+                "#2d6b40",
+            )
+            box = QMessageBox(self._parent)
+            box.setIcon(QMessageBox.Icon.Information)
+            box.setWindowTitle("Обновление")
+            box.setText(
+                f"Доступна новая версия {result.latest.version}.\n"
+                f"Текущая: {result.current_version}."
+            )
+            open_btn = box.addButton("Открыть релиз", QMessageBox.ButtonRole.AcceptRole)
+            dismiss = box.addButton("Позже", QMessageBox.ButtonRole.RejectRole)
+            box.exec()
+            if box.clickedButton() is open_btn:
+                QDesktopServices.openUrl(QUrl(result.latest.html_url))
+                mark_update_check_done(prefs, dismissed_version=result.latest.version)
+            elif box.clickedButton() is dismiss:
+                mark_update_check_done(prefs, dismissed_version=result.latest.version)
+            return
+        self._set_status("✓ Установлена актуальная версия", "#2d6b40")
+
+    def _on_failed(self, message: str) -> None:
+        self._set_status(f"✗ Не удалось проверить: {message}", "#9b3c3c")
+
+
 class WebDavSyncLogDialog(QDialog):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -826,9 +911,31 @@ class AboutDialog(QDialog):
         details.setMinimumHeight(320)
         layout.addWidget(details)
 
+        self.update_check_now_button = QPushButton("Проверить сейчас")
+        _configure_settings_action_button(self.update_check_now_button)
+        layout.addWidget(self.update_check_now_button)
+        self.update_check_status = QLabel("")
+        self.update_check_status.setWordWrap(True)
+        layout.addWidget(self.update_check_status)
+        self._manual_update_check = _ManualUpdateCheckHelper(
+            self,
+            button=self.update_check_now_button,
+            status=self.update_check_status,
+            prefs_loader=load_app_prefs,
+        )
+        self.update_check_now_button.clicked.connect(self._manual_update_check.start)
+
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
         buttons.accepted.connect(self.accept)
         layout.addWidget(buttons)
+
+    def accept(self) -> None:
+        self._manual_update_check.wait()
+        super().accept()
+
+    def reject(self) -> None:
+        self._manual_update_check.wait()
+        super().reject()
 
 
 class SettingsDialog(QDialog):
@@ -841,7 +948,7 @@ class SettingsDialog(QDialog):
         self._discover_thread: _CallableThread | None = None
         self._webdav_test_thread: _CallableThread | None = None
         self._webdav_sync_thread: _CallableThread | None = None
-        self._update_check_thread: _CallableThread | None = None
+        self._manual_update_check: _ManualUpdateCheckHelper | None = None
         portal = controller.bitrix_portal_config()
         webdav = load_webdav_config()
 
@@ -1088,13 +1195,20 @@ class SettingsDialog(QDialog):
         app_layout.addWidget(interval_hint)
         _fit_settings_hint_label(interval_hint)
         self.update_check_now_button = QPushButton("Проверить сейчас")
-        self.update_check_now_button.clicked.connect(self._check_updates_now)
         _configure_settings_action_button(self.update_check_now_button)
         app_layout.addWidget(self.update_check_now_button)
         self.update_check_status = QLabel("")
         _configure_settings_status_label(self.update_check_status)
         app_layout.addWidget(self.update_check_status)
         _fit_settings_hint_label(self.update_check_status)
+        self._manual_update_check = _ManualUpdateCheckHelper(
+            self,
+            button=self.update_check_now_button,
+            status=self.update_check_status,
+            prefs_loader=self.app_prefs,
+            on_status_changed=self._refit_update_check_status,
+        )
+        self.update_check_now_button.clicked.connect(self._manual_update_check.start)
 
         settings_io_hint = QLabel(
             "Экспорт сохраняет локальные настройки (WebDAV, Битрикс, приложение), "
@@ -1346,69 +1460,12 @@ class SettingsDialog(QDialog):
     def _sync_update_check_controls(self, enabled: bool) -> None:
         self.update_check_interval_spin.setEnabled(bool(enabled))
 
+    def _refit_update_check_status(self) -> None:
+        _fit_settings_hint_label(self.update_check_status, self._settings_status_label_width())
+        self._sync_settings_tabs_layout()
+
     def _open_webdav_log(self) -> None:
         WebDavSyncLogDialog(self).exec()
-
-    def _check_updates_now(self) -> None:
-        if self._update_check_thread is not None and self._update_check_thread.isRunning():
-            return
-        self.update_check_now_button.setEnabled(False)
-        self.update_check_status.setText("Проверяю обновления…")
-        self.update_check_status.setStyleSheet("color: #5f6b7c; background: transparent;")
-
-        def work() -> UpdateCheckResult:
-            prefs = self.app_prefs()
-            return check_for_update(
-                dismissed_version=prefs.dismissed_update_version,
-                respect_dismissed=False,
-                github_repo=DEFAULT_UPDATE_GITHUB_REPO,
-            )
-
-        self._update_check_thread = _CallableThread(work, self)
-        self._update_check_thread.succeeded.connect(self._on_manual_update_check_ok)
-        self._update_check_thread.failed.connect(self._on_manual_update_check_failed)
-        self._update_check_thread.finished.connect(
-            lambda: self.update_check_now_button.setEnabled(True)
-        )
-        self._update_check_thread.start()
-
-    def _on_manual_update_check_ok(self, result: object) -> None:
-        if not isinstance(result, UpdateCheckResult):
-            self.update_check_status.setText("✗ Неожиданный ответ проверки")
-            self.update_check_status.setStyleSheet("color: #9b3c3c; background: transparent;")
-            return
-        prefs = mark_update_check_done(self.app_prefs())
-        if not result.ok:
-            self.update_check_status.setText(f"✗ Не удалось проверить: {result.error}")
-            self.update_check_status.setStyleSheet("color: #9b3c3c; background: transparent;")
-            return
-        if result.update_available and result.latest is not None:
-            self.update_check_status.setText(
-                f"Доступна версия {result.latest.version} (сейчас {result.current_version})"
-            )
-            self.update_check_status.setStyleSheet("color: #2d6b40; background: transparent;")
-            box = QMessageBox(self)
-            box.setIcon(QMessageBox.Icon.Information)
-            box.setWindowTitle("Обновление")
-            box.setText(
-                f"Доступна новая версия {result.latest.version}.\n"
-                f"Текущая: {result.current_version}."
-            )
-            open_btn = box.addButton("Открыть релиз", QMessageBox.ButtonRole.AcceptRole)
-            dismiss = box.addButton("Позже", QMessageBox.ButtonRole.RejectRole)
-            box.exec()
-            if box.clickedButton() is open_btn:
-                QDesktopServices.openUrl(QUrl(result.latest.html_url))
-                mark_update_check_done(prefs, dismissed_version=result.latest.version)
-            elif box.clickedButton() is dismiss:
-                mark_update_check_done(prefs, dismissed_version=result.latest.version)
-            return
-        self.update_check_status.setText("✓ Установлена актуальная версия")
-        self.update_check_status.setStyleSheet("color: #2d6b40; background: transparent;")
-
-    def _on_manual_update_check_failed(self, message: str) -> None:
-        self.update_check_status.setText(f"✗ Не удалось проверить: {message}")
-        self.update_check_status.setStyleSheet("color: #9b3c3c; background: transparent;")
 
     def _export_settings(self) -> None:
         path_str, _filter = QFileDialog.getSaveFileName(
@@ -1665,7 +1722,7 @@ class SettingsDialog(QDialog):
             self._discover_thread,
             self._webdav_test_thread,
             self._webdav_sync_thread,
-            self._update_check_thread,
+            None if self._manual_update_check is None else self._manual_update_check.thread,
         ):
             if thread is not None and thread.isRunning():
                 thread.wait(5000)
