@@ -13,6 +13,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
+import com.timerapp.linkb24.voice.VoiceInputButton
 import com.timerapp.linkb24.data.SessionDto
 import com.timerapp.linkb24.data.formatDuration
 import com.timerapp.linkb24.data.parseInstant
@@ -75,6 +76,7 @@ internal fun SessionEditorDialog(
                     if (end != null) Text("Длительность: ${formatDuration(java.time.Duration.between(parseInstant(start), parseInstant(end)).seconds)}")
                 }
                 OutlinedTextField(value = comment, onValueChange = { comment = it }, enabled = !saving,
+                    trailingIcon = { VoiceInputButton("комментарий сессии", comment, !saving) { comment = it } },
                     label = { Text("Комментарий") }, modifier = Modifier.fillMaxWidth().testTag("session-comment"), minLines = 2)
                 if (!session?.bitrixRecordId.isNullOrBlank()) Text(BITRIX_EDIT_WARNING, style = MaterialTheme.typography.bodySmall)
                 if (session != null && syncConfigured) Text(SYNC_EDIT_WARNING, style = MaterialTheme.typography.bodySmall)

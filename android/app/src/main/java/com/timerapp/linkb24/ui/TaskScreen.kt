@@ -64,6 +64,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.timerapp.linkb24.voice.VoiceInputButton
 import com.timerapp.linkb24.R
 import com.timerapp.linkb24.data.SessionDto
 import com.timerapp.linkb24.data.TaskDto
@@ -120,6 +121,8 @@ private fun TaskListScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val isSelectionMode = uiState.selectedTaskIds.isNotEmpty()
+    var showCreateTask by rememberSaveable { mutableStateOf(false) }
+    var focusTaskId by rememberSaveable { mutableStateOf<String?>(null) }
     var completeTaskId by remember { mutableStateOf<String?>(null) }
     var resumeTaskId by remember { mutableStateOf<String?>(null) }
     var historyTaskId by remember { mutableStateOf<String?>(null) }
@@ -133,6 +136,18 @@ private fun TaskListScreen(
 
     BackHandler(enabled = isSelectionMode) {
         viewModel.clearSelection()
+    }
+
+    if (showCreateTask) CreateTaskDialog(
+        onDismiss = { showCreateTask = false },
+        onSave = viewModel::createTaskFromForm,
+    )
+    focusTaskId?.let { taskId ->
+        viewModel.findTask(taskId)?.let { task ->
+            FocusStartDialog(task, uiState.focusTimer.selectedMinutes, viewModel.needsPriorityBeforeStart(taskId),
+                onDismiss = { focusTaskId = null },
+                onStart = { minutes, priority, result -> viewModel.startFocus(taskId, minutes, priority, result) })
+        }
     }
 
     uiState.remoteChangePrompt?.let {
@@ -340,6 +355,8 @@ private fun TaskListScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            ActiveFocusPanel(focus = uiState.focusTimer, taskTitle = uiState.focusTaskTitle,
+                nowMillis = uiState.tickMillis, onStop = viewModel::stopFocus)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -445,21 +462,8 @@ private fun TaskListScreen(
                 }
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                OutlinedTextField(
-                    modifier = Modifier.weight(1f),
-                    value = uiState.newTaskTitle,
-                    onValueChange = viewModel::onNewTaskTitleChange,
-                    label = { Text(stringResource(R.string.new_task_label)) },
-                    singleLine = true,
-                )
-                FilledTonalButton(onClick = viewModel::addTask) {
-                    Text(stringResource(R.string.add_task))
-                }
+            FilledTonalButton(onClick = { showCreateTask = true }, modifier = Modifier.fillMaxWidth()) {
+                Text("Новая задача")
             }
 
             uiState.errorMessage?.let { message ->
@@ -509,6 +513,7 @@ private fun TaskListScreen(
                             onComplete = { completeTaskId = task.id },
                             onResume = { resumeTaskId = task.id },
                             onHistory = { historyTaskId = task.id },
+                            onFocus = { focusTaskId = task.id },
                             onEdit = { editTaskId = task.id },
                             onDelete = { deleteTask = task },
                         )
@@ -533,6 +538,7 @@ private fun TaskRow(
     onComplete: () -> Unit,
     onResume: () -> Unit,
     onHistory: () -> Unit,
+    onFocus: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -634,6 +640,9 @@ private fun TaskRow(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+            }
+            if (!showSelection && !isCompleted) {
+                TextButton(onClick = onFocus) { Text("Концентрация") }
             }
             if (!showSelection) {
                 Row(
@@ -775,7 +784,7 @@ private fun EditTaskDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.edit_dialog_title)) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
                     value = title,
                     onValueChange = {
@@ -800,6 +809,7 @@ private fun EditTaskDialog(
                     value = description,
                     onValueChange = { description = it },
                     label = { Text(stringResource(R.string.description_field)) },
+                    trailingIcon = { VoiceInputButton("описание задачи", description) { description = it } },
                     minLines = 2,
                 )
                 Row(

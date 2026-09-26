@@ -4,6 +4,10 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.timerapp.linkb24.data.ALL_PRIORITIES
+import com.timerapp.linkb24.data.FocusTimerDto
+import com.timerapp.linkb24.data.reconcileFocusTimer
+import com.timerapp.linkb24.data.startFocusTimer
+import com.timerapp.linkb24.data.stopFocusTimer
 import com.timerapp.linkb24.data.AppDataDto
 import com.timerapp.linkb24.data.TaskDto
 import com.timerapp.linkb24.data.TaskRepository
@@ -39,6 +43,8 @@ import kotlinx.coroutines.sync.withLock
 
 data class TaskListUiState(
     val tasks: List<TaskDto> = emptyList(),
+    val focusTimer: FocusTimerDto = FocusTimerDto(),
+    val focusTaskTitle: String = "",
     val taskFilter: TaskViewFilter = TaskViewFilter.TODAY,
     val priorityFilter: Set<Int> = ALL_PRIORITIES,
     val titleSearchDraft: String = "",
@@ -121,11 +127,38 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
 
             while (isActive) {
                 delay(1_000)
-                if (appData.tasks.any(::isActive)) {
+                if (reconcileFocusTimer(appData) != appData) {
+                    mutateTasks("Не удалось завершить концентрацию") { reconcileFocusTimer(it) }
+                }
+                if (appData.tasks.any(::isActive) || appData.ui.focusTimer.endsAt != null) {
                     _uiState.update { it.copy(tickMillis = System.currentTimeMillis()) }
                 }
             }
         }
+    }
+
+    fun createTaskFromForm(title: String, description: String, onResult: (String?) -> Unit) {
+        mutateTasks("Не удалось создать задачу", onResult = onResult) { data ->
+            val created = repository.createTask(title, data)
+            repository.updateTask(created.tasks.last().id, created, description = description)
+        }
+    }
+
+    fun startFocus(taskId: String, minutes: Int, priority: Int?, onResult: (String?) -> Unit) {
+        mutateTasks("Не удалось запустить концентрацию", onResult = onResult) { data ->
+            var updated = data
+            val task = data.tasks.firstOrNull { it.id == taskId }
+                ?: throw IllegalArgumentException("Задача не найдена.")
+            if (needsPriorityBeforeStart(task, todayIsoDate())) {
+                require(priority != null && priority in 1..4) { "Выберите приоритет." }
+                updated = repository.assignTaskPriority(taskId, data, priority)
+            }
+            startFocusTimer(updated, taskId, minutes)
+        }
+    }
+
+    fun stopFocus() {
+        mutateTasks("Не удалось остановить концентрацию") { stopFocusTimer(it) }
     }
 
     fun onNewTaskTitleChange(value: String) {
@@ -191,22 +224,8 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun addTask() {
-        val title = _uiState.value.newTaskTitle
-        viewModelScope.launch {
-            runCatching {
-                withContext(Dispatchers.IO) {
-                    val updated = repository.createTask(title, appData)
-                    repository.save(updated)
-                    updated
-                }
-            }.onSuccess { updated ->
-                appData = updated
-                _uiState.update {
-                    it.copy(newTaskTitle = "", errorMessage = null, tasks = visibleTasks(appData))
-                }
-            }.onFailure { error ->
-                _uiState.update { it.copy(errorMessage = error.message) }
-            }
+        createTaskFromForm(_uiState.value.newTaskTitle, "") { error ->
+            if (error == null) _uiState.update { it.copy(newTaskTitle = "") }
         }
     }
 
@@ -426,6 +445,8 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update {
             it.copy(
                 tasks = visibleTasks(appData),
+                focusTimer = appData.ui.focusTimer,
+                focusTaskTitle = appData.tasks.firstOrNull { task -> task.id == appData.ui.focusTimer.sessionTaskId }?.title.orEmpty(),
                 priorityFilter = priorityFilterLevels(appData.ui),
                 selectedTaskIds = selectedTaskIds,
                 errorMessage = null,
@@ -448,7 +469,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
 
     private suspend fun applySyncOutcome(outcome: com.timerapp.linkb24.webdav.SyncOutcome) {
         if (outcome.data != null) {
-            appData = outcome.data
+            appData = reconcileFocusTimer(outcome.data)
         } else {
             runCatching {
                 withContext(Dispatchers.IO) { repository.load() }
@@ -460,6 +481,8 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
             val selectedTaskIds = pruneSelection(_uiState.value.selectedTaskIds, appData.tasks)
             it.copy(
                 tasks = visibleTasks(appData),
+                focusTimer = appData.ui.focusTimer,
+                focusTaskTitle = appData.tasks.firstOrNull { task -> task.id == appData.ui.focusTimer.sessionTaskId }?.title.orEmpty(),
                 priorityFilter = priorityFilterLevels(appData.ui),
                 selectedTaskIds = selectedTaskIds,
                 isWebDavSyncing = false,
@@ -480,11 +503,15 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
                 val previous = appData
                 runCatching {
                     withContext(Dispatchers.IO) {
-                        val updated = transform(previous)
+                        val updated = reconcileFocusTimer(transform(reconcileFocusTimer(previous)))
                         repository.save(updated)
                         updated
                     }
                 }.onSuccess { updated ->
+                    runCatching {
+                        com.timerapp.linkb24.focus.FocusAlarmScheduler.update(getApplication(), previous)
+                        com.timerapp.linkb24.focus.FocusAlarmScheduler.update(getApplication(), updated)
+                    }
                     appData = updated
                     _uiState.update {
                         val selectedTaskIds = nextSelectionAfterMutation(
@@ -494,10 +521,12 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
                         )
                         it.copy(
                             tasks = visibleTasks(appData),
+                            focusTimer = appData.ui.focusTimer,
+                            focusTaskTitle = appData.tasks.firstOrNull { task -> task.id == appData.ui.focusTimer.sessionTaskId }?.title.orEmpty(),
                             priorityFilter = priorityFilterLevels(appData.ui),
                             selectedTaskIds = selectedTaskIds,
                             tickMillis = System.currentTimeMillis(),
-                            errorMessage = null,
+                            errorMessage = com.timerapp.linkb24.focus.FocusAlarmScheduler.lastError,
                         )
                     }
                     onResult(null)

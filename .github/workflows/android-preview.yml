@@ -2,11 +2,6 @@ name: Android preview
 
 on:
   workflow_dispatch:
-  push:
-    branches: [android/session-editor]
-    paths:
-      - 'android/**'
-      - '.github/workflows/android-preview.yml'
 
 permissions:
   contents: read

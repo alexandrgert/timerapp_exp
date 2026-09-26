@@ -34,13 +34,17 @@ fun parseInstant(value: String): Instant? {
 class TaskRepository(
     val dataFile: File,
 ) {
-    constructor(context: Context) : this(File(context.filesDir, "data.json"))
+    private var focusContext: Context? = null
+    constructor(context: Context) : this(File(context.filesDir, "data.json")) {
+        focusContext = runCatching { context.applicationContext }.getOrNull()
+    }
 
     private val backupFile: File
         get() = File(dataFile.parentFile, "${dataFile.name}.bak")
 
     fun load(): AppDataDto {
         val raw = loadFromFile(dataFile) ?: loadFromFile(backupFile) ?: AppDataDto()
+        focusContext?.let { runCatching { com.timerapp.linkb24.focus.FocusAlarmScheduler.update(it, raw) } }
         val prepared = prepareLoadedData(raw)
         if (prepared != raw) {
             save(prepared)
@@ -50,8 +54,8 @@ class TaskRepository(
 
     companion object {
         fun prepareLoadedData(data: AppDataDto): AppDataDto {
-            val normalized = normalizeRunningTasks(data)
-            return ensurePlanRollover(normalized).data
+            val normalized = normalizeRunningTasks(reconcileFocusTimer(data))
+            return reconcileFocusTimer(ensurePlanRollover(normalized).data)
         }
     }
 
@@ -66,7 +70,8 @@ class TaskRepository(
 
     fun save(data: AppDataDto) {
         dataFile.parentFile?.mkdirs()
-        val payload = AppJson.encodeToString(AppDataDto.serializer(), data)
+        val prepared = reconcileFocusTimer(data)
+        val payload = AppJson.encodeToString(AppDataDto.serializer(), prepared)
         val tempFile = File(dataFile.parentFile, "${dataFile.name}.tmp")
         tempFile.writeText(payload)
         if (dataFile.isFile) {
@@ -78,6 +83,7 @@ class TaskRepository(
             StandardCopyOption.REPLACE_EXISTING,
             StandardCopyOption.ATOMIC_MOVE,
         )
+        focusContext?.let { runCatching { com.timerapp.linkb24.focus.FocusAlarmScheduler.update(it, data) } }
     }
 
     fun createTask(title: String, data: AppDataDto): AppDataDto {
