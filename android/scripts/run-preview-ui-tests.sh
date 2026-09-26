@@ -9,6 +9,11 @@ adb_command="$sdk_root/platform-tools/adb"
 emulator_command="$sdk_root/emulator/emulator"
 export ANDROID_SERIAL=emulator-5554
 avd_name=tasktimer-preview
+# Use one explicit location for both SDK avdmanager and emulator discovery.
+export ANDROID_USER_HOME="${RUNNER_TEMP:?GitHub runner temporary directory is required}/tasktimer-preview-android"
+export ANDROID_EMULATOR_HOME="$ANDROID_USER_HOME"
+export ANDROID_AVD_HOME="$ANDROID_USER_HOME/avd"
+mkdir -p "$ANDROID_AVD_HOME"
 stage='SDK installation'
 emulator_pid=''
 
@@ -32,12 +37,16 @@ trap cleanup EXIT
 
 "$sdk_manager" --sdk_root="$sdk_root" 'emulator' 'system-images;android-35;google_apis;x86_64'
 stage='AVD creation'
-echo no | "$avd_manager" create avd --force --name "$avd_name" --package 'system-images;android-35;google_apis;x86_64'
+echo no | "$avd_manager" create avd --force --name "$avd_name" --path "$ANDROID_AVD_HOME/$avd_name.avd" --package 'system-images;android-35;google_apis;x86_64'
+if [[ ! -f "$ANDROID_AVD_HOME/$avd_name.ini" ]]; then
+  echo "Error: AVD creation did not produce $ANDROID_AVD_HOME/$avd_name.ini."
+  exit 1
+fi
+"$emulator_command" -list-avds
 
 stage='emulator boot'
 "$emulator_command" -avd "$avd_name" -port 5554 -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect -accel on -cores 2 -memory 2048 >preview-emulator.log 2>&1 &
 emulator_pid=$!
-timeout 180 "$adb_command" -s "$ANDROID_SERIAL" wait-for-device
 booted=false
 boot_deadline=$((SECONDS + 240))
 while (( SECONDS < boot_deadline )); do
@@ -45,7 +54,7 @@ while (( SECONDS < boot_deadline )); do
     echo 'Error: Android emulator exited before boot completed.'
     exit 1
   fi
-  if [[ "$(timeout 5 "$adb_command" -s "$ANDROID_SERIAL" shell getprop sys.boot_completed | tr -d '\r')" == '1' ]]; then
+  if [[ "$(timeout 5 "$adb_command" -s "$ANDROID_SERIAL" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == '1' ]]; then
     booted=true
     break
   fi
