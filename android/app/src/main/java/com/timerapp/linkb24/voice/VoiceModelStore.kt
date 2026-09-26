@@ -17,19 +17,18 @@ import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.TimeUnit
-import java.util.zip.ZipInputStream
+import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
+import org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream
 import kotlin.coroutines.coroutineContext
 
 object RussianVoiceModel {
-    const val NAME = "vosk-model-small-ru-0.22"
-    const val URL = "https://alphacephei.com/vosk/models/$NAME.zip"
-    const val SHA256 = "961d5ff98a17f4aa6de69864d0aa71fa5bac682301d2b5d17a3f24c5c99a46d4"
-    const val ARCHIVE_BYTES = 46_236_750L
-    const val INSTALLED_BYTES = 91_289_240L
+    const val NAME = "sherpa-onnx-zipformer-ru-int8-2025-04-20"
+    const val URL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/$NAME.tar.bz2"
+    const val SHA256 = "d6a651569aacc9a177259fa54705dd76acae23f6a4d62ea6797bd220d4b57163"
+    const val ARCHIVE_BYTES = 60_239_942L
+    const val INSTALLED_BYTES = 74_004_174L
     const val REQUIRED_FREE_BYTES = ARCHIVE_BYTES + INSTALLED_BYTES + 16L * 1024 * 1024
-    val REQUIRED_FILES = listOf("am/final.mdl", "conf/model.conf", "conf/mfcc.conf", "graph/Gr.fst", "graph/HCLr.fst",
-        "graph/disambig_tid.int", "graph/phones/word_boundary.int", "ivector/final.dubm", "ivector/final.ie",
-        "ivector/final.mat", "ivector/global_cmvn.stats", "ivector/online_cmvn.conf", "ivector/splice.conf")
+    val REQUIRED_FILES = listOf("encoder.int8.onnx", "decoder.onnx", "joiner.int8.onnx", "tokens.txt")
 }
 
 /** Only downloads the pinned public model; audio is never an input to this class. */
@@ -37,7 +36,7 @@ class VoiceModelStore(private val root: File) {
     private val modelDir = File(root, RussianVoiceModel.NAME)
     @Volatile private var activeCall: Call? = null
     private val client = OkHttpClient.Builder().connectTimeout(20, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS).followRedirects(false).followSslRedirects(false).build()
+        .readTimeout(20, TimeUnit.SECONDS).followRedirects(true).followSslRedirects(false).build()
 
     fun readyDirectory(): File? = modelDir.takeIf {
         File(it, ".ready").let { marker -> marker.isFile && marker.readText() == RussianVoiceModel.SHA256 } &&
@@ -53,12 +52,12 @@ class VoiceModelStore(private val root: File) {
                 require(root.isDirectory || root.mkdirs()) { "Не удалось создать папку голосовой модели." }
                 root.listFiles()?.filter { it.name.startsWith(".download-") || it.name.startsWith(".old-") }?.forEach { it.deleteRecursively() }
                 if (root.usableSpace < RussianVoiceModel.REQUIRED_FREE_BYTES) {
-                    throw IOException("Для загрузки и распаковки нужно не менее 155 МБ свободного места. Освободите место и повторите.")
+                    throw IOException("Для загрузки и распаковки нужно не менее 152 МБ свободного места. Освободите место и повторите.")
                 }
                 val staging = File(root, ".download-${UUID.randomUUID()}")
                 check(staging.mkdir()) { "Не удалось создать временную папку модели." }
                 try {
-                    val archive = File(staging, "model.zip")
+                    val archive = File(staging, "model.tar.bz2")
                     val call = client.newCall(Request.Builder().url(RussianVoiceModel.URL).build())
                     activeCall = call
                     coroutineContext.ensureActive()
@@ -115,6 +114,8 @@ class VoiceModelStore(private val root: File) {
                         throw error
                     }
                     previous.deleteRecursively()
+                    // Remove only the obsolete, app-owned Vosk model after the replacement is ready.
+                    File(root, "vosk-model-small-ru-0.22").deleteRecursively()
                     modelDir
                 } finally {
                     activeCall = null
@@ -126,7 +127,7 @@ class VoiceModelStore(private val root: File) {
     companion object { private val installMutex = Mutex() }
 }
 
-/** Size/path limits apply to actual streamed bytes, not untrusted ZIP metadata. */
+/** Size/path limits apply to actual streamed bytes, not untrusted TAR metadata. */
 internal fun extractModelArchive(
     source: InputStream, destination: File, expectedRoot: String,
     maxBytes: Long, maxEntries: Int, checkCancelled: () -> Unit = {},
@@ -135,10 +136,12 @@ internal fun extractModelArchive(
     var count = 0
     val seen = mutableSetOf<String>()
     val safeRoot = destination.canonicalFile
-    ZipInputStream(source).use { zip ->
+    TarArchiveInputStream(BZip2CompressorInputStream(source)).use { tar ->
         while (true) {
             checkCancelled()
-            val entry = zip.nextEntry ?: break
+            val entry = tar.nextTarEntry ?: break
+            if (!entry.isDirectory && !entry.isFile || entry.isSymbolicLink || entry.isLink || entry.isSparse)
+                throw IOException("Недопустимый тип записи в архиве модели.")
             count++
             if (count > maxEntries) throw IOException("Слишком много файлов в модели.")
             val name = entry.name
@@ -155,7 +158,7 @@ internal fun extractModelArchive(
                     val buffer = ByteArray(64 * 1024)
                     while (true) {
                         checkCancelled()
-                        val size = zip.read(buffer)
+                        val size = tar.read(buffer)
                         if (size < 0) break
                         total += size
                         if (total > maxBytes) throw IOException("Распакованная модель слишком велика.")
@@ -164,7 +167,7 @@ internal fun extractModelArchive(
                     file.fd.sync()
                 }
             }
-            zip.closeEntry()
+
         }
     }
     if (count == 0 || total == 0L) throw IOException("Архив модели пуст.")

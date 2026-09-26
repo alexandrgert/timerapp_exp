@@ -17,11 +17,12 @@ internal data class VoiceInputState(
     val loading: Boolean = false,
     val recording: Boolean = false,
     val stopping: Boolean = false,
+    val processing: Boolean = false,
     val text: String = "",
     val partial: String = "",
     val error: String? = null,
 ) {
-    val microphoneBusy: Boolean get() = loading || recording || stopping
+    val microphoneBusy: Boolean get() = loading || recording || stopping || processing
 }
 
 internal class VoiceInputController(context: Context) {
@@ -78,7 +79,7 @@ internal class VoiceInputController(context: Context) {
                     ?: throw IllegalStateException("Модель недоступна. Закройте диктовку и загрузите её заново.")
                 val finalText = OfflineDictation().listen(directory, stopRequested::get,
                     onReady = { _state.update { it.copy(loading = false, recording = true) } },
-                    onText = { text, partial -> _state.update { it.copy(text = appendDictation(before, text), partial = partial) } })
+                    onProcessing = { _state.update { it.copy(loading = false, recording = false, stopping = false, processing = true) } })
                 _state.update { it.copy(text = appendDictation(before, finalText), partial = "",
                     error = if (finalText.isBlank()) "Речь не распознана. Проверьте микрофон и повторите диктовку." else null) }
             } catch (cancelled: CancellationException) {
@@ -87,13 +88,13 @@ internal class VoiceInputController(context: Context) {
                 if (error !is Exception && error !is LinkageError && error !is OutOfMemoryError) throw error
                 _state.update { it.copy(text = appendDictation(it.text, it.partial), partial = "", error = voiceFailureMessage(error)) }
             } finally {
-                _state.update { it.copy(loading = false, recording = false, stopping = false) }
+                _state.update { it.copy(loading = false, recording = false, stopping = false, processing = false) }
             }
         }
     }
 
     fun stop() {
-        if (!_state.value.microphoneBusy) return
+        if (!_state.value.microphoneBusy || _state.value.processing) return
         stopRequested.set(true)
         _state.update { it.copy(stopping = true) }
     }

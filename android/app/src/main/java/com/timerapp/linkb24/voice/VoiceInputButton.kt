@@ -75,21 +75,22 @@ private fun VoiceInputDialog(onDismiss: () -> Unit, onApply: (String) -> Unit) {
                         TextButton(onClick = controller::cancelDownload) { Text("Отменить загрузку") }
                     }
                     !state.modelReady -> {
-                        Text("Для русского языка нужно один раз скачать модель: 46,2 МБ, после распаковки 91,3 МБ. Для установки нужно 155 МБ свободного места. Затем диктовка работает без интернета; звук не отправляется на сервер.")
+                        Text("Русская модель Zipformer: ${megabytes(RussianVoiceModel.ARCHIVE_BYTES)} МБ загрузка, ${megabytes(RussianVoiceModel.INSTALLED_BYTES)} МБ после распаковки. Для установки нужно 152 МБ свободного места. Затем диктовка работает без интернета; звук не отправляется на сервер.")
                         FilledTonalButton(onClick = controller::download) { Text("Скачать модель") }
                     }
                     else -> {
                         Text(when {
+                            state.processing -> "Распознаю… Микрофон выключен."
                             state.stopping -> "Остановка…"
                             state.loading -> "Загрузка модели в память…"
-                            state.recording -> "Слушаю. Нажмите «Остановить», когда закончите."
-                            else -> "Русский язык · без интернета"
+                            state.recording -> "Слушаю, до 60 секунд. Нажмите «Остановить», когда закончите."
+                            else -> "Русский язык · Zipformer · без интернета. Запись до 60 секунд, затем распознавание."
                         })
                         OutlinedTextField(value = appendDictation(state.text, state.partial), onValueChange = controller::editText,
                             readOnly = state.microphoneBusy, label = { Text("Распознанный текст") }, minLines = 3,
                             modifier = Modifier.fillMaxWidth())
                         if (state.microphoneBusy) {
-                            TextButton(enabled = !state.stopping, onClick = controller::stop) { Text("Остановить") }
+                            TextButton(enabled = !state.stopping && !state.processing, onClick = controller::stop) { Text("Остановить") }
                         } else {
                             FilledTonalButton(onClick = {
                                 if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) controller.start()

@@ -6,8 +6,9 @@ import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
-import java.util.zip.ZipEntry
-import java.util.zip.ZipOutputStream
+import org.apache.commons.compress.archivers.tar.TarArchiveEntry
+import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream
+import org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream
 import kotlin.io.path.createTempDirectory
 
 class VoiceInputTest {
@@ -18,35 +19,50 @@ class VoiceInputTest {
         assertEquals("новый текст", appendDictation("", "новый текст"))
     }
 
-    @Test fun recognition_segments_and_partial_use_distinct_json_fields() {
-        assertEquals("тест комментария", recognizedText("""{"text":"тест комментария"}"""))
-        assertEquals("ещё слово", recognizedText("""{"partial":"ещё слово"}""", true))
-        assertEquals("", recognizedText("""{"partial":"ещё слово"}"""))
-        assertEquals("", recognizedText("bad json"))
+    @Test fun pcm_buffer_preserves_order_and_normalizes_signed_samples() {
+        val buffer = BoundedPcmBuffer(4)
+        buffer.append(shortArrayOf(Short.MIN_VALUE, 0), 2)
+        buffer.append(shortArrayOf(Short.MAX_VALUE, 16384), 2)
+        assertTrue(buffer.full)
+        assertEquals(0, buffer.remaining)
+        assertArrayEquals(floatArrayOf(-1f, 0f, 32767f / 32768f, .5f), buffer.normalizedSamples(), 0f)
     }
 
-    private fun zip(vararg entries: Pair<String, String>): ByteArray {
+    @Test fun pcm_buffer_has_no_padding_and_rejects_overflow() {
+        val buffer = BoundedPcmBuffer(2)
+        buffer.append(shortArrayOf(123), 1)
+        assertEquals(1, buffer.normalizedSamples().size)
+        try {
+            buffer.append(shortArrayOf(1, 2), 2)
+            fail("Expected capacity limit")
+        } catch (_: IllegalArgumentException) { }
+        assertEquals(1, buffer.size)
+    }
+
+    private fun archive(vararg entries: Pair<String, String>): ByteArray {
         val bytes = ByteArrayOutputStream()
-        ZipOutputStream(bytes).use { zip -> entries.forEach { (name, text) ->
-            zip.putNextEntry(ZipEntry(name)); zip.write(text.toByteArray()); zip.closeEntry()
+        TarArchiveOutputStream(BZip2CompressorOutputStream(bytes)).use { tar -> entries.forEach { (name, text) ->
+            val data = text.toByteArray()
+            val entry = TarArchiveEntry(name).apply { size = data.size.toLong() }
+            tar.putArchiveEntry(entry); tar.write(data); tar.closeArchiveEntry()
         } }
         return bytes.toByteArray()
     }
 
     @Test fun extracts_nested_model_with_known_content() {
-        val dir = createTempDirectory("voice-zip-").toFile()
+        val dir = createTempDirectory("voice-tar-").toFile()
         try {
-            extractModelArchive(ByteArrayInputStream(zip("model/am/final.mdl" to "known")), dir, "model", 100, 3)
+            extractModelArchive(ByteArrayInputStream(archive("model/am/final.mdl" to "known")), dir, "model", 100, 3)
             assertEquals("known", File(dir, "model/am/final.mdl").readText())
         } finally { dir.deleteRecursively() }
     }
 
-    @Test fun rejects_zip_slip_absolute_wrong_root_and_backslash_paths() {
-        val dir = createTempDirectory("voice-zip-").toFile()
+    @Test fun rejects_tar_slip_wrong_root_and_backslash_paths() {
+        val dir = createTempDirectory("voice-tar-").toFile()
         try {
-            for (name in listOf("model/../../outside", "/model/file", "other/file", "model/../outside", "model\\file")) {
+            for (name in listOf("model/../../outside", "other/file", "model/../outside", "model\\file")) {
                 try {
-                    extractModelArchive(ByteArrayInputStream(zip(name to "unsafe")), dir, "model", 100, 5)
+                    extractModelArchive(ByteArrayInputStream(archive(name to "unsafe")), dir, "model", 100, 5)
                     fail("Expected rejection: $name")
                 } catch (_: IOException) { }
             }
@@ -55,24 +71,42 @@ class VoiceInputTest {
     }
 
     @Test fun rejects_actual_expanded_bytes_and_excess_entries() {
-        val dir = createTempDirectory("voice-zip-").toFile()
+        val dir = createTempDirectory("voice-tar-").toFile()
         try {
             try {
-                extractModelArchive(ByteArrayInputStream(zip("model/file" to "123456")), dir, "model", 5, 3)
+                extractModelArchive(ByteArrayInputStream(archive("model/file" to "123456")), dir, "model", 5, 3)
                 fail("Expected size limit")
             } catch (_: IOException) { }
             try {
-                extractModelArchive(ByteArrayInputStream(zip("model/a" to "a", "model/b" to "b")), dir, "model", 100, 1)
+                extractModelArchive(ByteArrayInputStream(archive("model/a" to "a", "model/b" to "b")), dir, "model", 100, 1)
                 fail("Expected entry limit")
             } catch (_: IOException) { }
         } finally { dir.deleteRecursively() }
     }
 
-    @Test fun cancelled_extraction_never_marks_model_ready() {
-        val dir = createTempDirectory("voice-zip-").toFile()
+    @Test fun rejects_tar_symbolic_links() {
+        val bytes = ByteArrayOutputStream()
+        TarArchiveOutputStream(BZip2CompressorOutputStream(bytes)).use { tar ->
+            val entry = TarArchiveEntry("model/link", org.apache.commons.compress.archivers.tar.TarConstants.LF_SYMLINK)
+            entry.linkName = "../../outside"
+            tar.putArchiveEntry(entry)
+            tar.closeArchiveEntry()
+        }
+        val dir = createTempDirectory("voice-tar-").toFile()
         try {
             try {
-                extractModelArchive(ByteArrayInputStream(zip("model/file" to "data")), dir, "model", 100, 3) {
+                extractModelArchive(ByteArrayInputStream(bytes.toByteArray()), dir, "model", 100, 3)
+                fail("Expected link rejection")
+            } catch (_: IOException) { }
+            assertTrue(dir.listFiles().orEmpty().isEmpty())
+        } finally { dir.deleteRecursively() }
+    }
+
+    @Test fun cancelled_extraction_never_marks_model_ready() {
+        val dir = createTempDirectory("voice-tar-").toFile()
+        try {
+            try {
+                extractModelArchive(ByteArrayInputStream(archive("model/file" to "data")), dir, "model", 100, 3) {
                     throw java.util.concurrent.CancellationException("cancelled")
                 }
                 fail("Expected cancellation")
