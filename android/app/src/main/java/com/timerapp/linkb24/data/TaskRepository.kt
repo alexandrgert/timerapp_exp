@@ -199,8 +199,9 @@ class TaskRepository(
         endedAt: String,
         comment: String = "",
     ): AppDataDto {
-        val start = parseInstant(startedAt) ?: throw IllegalArgumentException("Некорректное начало.")
-        val end = parseInstant(endedAt) ?: throw IllegalArgumentException("Некорректное окончание.")
+        requireTask(taskId, data)
+        val start = parseSessionInstant(startedAt) ?: throw IllegalArgumentException("Некорректное начало.")
+        val end = parseSessionInstant(endedAt) ?: throw IllegalArgumentException("Некорректное окончание.")
         require(end.isAfter(start)) { "Окончание должно быть позже начала." }
         val tasks = data.tasks.map { task ->
             if (task.id != taskId) {
@@ -212,7 +213,7 @@ class TaskRepository(
                     endedAt = endedAt,
                     comment = comment.trim(),
                 )
-                val sessions = (task.sessions + session).sortedBy { it.startedAt }
+                val sessions = (task.sessions + session).sortedBy { parseInstant(it.startedAt) }
                 val status = when {
                     task.status == TaskStatus.COMPLETED -> task.status
                     sessions.any { it.endedAt == null } -> TaskStatus.RUNNING
@@ -230,7 +231,60 @@ class TaskRepository(
     }
 
     fun deleteTask(taskId: String, data: AppDataDto): AppDataDto {
+        requireTask(taskId, data)
         return data.copy(tasks = data.tasks.filterNot { it.id == taskId })
+    }
+
+    fun updateSession(
+        taskId: String,
+        sessionId: String,
+        data: AppDataDto,
+        startedAt: String,
+        endedAt: String?,
+        comment: String,
+    ): AppDataDto {
+        val task = requireTask(taskId, data)
+        val original = task.sessions.firstOrNull { it.id == sessionId }
+            ?: throw IllegalArgumentException("Сессия не найдена. Откройте историю заново.")
+        val start = parseSessionInstant(startedAt) ?: throw IllegalArgumentException("Некорректное начало.")
+        require(original.endedAt == null || endedAt != null) { "Для завершённой сессии укажите окончание." }
+        if (endedAt != null) {
+            val end = parseSessionInstant(endedAt) ?: throw IllegalArgumentException("Некорректное окончание.")
+            require(end.isAfter(start)) { "Окончание должно быть позже начала." }
+        }
+        val sessions = task.sessions.map {
+            if (it.id == sessionId) it.copy(startedAt = startedAt, endedAt = endedAt, comment = comment.trim()) else it
+        }.sortedBy { parseInstant(it.startedAt) }
+        return replaceSessions(data, task, sessions)
+    }
+
+    fun deleteSession(taskId: String, sessionId: String, data: AppDataDto): AppDataDto {
+        val task = requireTask(taskId, data)
+        require(task.sessions.any { it.id == sessionId }) { "Сессия не найдена. Откройте историю заново." }
+        return replaceSessions(data, task, task.sessions.filterNot { it.id == sessionId })
+    }
+
+    // ISO_INSTANT accepts 24:00 and leap-second normalization; manual input must be strict.
+    private fun parseSessionInstant(value: String): Instant? = runCatching {
+        OffsetDateTime.parse(value, DateTimeFormatter.ISO_OFFSET_DATE_TIME).toInstant()
+    }.getOrElse {
+        runCatching { LocalDateTime.parse(value, DateTimeFormatter.ISO_LOCAL_DATE_TIME).atZone(zoneId).toInstant() }.getOrNull()
+    }
+
+    private fun requireTask(taskId: String, data: AppDataDto): TaskDto =
+        data.tasks.firstOrNull { it.id == taskId }
+            ?: throw IllegalArgumentException("Задача не найдена. Откройте список заново.")
+
+    private fun replaceSessions(data: AppDataDto, task: TaskDto, sessions: List<SessionDto>): AppDataDto {
+        val status = when {
+            task.status == TaskStatus.COMPLETED -> TaskStatus.COMPLETED
+            sessions.any { it.endedAt == null } -> TaskStatus.RUNNING
+            sessions.isEmpty() -> TaskStatus.OPEN
+            else -> TaskStatus.PAUSED
+        }
+        return data.copy(tasks = data.tasks.map {
+            if (it.id == task.id) it.copy(sessions = sessions, status = status) else it
+        })
     }
 
     private fun startTask(task: TaskDto, comment: String = ""): TaskDto {

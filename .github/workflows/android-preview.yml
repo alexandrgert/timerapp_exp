@@ -1,0 +1,147 @@
+name: Android preview
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [android/session-editor]
+    paths:
+      - 'android/**'
+      - '.github/workflows/android-preview.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-preview-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Enable emulator hardware acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Unit tests and preview APK
+        run: |
+          set -o pipefail
+          bash ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleDebug 2>&1 | tee preview-build.log
+      - name: Android UI tests
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          working-directory: android
+          script: bash -o pipefail -c 'bash ./gradlew --no-daemon :app:connectedDebugAndroidTest 2>&1 | tee preview-ui-tests.log'
+      - name: Record exact APK size and checksum
+        id: apk
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path
+          apk = Path('app/build/outputs/apk/debug/app-debug.apk')
+          size = apk.stat().st_size
+          checksum = hashlib.sha256(apk.read_bytes()).hexdigest()
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as outputs:
+              outputs.write(f'bytes={size}\n')
+          report = (
+              '# TaskTimer Preview\n\n'
+              f'Commit: `{os.environ["GITHUB_SHA"]}`\n\n'
+              'Application ID: `com.timerapp.exp.preview`\n\n'
+              f'APK: **{size:,} bytes** ({size / 1024 / 1024:.2f} MiB)\n\n'
+              f'SHA-256: `{checksum}`\n\n'
+              'Offline speech model: not included at this stage.\n'
+          )
+          (apk.parent / 'size-and-sha256.md').write_text(report)
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+              summary.write(report)
+          PY
+      - name: Upload verified preview
+        uses: actions/upload-artifact@v5
+        with:
+          name: tasktimer-preview-${{ steps.apk.outputs.bytes }}-bytes
+          path: |
+            android/app/build/outputs/apk/debug/app-debug.apk
+            android/app/build/outputs/apk/debug/size-and-sha256.md
+          if-no-files-found: error
+          retention-days: 14
+      - name: Annotate bounded test and compiler failures
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          import re
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          messages = []
+          for directory in ('app/build/test-results', 'app/build/outputs/androidTest-results'):
+              for report in sorted(Path(directory).rglob('*.xml'))[:100]:
+                  try:
+                      root = ET.parse(report).getroot()
+                  except (ET.ParseError, OSError):
+                      continue
+                  for case in root.iter('testcase'):
+                      for problem in (*case.findall('failure'), *case.findall('error')):
+                          detail = problem.get('message') or (problem.text or '')
+                          messages.append(f"{case.get('classname', '')}.{case.get('name', '')}: {detail[:1200]}")
+                          if len(messages) >= 10:
+                              break
+                      if len(messages) >= 10:
+                          break
+                  if len(messages) >= 10:
+                      break
+              if len(messages) >= 10:
+                  break
+          if len(messages) < 10:
+              pattern = re.compile(r'^(e: |.*\.kt:\d+|Execution failed for task|> |FAILURE:|.* FAILED$)')
+              for name in ('preview-build.log', 'preview-ui-tests.log'):
+                  log = Path(name)
+                  if not log.is_file():
+                      continue
+                  # Only a bounded tail of ordinary debug Gradle output is inspected.
+                  with log.open('rb') as stream:
+                      stream.seek(max(0, log.stat().st_size - 65536))
+                      lines = stream.read(65536).decode('utf-8', errors='replace').splitlines()
+                  for line in lines:
+                      if pattern.search(line):
+                          messages.append(line[:1200])
+                          if len(messages) >= 10:
+                              break
+                  if len(messages) >= 10:
+                      break
+          if not messages:
+              messages.append('Android preview failed before test/compiler diagnostics were available; inspect the failed step and uploaded reports.')
+          for message in messages[:10]:
+              escaped = message.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print(f'::error title=Android preview failure::{escaped}')
+          PY
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: android-test-reports-${{ github.run_number }}
+          path: |
+            android/preview-build.log
+            android/preview-ui-tests.log
+            android/app/build/reports/tests/
+            android/app/build/test-results/
+            android/app/build/reports/androidTests/
+            android/app/build/outputs/androidTest-results/
+          if-no-files-found: warn
+          retention-days: 14

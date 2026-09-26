@@ -45,6 +45,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -81,6 +82,9 @@ private enum class AppScreen {
     Tasks,
     WebDavSettings,
 }
+
+private data class SessionEditRequest(val taskId: String, val session: SessionDto?)
+private data class SessionDeleteRequest(val taskId: String, val session: SessionDto)
 
 private data class PriorityStartRequest(
     val taskId: String,
@@ -119,6 +123,9 @@ private fun TaskListScreen(
     var completeTaskId by remember { mutableStateOf<String?>(null) }
     var resumeTaskId by remember { mutableStateOf<String?>(null) }
     var historyTaskId by remember { mutableStateOf<String?>(null) }
+    var sessionEdit by remember { mutableStateOf<SessionEditRequest?>(null) }
+    var sessionDelete by remember { mutableStateOf<SessionDeleteRequest?>(null) }
+    var deleteTask by remember { mutableStateOf<TaskDto?>(null) }
     var editTaskId by remember { mutableStateOf<String?>(null) }
     var priorityStartRequest by remember { mutableStateOf<PriorityStartRequest?>(null) }
     var showBatchPriorityDialog by remember { mutableStateOf(false) }
@@ -184,15 +191,53 @@ private fun TaskListScreen(
 
     historyTaskId?.let { taskId ->
         val task = viewModel.findTask(taskId)
-        if (task != null) {
+        if (task != null && sessionEdit == null && sessionDelete == null) {
             SessionHistoryDialog(
                 task = task,
                 onDismiss = { historyTaskId = null },
-                onAddSession = { viewModel.addHistorySession(taskId) },
+                onAddSession = { sessionEdit = SessionEditRequest(taskId, null) },
+                onEditSession = { sessionEdit = SessionEditRequest(taskId, it) },
+                onDeleteSession = { sessionDelete = SessionDeleteRequest(taskId, it) },
             )
-        } else {
+        } else if (task == null) {
             historyTaskId = null
         }
+    }
+
+    sessionEdit?.let { request ->
+        key(request.taskId, request.session?.id) {
+            SessionEditorDialog(
+                session = request.session,
+                syncConfigured = viewModel.hasConfiguredSync(),
+                onDismiss = { sessionEdit = null },
+                onSave = { start, end, comment, result ->
+                    viewModel.saveHistorySession(request.taskId, request.session?.id, start, end, comment, result)
+                },
+            )
+        }
+    }
+    sessionDelete?.let { request ->
+        val session = request.session
+        DeleteRecordDialog(
+            title = "Удалить сессию?",
+            message = "${formatTaskDateTime(session.startedAt)} → ${session.endedAt?.let(::formatTaskDateTime) ?: "продолжается"}." +
+                if (session.endedAt == null) " Таймер этой сессии остановится." else "",
+            syncConfigured = viewModel.hasConfiguredSync(),
+            transferred = !session.bitrixRecordId.isNullOrBlank(),
+            onDismiss = { sessionDelete = null },
+            onDelete = { viewModel.deleteHistorySession(request.taskId, session.id, it) },
+        )
+    }
+    deleteTask?.let { task ->
+        DeleteRecordDialog(
+            title = "Удалить задачу?",
+            message = "Задача «${task.title}» и вся её история будут удалены." +
+                if (isActive(task)) " Работающий таймер остановится." else "",
+            syncConfigured = viewModel.hasConfiguredSync(),
+            transferred = task.sessions.any { !it.bitrixRecordId.isNullOrBlank() },
+            onDismiss = { deleteTask = null },
+            onDelete = { viewModel.deleteTask(task.id, it) },
+        )
     }
 
     editTaskId?.let { taskId ->
@@ -465,7 +510,7 @@ private fun TaskListScreen(
                             onResume = { resumeTaskId = task.id },
                             onHistory = { historyTaskId = task.id },
                             onEdit = { editTaskId = task.id },
-                            onDelete = { viewModel.deleteTask(task.id) },
+                            onDelete = { deleteTask = task },
                         )
                     }
                 }
@@ -854,6 +899,8 @@ private fun SessionHistoryDialog(
     task: TaskDto,
     onDismiss: () -> Unit,
     onAddSession: () -> Unit,
+    onEditSession: (SessionDto) -> Unit,
+    onDeleteSession: (SessionDto) -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -878,7 +925,7 @@ private fun SessionHistoryDialog(
                             parseInstant(session.startedAt)?.toEpochMilli() ?: Long.MIN_VALUE
                         }
                         .forEach { session ->
-                            SessionHistoryRow(session)
+                            SessionHistoryRow(session, { onEditSession(session) }, { onDeleteSession(session) })
                         }
                 }
             }
@@ -892,7 +939,7 @@ private fun SessionHistoryDialog(
 }
 
 @Composable
-private fun SessionHistoryRow(session: SessionDto) {
+private fun SessionHistoryRow(session: SessionDto, onEdit: () -> Unit, onDelete: () -> Unit) {
     val start = formatTaskDateTime(session.startedAt) ?: "—"
     val end = if (session.endedAt == null) {
         stringResource(R.string.session_running)
@@ -918,6 +965,10 @@ private fun SessionHistoryRow(session: SessionDto) {
                     stringResource(R.string.session_transferred, session.bitrixRecordId),
                     style = MaterialTheme.typography.bodySmall,
                 )
+            }
+            Row {
+                TextButton(onClick = onEdit) { Text("Редактировать") }
+                TextButton(onClick = onDelete) { Text("Удалить") }
             }
         }
     }

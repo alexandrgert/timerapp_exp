@@ -34,9 +34,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.time.OffsetDateTime
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 data class TaskListUiState(
     val tasks: List<TaskDto> = emptyList(),
@@ -62,6 +61,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = TaskRepository(application)
     private val webDavSync = WebDavSync(repository, WebDavConfigRepository(application))
     private val configRepository = WebDavConfigRepository(application)
+    private val mutationMutex = Mutex()
     private var appData: AppDataDto = AppDataDto()
 
     private val _uiState = MutableStateFlow(TaskListUiState())
@@ -300,20 +300,30 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun addHistorySession(taskId: String) {
-        mutateTasks("Не удалось добавить запись") { data ->
-            val now = OffsetDateTime.now(ZoneId.systemDefault())
-            val startedAt = now.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
-            val endedAt = now.plusHours(1).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
-            repository.addClosedSession(taskId, data, startedAt, endedAt)
+    fun saveHistorySession(
+        taskId: String, sessionId: String?, startedAt: String, endedAt: String?, comment: String,
+        onResult: (String?) -> Unit,
+    ) {
+        mutateTasks("Не удалось сохранить сессию", onResult = onResult) { data ->
+            if (sessionId == null) repository.addClosedSession(taskId, data, startedAt,
+                requireNotNull(endedAt) { "Укажите окончание." }, comment)
+            else repository.updateSession(taskId, sessionId, data, startedAt, endedAt, comment)
         }
     }
 
-    fun deleteTask(taskId: String) {
-        mutateTasks("Не удалось удалить задачу") { data ->
+    fun deleteHistorySession(taskId: String, sessionId: String, onResult: (String?) -> Unit) {
+        mutateTasks("Не удалось удалить сессию", onResult = onResult) { data ->
+            repository.deleteSession(taskId, sessionId, data)
+        }
+    }
+
+    fun deleteTask(taskId: String, onResult: (String?) -> Unit) {
+        mutateTasks("Не удалось удалить задачу", onResult = onResult) { data ->
             repository.deleteTask(taskId, data)
         }
     }
+
+    fun hasConfiguredSync(): Boolean = configRepository.load().let { it.enabled || it.isConfigured() }
 
     fun findTask(taskId: String): TaskDto? = appData.tasks.firstOrNull { it.id == taskId }
 
@@ -462,36 +472,41 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
     private fun mutateTasks(
         errorPrefix: String,
         clearSelectionIdsOnSuccess: Set<String> = emptySet(),
+        onResult: (String?) -> Unit = {},
         transform: (AppDataDto) -> AppDataDto,
     ) {
         viewModelScope.launch {
-            val previous = appData
-            runCatching {
-                withContext(Dispatchers.IO) {
-                    val updated = transform(previous)
-                    repository.save(updated)
-                    updated
-                }
-            }.onSuccess { updated ->
-                appData = updated
-                _uiState.update {
-                    val selectedTaskIds = nextSelectionAfterMutation(
-                        selectedTaskIds = it.selectedTaskIds,
-                        tasks = appData.tasks,
-                        clearSelectionIds = clearSelectionIdsOnSuccess,
-                    )
-                    it.copy(
-                        tasks = visibleTasks(appData),
-                        priorityFilter = priorityFilterLevels(appData.ui),
-                        selectedTaskIds = selectedTaskIds,
-                        tickMillis = System.currentTimeMillis(),
-                        errorMessage = null,
-                    )
-                }
-            }.onFailure { error ->
-                appData = previous
-                _uiState.update {
-                    it.copy(errorMessage = "$errorPrefix: ${error.message ?: error.javaClass.simpleName}")
+            mutationMutex.withLock {
+                val previous = appData
+                runCatching {
+                    withContext(Dispatchers.IO) {
+                        val updated = transform(previous)
+                        repository.save(updated)
+                        updated
+                    }
+                }.onSuccess { updated ->
+                    appData = updated
+                    _uiState.update {
+                        val selectedTaskIds = nextSelectionAfterMutation(
+                            selectedTaskIds = it.selectedTaskIds,
+                            tasks = appData.tasks,
+                            clearSelectionIds = clearSelectionIdsOnSuccess,
+                        )
+                        it.copy(
+                            tasks = visibleTasks(appData),
+                            priorityFilter = priorityFilterLevels(appData.ui),
+                            selectedTaskIds = selectedTaskIds,
+                            tickMillis = System.currentTimeMillis(),
+                            errorMessage = null,
+                        )
+                    }
+                    onResult(null)
+                }.onFailure { error ->
+                    appData = previous
+                    _uiState.update {
+                        it.copy(errorMessage = "$errorPrefix: ${error.message ?: error.javaClass.simpleName}")
+                    }
+                    onResult("$errorPrefix: ${error.message ?: "Ошибка сохранения"}")
                 }
             }
         }

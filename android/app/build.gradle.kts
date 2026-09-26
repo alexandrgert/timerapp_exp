@@ -34,10 +34,9 @@ android {
     signingConfigs {
         create("release") {
             val storeFilePath = keystoreProperties.getProperty("storeFile")
-            require(!storeFilePath.isNullOrBlank()) {
-                "Не найден android/keystore.properties — нужен для стабильной подписи APK (обновление без удаления)."
-            }
-            storeFile = rootProject.file(storeFilePath)
+            // Debug/preview builds do not require production signing credentials.
+            // Android's validateSigningRelease still rejects release builds without a keystore.
+            storeFile = storeFilePath?.takeIf { it.isNotBlank() }?.let { rootProject.file(it) }
             storePassword = keystoreProperties.getProperty("storePassword")
             keyAlias = keystoreProperties.getProperty("keyAlias")
             keyPassword = keystoreProperties.getProperty("keyPassword")
@@ -45,6 +44,10 @@ android {
     }
 
     buildTypes {
+        debug {
+            applicationIdSuffix = ".preview"
+            versionNameSuffix = "-preview"
+        }
         release {
             isMinifyEnabled = false
             signingConfig = signingConfigs.getByName("release")
@@ -80,6 +83,9 @@ dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2024.12.01")
     implementation(composeBom)
     androidTestImplementation(composeBom)
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
 
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.activity:activity-compose:1.9.3")
