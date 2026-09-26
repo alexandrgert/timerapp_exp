@@ -45,7 +45,12 @@ class SessionDialogsTest {
         field("end-time", "22:30")
         compose.onNodeWithTag("session-save").performClick()
         compose.runOnIdle { assertNull(saved) }
-        compose.onNodeWithText("Добавить сессию").assertIsDisplayed()
+        // The IME can push the dialog title offscreen on a small device.
+        // Check the validation result and preserved editable value, not title visibility.
+        compose.onNodeWithText("Добавить сессию").assertExists()
+        compose.onNodeWithText("Окончание должно быть позже начала.")
+            .performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("end-time").performScrollTo().assertTextContains("22:30")
         field("end-date", "2024-03-01")
         field("end-time", "00:30")
         field("session-comment", "Ночная работа")
