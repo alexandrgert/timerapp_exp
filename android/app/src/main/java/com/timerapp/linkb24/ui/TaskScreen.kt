@@ -54,6 +54,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.text.KeyboardActions
@@ -261,9 +263,8 @@ private fun TaskListScreen(
             EditTaskDialog(
                 task = task,
                 onDismiss = { editTaskId = null },
-                onConfirm = { title, description, result, keepPriority ->
-                    viewModel.updateTask(taskId, title, description, result, keepPriority)
-                    editTaskId = null
+                onConfirm = { title, description, result, keepPriority, onResult ->
+                    viewModel.updateTask(taskId, title, description, result, keepPriority, onResult)
                 },
             )
         } else {
@@ -770,22 +771,25 @@ private fun ResumeTaskDialog(
 }
 
 @Composable
-private fun EditTaskDialog(
+internal fun EditTaskDialog(
     task: TaskDto,
     onDismiss: () -> Unit,
-    onConfirm: (title: String, description: String, result: String, keepPriority: Boolean) -> Unit,
+    onConfirm: (title: String, description: String, result: String, keepPriority: Boolean, onResult: (String?) -> Unit) -> Unit,
 ) {
     var title by rememberSaveable(task.id) { mutableStateOf(task.title) }
     var description by rememberSaveable(task.id) { mutableStateOf(task.description) }
     var result by rememberSaveable(task.id) { mutableStateOf(task.result) }
     var keepPriority by rememberSaveable(task.id) { mutableStateOf(task.keepPriority) }
-    var error by remember { mutableStateOf<String?>(null) }
+    var error by rememberSaveable(task.id) { mutableStateOf<String?>(null) }
+    var saving by remember(task.id) { mutableStateOf(false) }
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!saving) onDismiss() },
+        properties = DialogProperties(dismissOnBackPress = !saving, dismissOnClickOutside = !saving),
         title = { Text(stringResource(R.string.edit_dialog_title)) },
         text = {
             Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
+                    enabled = !saving,
                     value = title,
                     onValueChange = {
                         title = it
@@ -796,6 +800,7 @@ private fun EditTaskDialog(
                     isError = error != null,
                 )
                 OutlinedTextField(
+                    enabled = !saving,
                     value = result,
                     onValueChange = {
                         result = it
@@ -806,10 +811,12 @@ private fun EditTaskDialog(
                     isError = error != null,
                 )
                 OutlinedTextField(
+                    enabled = !saving,
+                    modifier = Modifier.testTag("edit-description"),
                     value = description,
                     onValueChange = { description = it },
                     label = { Text(stringResource(R.string.description_field)) },
-                    trailingIcon = { VoiceInputButton("описание задачи", description) { description = it } },
+                    trailingIcon = { VoiceInputButton("описание задачи", description, !saving) { description = it } },
                     minLines = 2,
                 )
                 Row(
@@ -817,6 +824,7 @@ private fun EditTaskDialog(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Checkbox(
+                        enabled = !saving,
                         checked = keepPriority,
                         onCheckedChange = { keepPriority = it },
                     )
@@ -829,21 +837,29 @@ private fun EditTaskDialog(
         },
         confirmButton = {
             TextButton(
+                enabled = !saving,
+                modifier = Modifier.testTag("edit-save"),
                 onClick = {
                     when {
                         title.trim().isEmpty() -> error = "Введите название задачи."
                         task.status == TaskStatus.COMPLETED && result.trim().isEmpty() -> {
                             error = "Введите результат выполнения задачи."
                         }
-                        else -> onConfirm(title, description, result, keepPriority)
+                        else -> {
+                            saving = true
+                            onConfirm(title, description, result, keepPriority) { failure ->
+                                saving = false
+                                if (failure == null) onDismiss() else error = failure
+                            }
+                        }
                     }
                 },
             ) {
-                Text(stringResource(R.string.save))
+                Text(if (saving) "Сохранение…" else stringResource(R.string.save))
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(enabled = !saving, onClick = onDismiss) {
                 Text(stringResource(R.string.cancel))
             }
         },

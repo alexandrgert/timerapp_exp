@@ -306,8 +306,9 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         description: String,
         result: String,
         keepPriority: Boolean,
+        onResult: (String?) -> Unit,
     ) {
-        mutateTasks("Не удалось сохранить задачу") { data ->
+        mutateTasks("Не удалось сохранить задачу", onResult = onResult) { data ->
             repository.updateTask(
                 taskId,
                 data,

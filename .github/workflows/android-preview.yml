@@ -63,11 +63,35 @@ jobs:
         run: |
           python3 - <<'PY'
           import hashlib
+          import json
           import os
+          from decimal import Decimal
           from pathlib import Path
           apk = Path('app/build/outputs/apk/debug/app-debug.apk')
           size = apk.stat().st_size
           checksum = hashlib.sha256(apk.read_bytes()).hexdigest()
+          baseline = 59820732
+          delta = size - baseline
+          percent = Decimal(delta) * 100 / Decimal(baseline)
+          model_archive = 46236750
+          model_expanded = 91289240
+          metrics = {
+              'commit': os.environ['GITHUB_SHA'],
+              'variant': 'debug',
+              'application_id': 'com.timerapp.exp.preview',
+              'apk_bytes': size,
+              'apk_sha256': checksum,
+              'baseline_apk_bytes': baseline,
+              'baseline_commit': 'b90dbdd',
+              'baseline_run_id': 36236814073,
+              'delta_bytes': delta,
+              'delta_percent': format(percent, '.2f'),
+              'voice_engine_in_apk': True,
+              'model_in_apk': False,
+              'model_name': 'vosk-model-small-ru-0.22',
+              'model_download_bytes': model_archive,
+              'model_expanded_content_bytes': model_expanded,
+          }
           with open(os.environ['GITHUB_OUTPUT'], 'a') as outputs:
               outputs.write(f'bytes={size}\n')
           report = (
@@ -76,9 +100,19 @@ jobs:
               'Application ID: `com.timerapp.exp.preview`\n\n'
               f'APK: **{size:,} bytes** ({size / 1024 / 1024:.2f} MiB)\n\n'
               f'SHA-256: `{checksum}`\n\n'
-              'Offline speech model: not included at this stage.\n'
+              f'Baseline debug APK: **{baseline:,} bytes**, commit `b90dbdd`, '
+              '[GitHub run 36236814073](https://github.com/alexandrgert/timerapp_exp/actions/runs/36236814073).\n\n'
+              f'Change from baseline: **{delta:+,} bytes ({percent:+.2f}%)**.\n\n'
+              'The change includes all features since the baseline, not only the speech engine.\n\n'
+              'Vosk/JNA speech engine: included in APK. Russian speech model: downloaded separately, not bundled.\n\n'
+              f'Model download: **{model_archive:,} bytes** ({model_archive / 1024 / 1024:.2f} MiB).\n\n'
+              f'Expanded model content: **{model_expanded:,} bytes** ({model_expanded / 1024 / 1024:.2f} MiB), '
+              'excluding the 64-byte marker and filesystem overhead.\n\n'
+              'APK size is the distribution-file size, not total installed Android storage.\n'
+
           )
           (apk.parent / 'size-and-sha256.md').write_text(report)
+          (apk.parent / 'size-comparison.json').write_text(json.dumps(metrics, indent=2) + '\n')
           with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
               summary.write(report)
           PY
@@ -89,6 +123,7 @@ jobs:
           path: |
             android/app/build/outputs/apk/debug/app-debug.apk
             android/app/build/outputs/apk/debug/size-and-sha256.md
+            android/app/build/outputs/apk/debug/size-comparison.json
           if-no-files-found: error
           retention-days: 14
       - name: Annotate bounded test and compiler failures

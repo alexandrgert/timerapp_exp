@@ -8,6 +8,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
+import com.timerapp.linkb24.data.TaskDto
 import com.timerapp.linkb24.voice.VoiceInputButton
 import org.junit.Assert.*
 import org.junit.Rule
@@ -50,5 +51,35 @@ class VoiceEntryTest {
         compose.onNodeWithText("Создать").performClick()
         compose.onNodeWithText("Закрыто").assertIsDisplayed()
         compose.runOnIdle { assertEquals(2, attempts) }
+    }
+
+    @Test fun editing_waits_for_persistence_and_keeps_dictated_description_for_retry() {
+        val open = mutableStateOf(true)
+        var attempts = 0
+        var finishSave: ((String?) -> Unit)? = null
+        val draft = "Исходное описание добавлено голосом"
+        compose.setContent { MaterialTheme {
+            if (open.value) EditTaskDialog(
+                task = TaskDto("t", "2026-09-26", "Задача", description = "Исходное описание"),
+                onDismiss = { open.value = false },
+                onConfirm = { title, description, _, _, result ->
+                    assertEquals("Задача", title)
+                    assertEquals(draft, description)
+                    attempts++
+                    finishSave = result
+                },
+            ) else Text("Закрыто")
+        } }
+        compose.onNodeWithTag("edit-description").performScrollTo().performTextReplacement(draft)
+        compose.onNodeWithTag("edit-save").performClick()
+        compose.onNodeWithTag("edit-save").assertIsNotEnabled()
+        compose.onNodeWithText("Отмена").assertIsNotEnabled()
+        compose.onNodeWithTag("edit-description").assertIsNotEnabled()
+        compose.runOnIdle { assertTrue(open.value); assertEquals(1, attempts); finishSave!!("Недостаточно места") }
+        compose.onNodeWithText("Недостаточно места").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("edit-description").performScrollTo().assertTextContains(draft)
+        compose.onNodeWithTag("edit-save").assertIsEnabled().performClick()
+        compose.runOnIdle { assertTrue(open.value); assertEquals(2, attempts); finishSave!!(null) }
+        compose.onNodeWithText("Закрыто").assertIsDisplayed()
     }
 }
