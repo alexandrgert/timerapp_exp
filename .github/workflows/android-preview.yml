@@ -2,6 +2,9 @@ name: Android preview
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - build/approved-preview-20260926-03
 
 permissions:
   contents: read
