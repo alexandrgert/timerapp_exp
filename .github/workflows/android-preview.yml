@@ -1,6 +1,9 @@
 name: Android preview
 
 on:
+  # One approved run only; do not push additional commits to this build branch.
+  push:
+    branches: [build/approved-preview-20260926-01]
   workflow_dispatch:
 
 permissions:
