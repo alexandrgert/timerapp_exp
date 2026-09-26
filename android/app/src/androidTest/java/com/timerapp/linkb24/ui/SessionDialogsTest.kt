@@ -120,7 +120,8 @@ class SessionDialogsTest {
             else Text("Закрыто")
         } }
         compose.onNodeWithText("Добавить сессию").assertIsDisplayed()
-        androidx.test.espresso.Espresso.pressBack()
+        androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+            .sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK)
         compose.onNodeWithText("Закрыто").assertIsDisplayed()
         compose.runOnIdle { assertFalse(saved) }
     }
