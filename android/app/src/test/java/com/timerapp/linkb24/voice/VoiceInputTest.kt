@@ -114,4 +114,71 @@ class VoiceInputTest {
             assertFalse(File(dir, "model/.ready").exists())
         } finally { dir.deleteRecursively() }
     }
+    @Test fun compressed_input_uses_block_reads_and_reports_actual_extracted_bytes() {
+        val compressed = archive("model/a" to "first", "model/b" to "second")
+        var singleReads = 0
+        var blockReads = 0
+        val source = object : ByteArrayInputStream(compressed) {
+            override fun read(): Int { singleReads++; return super.read() }
+            override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                blockReads++; return super.read(buffer, offset, length)
+            }
+        }
+        val dir = createTempDirectory("voice-buffer-").toFile()
+        val progress = mutableListOf<Long>()
+        try {
+            extractModelArchive(source, dir, "model", 11, 2, onProgress = { progress.add(it) })
+            assertEquals(0, singleReads)
+            assertTrue(blockReads > 0)
+            assertEquals(11L, progress.last())
+            assertTrue(progress.zipWithNext().all { (a, b) -> b > a })
+            assertEquals("second", File(dir, "model/b").readText())
+        } finally { dir.deleteRecursively() }
+    }
+
+    @Test fun verified_download_survives_cancelled_extraction_and_can_retry() {
+        val dir = createTempDirectory("voice-cache-").toFile()
+        try {
+            val archive = File(dir, "verified.tar.bz2").apply { writeBytes(archive("model/file" to "known")) }
+            val sha = java.security.MessageDigest.getInstance("SHA-256").digest(archive.readBytes())
+                .joinToString("") { "%02x".format(it) }
+            assertTrue(verifiedArchive(archive, archive.length(), sha))
+            val unpacked = File(dir, "staging").apply { mkdir() }
+            try {
+                archive.inputStream().use { source ->
+                    extractModelArchive(source, unpacked, "model", 10, 2) {
+                        throw java.util.concurrent.CancellationException("cancelled")
+                    }
+                }
+                fail("Expected cancellation")
+            } catch (_: java.util.concurrent.CancellationException) { }
+            unpacked.deleteRecursively()
+            assertTrue(verifiedArchive(archive, archive.length(), sha))
+            archive.inputStream().use { extractModelArchive(it, unpacked, "model", 10, 2) }
+            assertEquals("known", File(unpacked, "model/file").readText())
+        } finally { dir.deleteRecursively() }
+    }
+
+    @Test fun cached_download_rejects_changed_content_even_with_same_size() {
+        val dir = createTempDirectory("voice-cache-").toFile()
+        try {
+            val file = File(dir, "archive").apply { writeText("abc") }
+            val sha = java.security.MessageDigest.getInstance("SHA-256").digest(file.readBytes())
+                .joinToString("") { "%02x".format(it) }
+            file.writeText("bad")
+            assertFalse(verifiedArchive(file, 3, sha))
+            assertFalse(file.exists())
+            file.writeText("ab")
+            assertFalse(verifiedArchive(file, 3, sha))
+            assertFalse(file.exists())
+        } finally { dir.deleteRecursively() }
+    }
+
+    @Test fun install_errors_describe_installation_not_microphone_or_dictation() {
+        assertTrue(modelInstallFailureMessage(OutOfMemoryError()).contains("распаковки"))
+        assertTrue(modelInstallFailureMessage(NoClassDefFoundError("compress")).contains("распаковки"))
+        assertTrue(modelInstallFailureMessage(IOException("ENOSPC")).contains("места"))
+        assertTrue(modelInstallFailureMessage(IOException("corrupt")).contains("corrupt"))
+    }
+
 }

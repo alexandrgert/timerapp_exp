@@ -12,6 +12,7 @@ internal data class VoiceInputState(
     val checking: Boolean = true,
     val modelReady: Boolean = false,
     val downloading: Boolean = false,
+    val archiveCached: Boolean = false,
     val downloadedBytes: Long = 0,
     val unpacking: Boolean = false,
     val loading: Boolean = false,
@@ -36,8 +37,8 @@ internal class VoiceInputController(context: Context) {
     init {
         operation = scope.launch {
             try {
-                val ready = withContext(Dispatchers.IO) { store.readyDirectory() != null }
-                _state.update { it.copy(checking = false, modelReady = ready) }
+                val (ready, cached) = withContext(Dispatchers.IO) { (store.readyDirectory() != null) to store.hasCachedArchive() }
+                _state.update { it.copy(checking = false, modelReady = ready, archiveCached = cached) }
             } catch (error: Exception) {
                 _state.update { it.copy(checking = false, error = voiceFailureMessage(error)) }
             }
@@ -55,10 +56,11 @@ internal class VoiceInputController(context: Context) {
                 _state.update { it.copy(downloading = false, modelReady = true, unpacking = false) }
             } catch (cancelled: CancellationException) {
                 throw cancelled
-            } catch (error: Exception) {
-                _state.update { it.copy(error = voiceFailureMessage(error)) }
+            } catch (error: Throwable) {
+                if (error !is Exception && error !is LinkageError && error !is OutOfMemoryError) throw error
+                _state.update { it.copy(error = modelInstallFailureMessage(error)) }
             } finally {
-                _state.update { it.copy(downloading = false, unpacking = false) }
+                _state.update { it.copy(downloading = false, unpacking = false, archiveCached = store.hasCachedArchive()) }
             }
         }
     }
@@ -121,4 +123,13 @@ internal fun voiceFailureMessage(error: Throwable): String = when {
     generateSequence(error) { it.cause }.any { it.message.orEmpty().contains("ENOSPC", true) || it.message.orEmpty().contains("No space", true) || it.message.orEmpty().contains("quota", true) } ->
         "Недостаточно места для модели. Освободите место и повторите загрузку."
     else -> "Не удалось выполнить диктовку: ${error.message ?: "проверьте подключение при загрузке модели и повторите"}"
+}
+
+internal fun modelInstallFailureMessage(error: Throwable): String = when {
+    error is OutOfMemoryError -> "Недостаточно оперативной памяти для распаковки модели. Закройте другие приложения и повторите установку."
+    error is LinkageError -> "Компонент распаковки модели недоступен на этом устройстве. Нужна исправленная версия приложения."
+    error is SecurityException -> "Не удалось записать модель в папку приложения. Повторите установку."
+    generateSequence(error) { it.cause }.any { it.message.orEmpty().contains("ENOSPC", true) || it.message.orEmpty().contains("No space", true) || it.message.orEmpty().contains("quota", true) } ->
+        "Недостаточно места для модели. Освободите место и повторите установку."
+    else -> "Не удалось установить модель: ${error.message ?: error.javaClass.simpleName}. Повторите установку."
 }

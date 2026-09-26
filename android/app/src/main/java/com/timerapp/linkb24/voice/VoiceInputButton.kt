@@ -68,15 +68,16 @@ private fun VoiceInputDialog(onDismiss: () -> Unit, onApply: (String) -> Unit) {
                 when {
                     state.checking -> { CircularProgressIndicator(); Text("Проверка голосовой модели…") }
                     state.downloading -> {
-                        Text(if (state.unpacking) "Распаковка модели…" else
+                        Text(if (state.unpacking) "Распаковано ${megabytes(state.downloadedBytes)} из ${megabytes(RussianVoiceModel.INSTALLED_BYTES)} МБ" else
                             "Скачано ${megabytes(state.downloadedBytes)} из ${megabytes(RussianVoiceModel.ARCHIVE_BYTES)} МБ")
-                        if (state.unpacking) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                        else LinearProgressIndicator(progress = { (state.downloadedBytes.toFloat() / RussianVoiceModel.ARCHIVE_BYTES).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
-                        TextButton(onClick = controller::cancelDownload) { Text("Отменить загрузку") }
+                        val total = if (state.unpacking) RussianVoiceModel.INSTALLED_BYTES else RussianVoiceModel.ARCHIVE_BYTES
+                        LinearProgressIndicator(progress = { (state.downloadedBytes.toFloat() / total).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+                        TextButton(onClick = controller::cancelDownload) { Text("Отменить установку") }
                     }
                     !state.modelReady -> {
                         Text("Русская модель Zipformer: ${megabytes(RussianVoiceModel.ARCHIVE_BYTES)} МБ загрузка, ${megabytes(RussianVoiceModel.INSTALLED_BYTES)} МБ после распаковки. Для установки нужно 152 МБ свободного места. Затем диктовка работает без интернета; звук не отправляется на сервер.")
-                        FilledTonalButton(onClick = controller::download) { Text("Скачать модель") }
+                        if (state.archiveCached) Text("Архив сохранён. Повторная установка проверит его и распакует без скачивания.")
+                        FilledTonalButton(onClick = controller::download) { Text(if (state.archiveCached) "Повторить установку" else "Скачать модель") }
                     }
                     else -> {
                         Text(when {
@@ -100,7 +101,7 @@ private fun VoiceInputDialog(onDismiss: () -> Unit, onApply: (String) -> Unit) {
                     }
                 }
                 state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                if (state.error != null && ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                if (state.error != null && state.modelReady && ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
                     TextButton(onClick = {
                         context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")))
                     }) { Text("Разрешения приложения") }
