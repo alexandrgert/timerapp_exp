@@ -48,6 +48,8 @@ jobs:
             "$sdk_manager" --sdk_root="$sdk_root" 'platform-tools' 'platforms;android-35' 'build-tools;35.0.0'
           } 2>&1 | tee preview-sdk-setup.log
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
       - name: Enable emulator hardware acceleration
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -58,14 +60,9 @@ jobs:
           set -o pipefail
           bash ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleDebug 2>&1 | tee preview-build.log
       - name: Android UI tests
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 35
-          arch: x86_64
-          target: google_apis
-          disable-animations: true
-          working-directory: android
-          script: bash -o pipefail -c 'bash ./gradlew --no-daemon :app:connectedDebugAndroidTest 2>&1 | tee preview-ui-tests.log'
+        run: |
+          set -o pipefail
+          bash scripts/run-preview-ui-tests.sh 2>&1 | tee preview-ui-tests.log
       - name: Record exact APK size and checksum
         id: apk
         run: |
@@ -127,8 +124,8 @@ jobs:
               if len(messages) >= 10:
                   break
           if len(messages) < 10:
-              pattern = re.compile(r'^(e: |Error:|Warning:|.*\.kt:\d+|Execution failed for task|> |FAILURE:|.* FAILED$)')
-              for name in ('preview-sdk-setup.log', 'preview-build.log', 'preview-ui-tests.log'):
+              pattern = re.compile(r'^(e: |[Ee]rror[: ]|.*\.kt:\d+|Execution failed for task|FAILURE:|.* FAILED$|.*[Ee]xception[: ])')
+              for name in ('preview-sdk-setup.log', 'preview-ui-tests.log', 'preview-build.log'):
                   if name == 'preview-sdk-setup.log' and Path('preview-build.log').exists():
                       continue
                   log = Path(name)
@@ -150,7 +147,10 @@ jobs:
                   if len(messages) >= 10:
                       break
           if not messages:
-              messages.append('Android preview failed before test/compiler diagnostics were available; inspect the failed step and uploaded reports.')
+              if Path('preview-build.log').exists() and not Path('preview-ui-tests.log').exists():
+                  messages.append('UI test log was not created: the UI command did not start. Inspect the preceding failed step and uploaded reports.')
+              else:
+                  messages.append('Android preview failed without a recognized test/compiler error; inspect the failed step and uploaded reports.')
           for message in messages[:10]:
               escaped = message.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
               print(f'::error title=Android preview failure::{escaped}')
@@ -164,6 +164,7 @@ jobs:
             android/preview-sdk-setup.log
             android/preview-build.log
             android/preview-ui-tests.log
+            android/preview-emulator.log
             android/app/build/reports/tests/
             android/app/build/test-results/
             android/app/build/reports/androidTests/
