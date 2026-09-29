@@ -3,6 +3,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 test "$(getconf GNU_LIBC_VERSION)" = 'glibc 2.31'
+# Named TZ values need the system zoneinfo database, not just a TZ variable.
+TZ=Europe/Moscow python3.12 - <<'PY_TZ'
+from datetime import datetime
+actual = datetime.fromisoformat("2026-06-28T20:31:00+03:00").astimezone().strftime("%H:%M %z")
+assert actual == "20:31 +0300", f"Missing or invalid system tzdata: Europe/Moscow resolved to {actual}"
+print("System tzdata: Europe/Moscow OK")
+PY_TZ
 python3.12 -m venv /tmp/tasktimer-build-venv
 export VENV=/tmp/tasktimer-build-venv
 export PYTHON="$VENV/bin/python"

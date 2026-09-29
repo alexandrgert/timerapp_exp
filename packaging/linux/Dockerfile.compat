@@ -4,7 +4,7 @@ FROM ubuntu:20.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl xz-utils build-essential binutils dpkg-dev \
+    ca-certificates curl xz-utils tzdata build-essential binutils dpkg-dev \
     libssl-dev zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev \
     libffi-dev liblzma-dev uuid-dev \
     libxkbcommon-x11-0 libegl1 libgl1 libglib2.0-0 libdbus-1-3 \

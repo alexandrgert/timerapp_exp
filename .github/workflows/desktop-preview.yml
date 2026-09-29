@@ -13,11 +13,21 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
-      - name: Build on Ubuntu 20.04, test source and validate all ELF dependencies
+      - name: Prepare Ubuntu 20.04 build environment
         run: |
           docker build --build-arg BUILD_UID="$(id -u)" --build-arg BUILD_GID="$(id -g)" \
             -f packaging/linux/Dockerfile.compat -t tasktimer-focal packaging/linux
-          docker run --rm -v "$PWD:/workspace" tasktimer-focal
+      - name: Test source, build DEB and validate ELF dependencies
+        run: |
+          set -o pipefail
+          docker run --rm -v "$PWD:/workspace" tasktimer-focal 2>&1 | tee desktop-build.log
+      - name: Save test and packaging diagnostics
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: desktop-build-diagnostics
+          path: desktop-build.log
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@v5
         with:
           name: desktop-ubuntu-preview
