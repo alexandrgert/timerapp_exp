@@ -2,7 +2,8 @@
 
 Минимальные требования для **установленных** сборок (не для разработки из исходников).
 
-Текущая версия в ветке **timerapp_exp**: **0.11.5** (см. [`pyproject.toml`](../pyproject.toml)).  
+Текущая версия исходников: **0.11.6** (см. [`pyproject.toml`](../pyproject.toml)).
+
 Стабильные релизы **TaskTimer link B24** — [timer-app](https://github.com/alexandrgert/timer-app/releases).
 
 ---
@@ -44,6 +45,8 @@
 **Важно для релиза 0.11.5:** ранее опубликованный `.deb` фактически требует glibc 2.38 и не запускается на Ubuntu 20.04/22.04. Указанный ниже минимум — целевой контракт исправленной сборки, а не характеристика старого артефакта. Статус исправления и проверок: [ubuntu-compatibility.md](ubuntu-compatibility.md).
 
 ### Статус совместимости Ubuntu
+
+Версия исходников поднята до **0.11.6** для следующей сборки. Новый DEB должен получить эту версию внутри пакета и в имени файла; переименование старого артефакта не заменяет пересборку. Результаты ниже относятся к существующему пакету 0.11.5.
 
 Исправленный `.deb` **0.11.5**, сборка **34dd013** от 29 сентября, успешно установлен и запущен на Ubuntu **20.04, 22.04, 24.04 и 26.04**, **amd64**. Минимальная glibc — **2.31**; требования всех включённых ELF проверены при сборке.
 
@@ -217,7 +220,7 @@ Release APK из CI подписан постоянным ключом (GitHub S
 | `timerapp-exp-*-android.apk` | Android (Experiment) |
 | `tasktimer-link-b24-*` | стабильный продукт [timer-app](https://github.com/alexandrgert/timer-app/releases) |
 
-**Текущая версия Experiment (ветка):** **0.11.5** — все платформы из CI / [Releases](https://github.com/alexandrgert/timerapp_exp/releases).
+**Текущая версия исходников Experiment:** **0.11.6**. Пакеты 0.11.6 ещё не собраны и не опубликованы; доступный Ubuntu preview содержит версию 0.11.5.
 
 CI (`.github/workflows/ci.yml`) при push в `main` собирает полную матрицу **Linux** (`.deb`, `.rpm`, `.tar.xz`, `.tgz`, `.AppImage`, Flatpak, Snap, ebuild/overlay, PiSi, PET, PUP, LZM), **Windows .exe**, **macOS .zip** и **Android .apk**.
 
