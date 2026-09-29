@@ -11,6 +11,7 @@ if [[ ! -x "$ONEDIR/TaskTimer" ]]; then
   echo "Missing onedir binary: $ONEDIR/TaskTimer" >&2
   exit 1
 fi
+python3 "$PACKAGING_DIR/check_glibc.py" "$ONEDIR"
 
 VERSION="${VERSION:-$(
   python3 -c "import tomllib; print(tomllib.load(open('$PROJECT_DIR/pyproject.toml','rb'))['project']['version'])"

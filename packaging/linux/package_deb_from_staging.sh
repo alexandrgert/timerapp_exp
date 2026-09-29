@@ -38,7 +38,7 @@ Priority: optional
 Architecture: ${TARGET_ARCH}
 Installed-Size: ${installed_size_kb}
 Maintainer: ${MAINTAINER}
-Depends: libc6 (>= 2.31), libglib2.0-0, libx11-6, libxcb1, libxkbcommon0, libdbus-1-3, libfontconfig1, libfreetype6, libgl1, libegl1, libxext6, libxrender1, libxi6, libxrandr2, libxss1, libxcursor1, libxinerama1, libtiff5 | libtiff6
+Depends: libc6 (>= 2.31), libglib2.0-0, libx11-6, libxcb1, libxkbcommon0, libdbus-1-3, libfontconfig1, libfreetype6, libgl1, libegl1, libxext6, libxrender1, libxi6, libxrandr2, libxss1, libxcursor1, libxinerama1, libtiff5 | libtiff6, zenity
 Description: ${PACKAGE_TITLE}
  Experimental desktop task timer: daily plan, focus mode, Bitrix24 tasks and smart-process projects.
 EOF

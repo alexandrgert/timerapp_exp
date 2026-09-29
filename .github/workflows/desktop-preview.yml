@@ -1,0 +1,46 @@
+name: Desktop Ubuntu compatibility preview
+
+# One explicit dispatch per user-approved build; no push or PR trigger.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build on Ubuntu 20.04, test source and validate all ELF dependencies
+        run: |
+          docker build --build-arg BUILD_UID="$(id -u)" --build-arg BUILD_GID="$(id -g)" \
+            -f packaging/linux/Dockerfile.compat -t tasktimer-focal packaging/linux
+          docker run --rm -v "$PWD:/workspace" tasktimer-focal
+      - uses: actions/upload-artifact@v5
+        with:
+          name: desktop-ubuntu-preview
+          path: dist/timerapp-exp-*-amd64.deb
+          if-no-files-found: error
+
+  startup:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        ubuntu: ['20.04', '22.04', '24.04', '26.04']
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with:
+          name: desktop-ubuntu-preview
+          path: dist
+      - name: Install DEB and open real main window as an unprivileged fresh user
+        env:
+          UBUNTU_VERSION: ${{ matrix.ubuntu }}
+        run: |
+          docker run --rm -v "$PWD:/workspace:ro" -w /workspace "ubuntu:$UBUNTU_VERSION" \
+            bash -c 'bash packaging/linux/smoke_installed.sh dist/timerapp-exp-*-amd64.deb'

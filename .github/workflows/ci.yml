@@ -39,32 +39,16 @@ jobs:
         run: python -m pytest -q
 
   build-deb:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: test
     steps:
       - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-          cache: pip
-
-      - name: Install build dependencies
+      - name: Build Linux on Ubuntu 20.04 (glibc 2.31)
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends dpkg-dev \
-            libxkbcommon-x11-0 libegl1 libgl1 libglib2.0-0 libdbus-1-3 \
-            libxcb-cursor0 libxcb-xinerama0 libfontconfig1 libx11-6
-
-      - name: Read package version
-        run: |
-          echo "PACKAGE_VERSION=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")" >> "$GITHUB_ENV"
-
-      - name: Build amd64 .deb
-        run: |
-          python -m venv .venv
-          export VERSION="$PACKAGE_VERSION"
-          ALLOW_NO_BUMP=1 NO_BUMP=1 ./build_deb.sh
+          docker build --build-arg BUILD_UID="$(id -u)" --build-arg BUILD_GID="$(id -g)" \
+            -f packaging/linux/Dockerfile.compat -t tasktimer-focal packaging/linux
+          docker run --rm -v "$PWD:/workspace" tasktimer-focal
 
       - name: Install Linux extra packaging tools
         run: |
@@ -103,6 +87,27 @@ jobs:
             dist/timerapp-exp-*-amd64.pup
             dist/timerapp-exp-*-amd64.lzm
           if-no-files-found: error
+
+  verify-deb:
+    needs: build-deb
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        ubuntu: ['20.04', '22.04', '24.04', '26.04']
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with:
+          name: linux-packages
+          path: dist
+      - name: Verify installed package on Ubuntu ${{ matrix.ubuntu }}
+        env:
+          UBUNTU_VERSION: ${{ matrix.ubuntu }}
+        run: |
+          docker run --rm -v "$PWD:/workspace:ro" -w /workspace "ubuntu:$UBUNTU_VERSION" \
+            bash -c 'bash packaging/linux/smoke_installed.sh dist/timerapp-exp-*-amd64.deb'
 
   build-exe:
     runs-on: windows-latest

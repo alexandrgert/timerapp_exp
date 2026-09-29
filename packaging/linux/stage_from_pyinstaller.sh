@@ -21,12 +21,13 @@ opt_rel="${INSTALL_PREFIX#/}"
 install_dir="$STAGING_DIR/$opt_rel"
 mkdir -p "$install_dir"
 cp -a "$ONEDIR/." "$install_dir/"
+install -m 755 "$PACKAGING_DIR/tasktimer-launcher.sh" "$install_dir/tasktimer-launcher"
 echo "$VERSION" > "$install_dir/VERSION"
 
 mkdir -p "$STAGING_DIR/usr/bin"
 cat > "$STAGING_DIR/usr/bin/$BIN_NAME" <<EOF
 #!/bin/sh
-exec ${INSTALL_PREFIX}/TaskTimer "\$@"
+exec "${INSTALL_PREFIX}/tasktimer-launcher" "\$@"
 EOF
 chmod 755 "$STAGING_DIR/usr/bin/$BIN_NAME"
 

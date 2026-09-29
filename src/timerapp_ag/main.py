@@ -4,6 +4,7 @@ import logging
 import sys
 
 from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtCore import QTimer
 
 from .env_loader import load_env
 
@@ -18,7 +19,7 @@ from .single_instance import InstanceAcquireResult, SingleInstanceGuard
 from .storage import Storage
 
 
-def main() -> int:
+def main(*, startup_smoke_test: bool = False) -> int:
     load_env()
     app_title = resolve_app_title()
     app = QApplication(sys.argv)
@@ -53,4 +54,16 @@ def main() -> int:
     window = MainWindow(controller, app)
     instance_guard.bind_activation(window.bring_to_front)
     window.show()
+    if startup_smoke_test:
+        # Acceptance check of the installed binary: imports, storage, controller,
+        # real main window and the Qt event loop must all work. CI uses a fresh
+        # OS user and Xvfb/xcb, never the developer's application data.
+        def finish_startup_check() -> None:
+            if window.isVisible():
+                print("TASKTIMER_STARTUP_OK", flush=True)
+                app.exit(0)
+            else:
+                app.exit(1)
+
+        QTimer.singleShot(500, finish_startup_check)
     return app.exec()

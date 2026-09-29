@@ -1,0 +1,37 @@
+# All collected native libraries, including libpython, must run on glibc 2.31.
+# Build Python here; never copy setup-python's interpreter from a newer runner.
+FROM ubuntu:20.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl xz-utils build-essential binutils dpkg-dev \
+    libssl-dev zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev \
+    libffi-dev liblzma-dev uuid-dev \
+    libxkbcommon-x11-0 libegl1 libgl1 libglib2.0-0 libdbus-1-3 \
+    libxcb-cursor0 libxcb-xinerama0 libxcb-icccm4 libxcb-image0 \
+    libxcb-keysyms1 libxcb-render-util0 libxcb-shape0 libxcb-xfixes0 \
+    libxcb-randr0 libxcb-shm0 libxcb-sync1 libxcb-render0 libxcb-xkb1 \
+    libfontconfig1 libx11-6 libsm6 libice6 \
+    && rm -rf /var/lib/apt/lists/*
+
+# SHA256 from python.org release 3.12.14 (XZ source archive).
+RUN curl -fsSL https://www.python.org/ftp/python/3.12.14/Python-3.12.14.tar.xz -o /tmp/python.tar.xz \
+    && echo '5c8462af5790baf43a321a1559dbe0db06d1be4300fb85fb53c40060668e548a  /tmp/python.tar.xz' | sha256sum -c - \
+    && mkdir /tmp/python-src \
+    && tar -xJf /tmp/python.tar.xz -C /tmp/python-src --strip-components=1 \
+    && cd /tmp/python-src \
+    && ./configure --enable-shared --with-ensurepip=install \
+    && make -j2 \
+    && make install \
+    && ldconfig \
+    && python3.12 -c 'import ssl, sqlite3, bz2, lzma, ctypes, zlib' \
+    && rm -rf /tmp/python-src /tmp/python.tar.xz
+
+# Match the mounted checkout owner and give Qt tests a real, writable user home.
+ARG BUILD_UID=1001
+ARG BUILD_GID=1001
+RUN groupadd --gid "$BUILD_GID" tasktimer-build \
+    && useradd --uid "$BUILD_UID" --gid "$BUILD_GID" --create-home tasktimer-build
+USER tasktimer-build
+WORKDIR /workspace
+CMD ["bash", "packaging/linux/build_compatible.sh"]

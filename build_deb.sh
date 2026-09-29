@@ -76,6 +76,7 @@ echo "==> Сборка ${deb_file}"
 echo "==> PyInstaller (TaskTimer-linux.spec)"
 cd "$PROJECT_DIR"
 "$PYTHON" -m PyInstaller --noconfirm --clean TaskTimer-linux.spec
+"$PYTHON" "$PACKAGING_DIR/check_glibc.py" "$PROJECT_DIR/dist/TaskTimer"
 
 STAGING_DIR="$(mktemp -d)"
 cleanup_staging() {
