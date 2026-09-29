@@ -1,7 +1,9 @@
 name: Desktop Ubuntu compatibility preview
 
-# One explicit dispatch per user-approved build; no push or PR trigger.
+# One approved DEB 0.11.6 build; do not update without new approval.
 on:
+  push:
+    branches: [build/approved-desktop-20260929-03]
   workflow_dispatch:
 
 permissions:
@@ -28,10 +30,21 @@ jobs:
           name: desktop-build-diagnostics
           path: desktop-build.log
           if-no-files-found: ignore
+      - name: Verify package version and record checksums
+        run: |
+          test "$(dpkg-deb -f dist/timerapp-exp-0.11.6-amd64.deb Version)" = '0.11.6'
+          dpkg-deb -f dist/timerapp-exp-0.11.6-amd64.deb Package Version Architecture Installed-Size > dist/build-info.txt
+          stat -c 'DEB bytes: %s' dist/timerapp-exp-0.11.6-amd64.deb >> dist/build-info.txt
+          cd dist
+          sha256sum timerapp-exp-0.11.6-amd64.deb > SHA256SUMS
+          cat build-info.txt SHA256SUMS
       - uses: actions/upload-artifact@v5
         with:
           name: desktop-ubuntu-preview
-          path: dist/timerapp-exp-*-amd64.deb
+          path: |
+            dist/timerapp-exp-*-amd64.deb
+            dist/build-info.txt
+            dist/SHA256SUMS
           if-no-files-found: error
 
   startup:
