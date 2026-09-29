@@ -25,6 +25,7 @@ jobs:
           cd dist
           echo 'd5a04e99a249e95b4a170b8580bc6c03bef52c26db84dee52e0a7d8c13d6b3de  timerapp-exp-0.11.5-amd64.deb' > SHA256SUMS
           sha256sum -c SHA256SUMS
+          mkdir -p ../scan/root ../scan/control
           dpkg-deb -x timerapp-exp-0.11.5-amd64.deb ../scan/root
           dpkg-deb -e timerapp-exp-0.11.5-amd64.deb ../scan/control
       - name: Install ClamAV and update signatures
