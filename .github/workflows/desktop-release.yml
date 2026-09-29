@@ -1,0 +1,85 @@
+name: Publish approved Ubuntu DEB prerelease
+
+on:
+  push:
+    branches: [release/approved-deb-20260929-01]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: desktop-ubuntu-preview
+          run-id: 36598465229
+          repository: alexandrgert/timerapp_exp
+          github-token: ${{ github.token }}
+          path: dist
+      - name: Verify exact tested DEB and extract for scanning
+        run: |
+          cd dist
+          echo 'd5a04e99a249e95b4a170b8580bc6c03bef52c26db84dee52e0a7d8c13d6b3de  timerapp-exp-0.11.5-amd64.deb' > SHA256SUMS
+          sha256sum -c SHA256SUMS
+          dpkg-deb -x timerapp-exp-0.11.5-amd64.deb ../scan/root
+          dpkg-deb -e timerapp-exp-0.11.5-amd64.deb ../scan/control
+      - name: Install ClamAV and update signatures
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clamav clamav-freshclam
+          sudo systemctl stop clamav-freshclam.service || true
+          sudo freshclam
+      - name: Scan DEB, unpacked files and package scripts
+        run: |
+          set -o pipefail
+          clamscan --version > dist/clamav-report.txt
+          clamscan --recursive --infected --max-filesize=512M --max-scansize=1024M \
+            dist/timerapp-exp-0.11.5-amd64.deb scan 2>&1 | tee -a dist/clamav-report.txt
+      - name: Save scan diagnostics
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: release-scan-report
+          path: dist/clamav-report.txt
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v5
+        with:
+          name: release-verified-deb
+          path: |
+            dist/timerapp-exp-0.11.5-amd64.deb
+            dist/SHA256SUMS
+            dist/clamav-report.txt
+          if-no-files-found: error
+
+  publish:
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with:
+          name: release-verified-deb
+          path: dist
+      - name: Publish tested DEB with scan report
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: alexandrgert/timerapp_exp
+        run: |
+          cd dist
+          sha256sum -c SHA256SUMS
+          cd ..
+          gh release create v0.11.5-ubuntu20-preview.1 \
+            --target 34dd0134435c349f007909866bc5a0dc5a15f61e \
+            --title 'TaskTimer 0.11.5 — Ubuntu 20.04+ preview' \
+            --notes-file docs/releases/ubuntu20-preview.1.md \
+            --prerelease --latest=false --draft \
+            dist/timerapp-exp-0.11.5-amd64.deb dist/SHA256SUMS dist/clamav-report.txt
+          gh release edit v0.11.5-ubuntu20-preview.1 --draft=false --prerelease --latest=false
