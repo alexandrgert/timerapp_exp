@@ -1,7 +1,9 @@
 name: Desktop Ubuntu compatibility preview
 
-# One explicit dispatch per user-approved build; no push or PR trigger.
+# One user-approved build branch; do not update or rerun without new approval.
 on:
+  push:
+    branches: [build/approved-desktop-20260929-01]
   workflow_dispatch:
 
 permissions:
