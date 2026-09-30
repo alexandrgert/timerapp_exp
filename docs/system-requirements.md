@@ -46,6 +46,23 @@
 
 ### Статус совместимости Ubuntu
 
+Текущий полный релиз — **[0.11.7](https://github.com/alexandrgert/timerapp_exp/releases/tag/v0.11.7)**,
+коммит `fa264e93e846595ca8a6e25028f38954f5d77148`.
+[GitHub Actions 36684514177](https://github.com/alexandrgert/timerapp_exp/actions/runs/36684514177)
+успешно собрал все 16 пакетов и проверил установку/главное окно DEB на Ubuntu
+**20.04, 22.04, 24.04 и 26.04**, amd64. DEB: **56 504 580 байт**.
+SHA256: `8e162a40e9b12aefbbeec1407815e9a1abc818b442fddb5bb0715dfec4cba88e`.
+Установка: `sudo apt install ./timerapp-exp-0.11.7-amd64.deb`.
+
+Проверки выпуска: desktop 438 тестов без ошибок/пропусков; в Ubuntu 20.04
+437 тестов и 1 пропуск, плюс 10 проверок упаковки; Android 101 unit-тест
+без ошибок/пропусков, версия и подпись APK. APK занимает **146 702 302 байта**;
+модель русской речи загружается отдельно (архив 60 239 942 байта,
+распакованные данные 74 004 174 байта). Старые ориентиры Android ~50 МБ
+ниже не описывают размер этого выпуска.
+
+#### История проверки DEB 0.11.6
+
 DEB **0.11.6**, сборка **6d2cc01**, успешно установлен и запущен на Ubuntu **20.04, 22.04, 24.04 и 26.04**, **amd64**. Минимальная glibc — **2.31**. Версия проверена внутри пакета, а не только в имени файла.
 
 [Скачать артефакт 0.11.6 (ZIP)](https://github.com/alexandrgert/timerapp_exp/actions/runs/36614325117/artifacts/11053794019) · [Результаты GitHub Actions](https://github.com/alexandrgert/timerapp_exp/actions/runs/36614325117). DEB: **56 496 908 байт**; ZIP: **56 512 393 байта**. Установленный объём по метаданным DEB: **213 388 КиБ**.
@@ -220,7 +237,7 @@ Release APK из CI подписан постоянным ключом (GitHub S
 | `timerapp-exp-*-android.apk` | Android (Experiment) |
 | `tasktimer-link-b24-*` | стабильный продукт [timer-app](https://github.com/alexandrgert/timer-app/releases) |
 
-**Текущая версия исходников Experiment:** **0.11.7**. Полный выпуск готовится через `full-release.yml`; описание изменений — [release-notes-v0.11.7.md](release-notes-v0.11.7.md). Сведения о проверках 0.11.6 выше относятся к предыдущей сборке.
+**Текущая версия исходников Experiment:** **0.11.7**. Полный выпуск опубликован через `full-release.yml`: [v0.11.7](https://github.com/alexandrgert/timerapp_exp/releases/tag/v0.11.7); описание изменений — [release-notes-v0.11.7.md](release-notes-v0.11.7.md). Сведения о проверках 0.11.6 выше относятся к предыдущей сборке.
 
 CI (`.github/workflows/ci.yml`) при push в `main` собирает полную матрицу **Linux** (`.deb`, `.rpm`, `.tar.xz`, `.tgz`, `.AppImage`, Flatpak, Snap, ebuild/overlay, PiSi, PET, PUP, LZM), **Windows .exe**, **macOS .zip** и **Android .apk**.
 
