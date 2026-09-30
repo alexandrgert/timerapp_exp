@@ -1,0 +1,13 @@
+{
+  "name": "tasktimer-pwa",
+  "version": "0.11.7",
+  "private": true,
+  "scripts": {
+    "start": "node server.cjs",
+    "test": "node --test --test-concurrency=1 tests/model.test.mjs tests/server.test.cjs tests/sw.test.cjs tests/browser.test.cjs",
+    "test:unit": "node --test --test-concurrency=1 tests/model.test.mjs tests/server.test.cjs tests/sw.test.cjs"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0"
+  }
+}
