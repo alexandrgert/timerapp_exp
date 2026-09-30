@@ -1,0 +1,290 @@
+name: Release 0.11.7 (all platforms)
+
+on:
+  push:
+    branches: [release/approved-all-20260930-01]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: full-release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install system libraries (Qt / PySide6)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxkbcommon-x11-0 libegl1 libgl1 libglib2.0-0 libdbus-1-3 \
+            libxcb-cursor0 libxcb-xinerama0 libfontconfig1 libx11-6
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . -r requirements-dev.txt
+
+      - name: Verify shared release version
+        run: python scripts/check_version_sync.py
+
+      - name: Run tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest -q --junitxml=desktop-tests.xml
+
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: desktop-test-results
+          path: desktop-tests.xml
+          if-no-files-found: ignore
+
+  build-deb:
+    runs-on: ubuntu-24.04
+    needs: test
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build Linux on Ubuntu 20.04 (glibc 2.31)
+        run: |
+          set -o pipefail
+          docker build --build-arg BUILD_UID="$(id -u)" --build-arg BUILD_GID="$(id -g)" \
+            -f packaging/linux/Dockerfile.compat -t tasktimer-focal packaging/linux 2>&1 | tee linux-builder.log
+          docker run --rm -v "$PWD:/workspace" tasktimer-focal 2>&1 | tee linux-build.log
+
+      - name: Install Linux extra packaging tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ruby ruby-dev build-essential rpm curl ca-certificates file \
+            flatpak flatpak-builder librsvg2-common ostree squashfs-tools zip unzip snapd
+          sudo gem install fpm --no-document
+          mkdir -p "$HOME/linuxdeploy"
+          APPIMAGETOOL_URL="https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage"
+          # Bump APPIMAGETOOL_SHA256 when intentionally updating the pinned release.
+          APPIMAGETOOL_SHA256="ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0"
+          curl -fL "$APPIMAGETOOL_URL" -o "$HOME/linuxdeploy/appimagetool-x86_64.AppImage"
+          echo "${APPIMAGETOOL_SHA256}  $HOME/linuxdeploy/appimagetool-x86_64.AppImage" | sha256sum -c -
+          chmod +x "$HOME/linuxdeploy/appimagetool-x86_64.AppImage"
+          echo "APPIMAGETOOL=$HOME/linuxdeploy/appimagetool-x86_64.AppImage" >> "$GITHUB_ENV"
+
+      - name: Verify DEB version
+        run: test "$(dpkg-deb -f dist/timerapp-exp-0.11.7-amd64.deb Version)" = 0.11.7
+
+      - name: Build Linux extras (full matrix)
+        run: |
+          set -o pipefail
+          ./build_linux_extra.sh 2>&1 | tee linux-extras.log
+
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: linux-build-diagnostics
+          path: linux-*.log
+          if-no-files-found: ignore
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: linux-packages
+          path: |
+            dist/timerapp-exp-*-amd64.deb
+            dist/timerapp-exp-*-amd64.rpm
+            dist/timerapp-exp-*-linux-amd64.tar.xz
+            dist/timerapp-exp-*-linux-amd64.tgz
+            dist/timerapp-exp-*-x86_64.AppImage
+            dist/timerapp-exp-*-x86_64.flatpak
+            dist/timerapp-exp-*-amd64.snap
+            dist/timerapp-exp-*.ebuild
+            dist/timerapp-exp-*-gentoo-overlay.tar.xz
+            dist/timerapp-exp-*-x86_64.pisi
+            dist/timerapp-exp-*-amd64.pet
+            dist/timerapp-exp-*-amd64.pup
+            dist/timerapp-exp-*-amd64.lzm
+          if-no-files-found: error
+
+  verify-deb:
+    needs: build-deb
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        ubuntu: ['20.04', '22.04', '24.04', '26.04']
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with:
+          name: linux-packages
+          path: dist
+      - name: Verify installed package on Ubuntu ${{ matrix.ubuntu }}
+        env:
+          UBUNTU_VERSION: ${{ matrix.ubuntu }}
+        run: |
+          docker run --rm -v "$PWD:/workspace:ro" -w /workspace "ubuntu:$UBUNTU_VERSION" \
+            bash -c 'bash packaging/linux/smoke_installed.sh dist/timerapp-exp-*-amd64.deb'
+
+  build-exe:
+    runs-on: windows-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Read package version
+        shell: bash
+        run: |
+          echo "PACKAGE_VERSION=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")" >> "$GITHUB_ENV"
+
+      - name: Build win64 .exe
+        shell: pwsh
+        run: |
+          python -m venv .venv
+          $env:VERSION = $env:PACKAGE_VERSION
+          $env:NO_BUMP = "1"
+          .\build_exe.ps1
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: exe-win64
+          path: dist/timerapp-exp-*-win64.exe
+          if-no-files-found: error
+
+  build-macos:
+    runs-on: macos-14
+    needs: test
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Read package version
+        shell: bash
+        run: |
+          echo "PACKAGE_VERSION=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")" >> "$GITHUB_ENV"
+
+      - name: Build macOS .app zip
+        run: |
+          python3 -m venv .venv
+          export VERSION="$PACKAGE_VERSION"
+          export NO_BUMP=1
+          ./build_macos.sh
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: macos-zip
+          path: dist/timerapp-exp-*-macos-*.zip
+          if-no-files-found: error
+
+  build-apk:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Verify Android version matches pyproject.toml
+        run: python scripts/check_version_sync.py
+
+      - name: Restore Android release keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [[ -z "$ANDROID_KEYSTORE_BASE64" || -z "$ANDROID_KEYSTORE_PASSWORD" || -z "$ANDROID_KEY_ALIAS" || -z "$ANDROID_KEY_PASSWORD" ]]; then
+            echo "Missing Android signing secrets (ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD)." >&2
+            exit 1
+          fi
+          mkdir -p android/keystore
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > android/keystore/tasktimer-release.jks
+          python3 scripts/write_android_keystore_from_env.py
+
+      - name: Build Android APK
+        run: |
+          chmod +x build_apk.sh
+          ./build_apk.sh
+          cd android
+          bash ./gradlew --no-daemon :app:testReleaseUnitTest
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify app/build/outputs/apk/release/app-release.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging app/build/outputs/apk/release/app-release.apk > release-package-info.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          line = Path("release-package-info.txt").read_text()
+          assert "name='com.timerapp.exp'" in line
+          assert "versionCode='1107'" in line
+          assert "versionName='0.11.7'" in line
+          PY
+
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: android-test-results
+          path: android/app/build/test-results/
+          if-no-files-found: ignore
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: apk-android
+          path: dist/timerapp-exp-*-android.apk
+          if-no-files-found: error
+
+  publish:
+    needs: [test, build-deb, verify-deb, build-exe, build-macos, build-apk]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with:
+          name: linux-packages
+          path: release-assets
+      - uses: actions/download-artifact@v5
+        with:
+          name: exe-win64
+          path: release-assets
+      - uses: actions/download-artifact@v5
+        with:
+          name: macos-zip
+          path: release-assets
+      - uses: actions/download-artifact@v5
+        with:
+          name: apk-android
+          path: release-assets
+      - name: Verify complete release assets and write checksums
+        run: python3 scripts/prepare_release_assets.py release-assets
+      - name: Publish complete release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release create v0.11.7 --target "$GITHUB_SHA" \
+            --title 'TaskTimer Experiment 0.11.7' \
+            --notes-file docs/release-notes-v0.11.7.md --draft \
+            release-assets/*
+          gh release edit v0.11.7 --draft=false --latest
