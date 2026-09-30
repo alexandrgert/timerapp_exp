@@ -4412,6 +4412,10 @@ class MainWindow(QMainWindow):
         self._refresh_priority_apply_buttons()
 
     def _refresh_priority_apply_buttons(self) -> None:
+        # Keep filtered-out tasks selected, but discard tasks that no longer exist.
+        self._selected_task_ids.intersection_update(
+            task.id for task in self.controller.state.tasks
+        )
         has_selection = bool(self._selected_task_ids)
         for button in self._priority_apply_buttons.values():
             button.setEnabled(has_selection)
@@ -4438,6 +4442,7 @@ class MainWindow(QMainWindow):
         self.refresh_ui()
 
     def _apply_priority_to_selection(self, level: int) -> None:
+        self._refresh_priority_apply_buttons()
         if not self._selected_task_ids:
             return
         selected = set(self._selected_task_ids)
@@ -4676,6 +4681,7 @@ class MainWindow(QMainWindow):
         )
         if answer == QMessageBox.StandardButton.Yes:
             self.controller.delete_task(task_id)
+            self._clear_task_selection({task_id})
             if self._pinned_task_row_id == task_id:
                 self._pinned_task_row_id = None
             if self._mini_task_id == task_id:

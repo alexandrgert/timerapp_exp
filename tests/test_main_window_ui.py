@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QLabel,
     QPlainTextEdit,
+    QMessageBox,
     QScrollArea,
     QTabWidget,
     QVBoxLayout,
@@ -1342,6 +1343,71 @@ def test_priority_bar_shows_hidden_selected_count(
     assert hidden.id not in main_window._task_rows
     assert not main_window._priority_hidden_selection_label.isHidden()
     assert "1" in main_window._priority_hidden_selection_label.text()
+
+
+@pytest.mark.parametrize("confirmed", [True, False])
+def test_delete_selected_task_updates_selection(
+    main_window: MainWindow,
+    controller: AppController,
+    monkeypatch: pytest.MonkeyPatch,
+    confirmed: bool,
+) -> None:
+    task = controller.create_task("Selected for deletion")
+    main_window._set_view("plan")
+    main_window._on_task_row_selection_changed(task.id, True)
+    answer = QMessageBox.StandardButton.Yes if confirmed else QMessageBox.StandardButton.No
+    monkeypatch.setattr(QMessageBox, "question", lambda *args, **kwargs: answer)
+
+    main_window._confirm_delete_task(task.id)
+
+    assert (task.id in {item.id for item in controller.state.tasks}) is not confirmed
+    assert (task.id in main_window._selected_task_ids) is not confirmed
+    assert main_window._priority_hidden_selection_label.isHidden()
+    assert all(
+        button.isEnabled() is not confirmed
+        for button in main_window._priority_apply_buttons.values()
+    )
+
+
+def test_refresh_discards_deleted_selection_but_keeps_filtered_task(
+    main_window: MainWindow,
+    controller: AppController,
+) -> None:
+    deleted = controller.create_task("Deleted selected")
+    hidden = controller.create_task("Filtered selected")
+    controller.set_tasks_priority([deleted.id], 1)
+    main_window._set_view("plan")
+    main_window._on_task_row_selection_changed(deleted.id, True)
+    main_window._on_task_row_selection_changed(hidden.id, True)
+    main_window._toggle_priority_filter(4)
+
+    controller.delete_task(deleted.id)
+    main_window.refresh_ui()
+
+    assert main_window._selected_task_ids == {hidden.id}
+    assert hidden.id not in main_window._task_rows
+    assert not main_window._priority_hidden_selection_label.isHidden()
+    assert main_window._priority_hidden_selection_label.text() == "Скрыто выбрано: 1 задача"
+    main_window._apply_priority_to_selection(2)
+    assert controller.task_priority(hidden) == 2
+    assert not main_window._selected_task_ids
+    assert main_window._priority_hidden_selection_label.isHidden()
+
+
+def test_apply_priority_ignores_deleted_selection_before_refresh(
+    main_window: MainWindow,
+    controller: AppController,
+) -> None:
+    task = controller.create_task("Deleted before apply")
+    main_window._set_view("plan")
+    main_window._on_task_row_selection_changed(task.id, True)
+    controller.delete_task(task.id)
+
+    main_window._apply_priority_to_selection(2)
+
+    assert not main_window._selected_task_ids
+    assert main_window._priority_hidden_selection_label.isHidden()
+    assert all(not button.isEnabled() for button in main_window._priority_apply_buttons.values())
 
 
 def test_apply_priority_updates_selected_rows(
