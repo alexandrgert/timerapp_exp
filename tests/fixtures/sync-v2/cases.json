@@ -1,0 +1,1209 @@
+[
+  {
+    "name": "independent",
+    "left": {
+      "format": "tasktimer-sync",
+      "ops": [
+        {
+          "actor": "seed",
+          "changes": {
+            "$alive": true,
+            "description": "old",
+            "title": "Task"
+          },
+          "entity": [
+            "task",
+            "t"
+          ],
+          "seen": {},
+          "seq": 1
+        },
+        {
+          "actor": "seed",
+          "changes": {
+            "$alive": true,
+            "comment": "old",
+            "interval": {
+              "ended_at": "2026-01-01T11:00:00Z",
+              "started_at": "2026-01-01T10:00:00Z"
+            }
+          },
+          "entity": [
+            "session",
+            "t",
+            "s"
+          ],
+          "seen": {
+            "seed": 1
+          },
+          "seq": 2
+        },
+        {
+          "actor": "seed",
+          "changes": {
+            "$alive": true
+          },
+          "entity": [
+            "task",
+            "t"
+          ],
+          "seen": {
+            "seed": 2
+          },
+          "seq": 3
+        },
+        {
+          "actor": "android",
+          "changes": {
+            "$alive": true,
+            "description": ""
+          },
+          "entity": [
+            "task",
+            "t"
+          ],
+          "seen": {
+            "seed": 3
+          },
+          "seq": 1
+        }
+      ],
+      "version": 2
+    },
+    "right": {
+      "format": "tasktimer-sync",
+      "ops": [
+        {
+          "actor": "seed",
+          "changes": {
+            "$alive": true,
+            "description": "old",
+            "title": "Task"
+          },
+          "entity": [
+            "task",
+            "t"
+          ],
+          "seen": {},
+          "seq": 1
+        },
+        {
+          "actor": "seed",
+          "changes": {
+            "$alive": true,
+            "comment": "old",
+            "interval": {
+              "ended_at": "2026-01-01T11:00:00Z",
+              "started_at": "2026-01-01T10:00:00Z"
+            }
+          },
+          "entity": [
+            "session",
+            "t",
+            "s"
+          ],
+          "seen": {
+            "seed": 1
+          },
+          "seq": 2
+        },
+        {
+          "actor": "seed",
+          "changes": {
+            "$alive": true
+          },
+          "entity": [
+            "task",
+            "t"
+          ],
+          "seen": {
+            "seed": 2
+          },
+          "seq": 3
+        },
+        {
+          "actor": "desktop",
+          "changes": {
+            "$alive": true,
+            "title": "New"
+          },
+          "entity": [
+            "task",
+            "t"
+          ],
+          "seen": {
+            "seed": 3
+          },
+          "seq": 1
+        }
+      ],
+      "version": 2
+    },
+    "expectedFields": {
+      "title": "New",
+      "description": ""
+    },
+    "expectedConflictFields": []
+  },
+  {
+    "name": "same-field",
+    "left": {
+      "format": "tasktimer-sync",
+      "ops": [
+        {
+          "actor": "seed",
+          "changes": {
+            "$alive": true,
+            "description": "old",
+            "title": "Task"
+          },
+          "entity": [
+            "task",
+            "t"
+          ],
+          "seen": {},
+          "seq": 1
+        },
+        {
+          "actor": "seed",
+          "changes": {
+            "$alive": true,
+            "comment": "old",
+            "interval": {
+              "ended_at": "2026-01-01T11:00:00Z",
+              "started_at": "2026-01-01T10:00:00Z"
+            }
+          },
+          "entity": [
+            "session",
+            "t",
+            "s"
+          ],
+          "seen": {
+            "seed": 1
+          },
+          "seq": 2
+        },
+        {
+          "actor": "seed",
+          "changes": {
+            "$alive": true
+          },
+          "entity": [
+            "task",
+            "t"
+          ],
+          "seen": {
+            "seed": 2
+          },
+          "seq": 3
+        },
+        {
+          "actor": "android",
+          "changes": {
+            "$alive": true,
+            "description": ""
+          },
+          "entity": [
+            "task",
+            "t"
+          ],
+          "seen": {
+            "seed": 3
+          },
+          "seq": 1
+        }
+      ],
+      "version": 2
+    },
+    "right": {
+      "format": "tasktimer-sync",
+      "ops": [
+        {
+          "actor": "seed",
+          "changes": {
+            "$alive": true,
+            "description": "old",
+            "title": "Task"
+          },
+          "entity": [
+            "task",
+            "t"
+          ],
+          "seen": {},
+          "seq": 1
+        },
+        {
+          "actor": "seed",
+          "changes": {
+            "$alive": true,
+            "comment": "old",
+            "interval": {
+              "ended_at": "2026-01-01T11:00:00Z",
+              "started_at": "2026-01-01T10:00:00Z"
+            }
+          },
+          "entity": [
+            "session",
+            "t",
+            "s"
+          ],
+          "seen": {
+            "seed": 1
+          },
+          "seq": 2
+        },
+        {
+          "actor": "seed",
+          "changes": {
+            "$alive": true
+          },
+          "entity": [
+            "task",
+            "t"
+          ],
+          "seen": {
+            "seed": 2
+          },
+          "seq": 3
+        },
+        {
+          "actor": "desktop",
+          "changes": {
+            "$alive": true,
+            "description": "conflict"
+          },
+          "entity": [
+            "task",
+            "t"
+          ],
+          "seen": {
+            "seed": 3
+          },
+          "seq": 1
+        }
+      ],
+      "version": 2
+    },
+    "expectedFields": {
+      "description": ""
+    },
+    "expectedConflictFields": [
+      "description"
+    ]
+  },
+  {
+    "name": "delete-edit",
+    "left": {
+      "format": "tasktimer-sync",
+      "ops": [
+        {
+          "actor": "seed",
+          "changes": {
+            "$alive": true,
+            "description": "old",
+            "title": "Task"
+          },
+          "entity": [
+            "task",
+            "t"
+          ],
+          "seen": {},
+          "seq": 1
+        },
+        {
+          "actor": "seed",
+          "changes": {
+            "$alive": true,
+            "comment": "old",
+            "interval": {
+              "ended_at": "2026-01-01T11:00:00Z",
+              "started_at": "2026-01-01T10:00:00Z"
+            }
+          },
+          "entity": [
+            "session",
+            "t",
+            "s"
+          ],
+          "seen": {
+            "seed": 1
+          },
+          "seq": 2
+        },
+        {
+          "actor": "seed",
+          "changes": {
+            "$alive": true
+          },
+          "entity": [
+            "task",
+            "t"
+          ],
+          "seen": {
+            "seed": 2
+          },
+          "seq": 3
+        },
+        {
+          "actor": "android",
+          "changes": {
+            "$alive": false
+          },
+          "entity": [
+            "task",
+            "t"
+          ],
+          "seen": {
+            "seed": 3
+          },
+          "seq": 1
+        }
+      ],
+      "version": 2
+    },
+    "right": {
+      "format": "tasktimer-sync",
+      "ops": [
+        {
+          "actor": "seed",
+          "changes": {
+            "$alive": true,
+            "description": "old",
+            "title": "Task"
+          },
+          "entity": [
+            "task",
+            "t"
+          ],
+          "seen": {},
+          "seq": 1
+        },
+        {
+          "actor": "seed",
+          "changes": {
+            "$alive": true,
+            "comment": "old",
+            "interval": {
+              "ended_at": "2026-01-01T11:00:00Z",
+              "started_at": "2026-01-01T10:00:00Z"
+            }
+          },
+          "entity": [
+            "session",
+            "t",
+            "s"
+          ],
+          "seen": {
+            "seed": 1
+          },
+          "seq": 2
+        },
+        {
+          "actor": "seed",
+          "changes": {
+            "$alive": true
+          },
+          "entity": [
+            "task",
+            "t"
+          ],
+          "seen": {
+            "seed": 2
+          },
+          "seq": 3
+        },
+        {
+          "actor": "desktop",
+          "changes": {
+            "$alive": true,
+            "description": "conflict"
+          },
+          "entity": [
+            "task",
+            "t"
+          ],
+          "seen": {
+            "seed": 3
+          },
+          "seq": 1
+        }
+      ],
+      "version": 2
+    },
+    "expectedDeleted": true,
+    "expectedConflictFields": [
+      "$alive"
+    ]
+  },
+  {
+    "name": "stale",
+    "left": {
+      "format": "tasktimer-sync",
+      "ops": [
+        {
+          "actor": "seed",
+          "changes": {
+            "$alive": true,
+            "description": "old",
+            "title": "Task"
+          },
+          "entity": [
+            "task",
+            "t"
+          ],
+          "seen": {},
+          "seq": 1
+        },
+        {
+          "actor": "seed",
+          "changes": {
+            "$alive": true,
+            "comment": "old",
+            "interval": {
+              "ended_at": "2026-01-01T11:00:00Z",
+              "started_at": "2026-01-01T10:00:00Z"
+            }
+          },
+          "entity": [
+            "session",
+            "t",
+            "s"
+          ],
+          "seen": {
+            "seed": 1
+          },
+          "seq": 2
+        },
+        {
+          "actor": "seed",
+          "changes": {
+            "$alive": true
+          },
+          "entity": [
+            "task",
+            "t"
+          ],
+          "seen": {
+            "seed": 2
+          },
+          "seq": 3
+        },
+        {
+          "actor": "android",
+          "changes": {
+            "$alive": true,
+            "description": ""
+          },
+          "entity": [
+            "task",
+            "t"
+          ],
+          "seen": {
+            "seed": 3
+          },
+          "seq": 1
+        }
+      ],
+      "version": 2
+    },
+    "right": {
+      "format": "tasktimer-sync",
+      "ops": [
+        {
+          "actor": "seed",
+          "changes": {
+            "$alive": true,
+            "description": "old",
+            "title": "Task"
+          },
+          "entity": [
+            "task",
+            "t"
+          ],
+          "seen": {},
+          "seq": 1
+        },
+        {
+          "actor": "seed",
+          "changes": {
+            "$alive": true,
+            "comment": "old",
+            "interval": {
+              "ended_at": "2026-01-01T11:00:00Z",
+              "started_at": "2026-01-01T10:00:00Z"
+            }
+          },
+          "entity": [
+            "session",
+            "t",
+            "s"
+          ],
+          "seen": {
+            "seed": 1
+          },
+          "seq": 2
+        },
+        {
+          "actor": "seed",
+          "changes": {
+            "$alive": true
+          },
+          "entity": [
+            "task",
+            "t"
+          ],
+          "seen": {
+            "seed": 2
+          },
+          "seq": 3
+        }
+      ],
+      "version": 2
+    },
+    "expectedFields": {
+      "description": ""
+    },
+    "expectedConflictFields": []
+  },
+  {
+    "name": "shorter-cleared-session",
+    "left": {
+      "format": "tasktimer-sync",
+      "ops": [
+        {
+          "actor": "seed",
+          "changes": {
+            "$alive": true,
+            "description": "old",
+            "title": "Task"
+          },
+          "entity": [
+            "task",
+            "t"
+          ],
+          "seen": {},
+          "seq": 1
+        },
+        {
+          "actor": "seed",
+          "changes": {
+            "$alive": true,
+            "comment": "old",
+            "interval": {
+              "ended_at": "2026-01-01T11:00:00Z",
+              "started_at": "2026-01-01T10:00:00Z"
+            }
+          },
+          "entity": [
+            "session",
+            "t",
+            "s"
+          ],
+          "seen": {
+            "seed": 1
+          },
+          "seq": 2
+        },
+        {
+          "actor": "seed",
+          "changes": {
+            "$alive": true
+          },
+          "entity": [
+            "task",
+            "t"
+          ],
+          "seen": {
+            "seed": 2
+          },
+          "seq": 3
+        },
+        {
+          "actor": "android",
+          "changes": {
+            "$alive": true,
+            "comment": "",
+            "interval": {
+              "ended_at": "2026-01-01T10:40:00Z",
+              "started_at": "2026-01-01T10:00:00Z"
+            }
+          },
+          "entity": [
+            "session",
+            "t",
+            "s"
+          ],
+          "seen": {
+            "seed": 3
+          },
+          "seq": 1
+        },
+        {
+          "actor": "android",
+          "changes": {
+            "$alive": true
+          },
+          "entity": [
+            "task",
+            "t"
+          ],
+          "seen": {
+            "android": 1,
+            "seed": 3
+          },
+          "seq": 2
+        }
+      ],
+      "version": 2
+    },
+    "right": {
+      "format": "tasktimer-sync",
+      "ops": [
+        {
+          "actor": "seed",
+          "changes": {
+            "$alive": true,
+            "description": "old",
+            "title": "Task"
+          },
+          "entity": [
+            "task",
+            "t"
+          ],
+          "seen": {},
+          "seq": 1
+        },
+        {
+          "actor": "seed",
+          "changes": {
+            "$alive": true,
+            "comment": "old",
+            "interval": {
+              "ended_at": "2026-01-01T11:00:00Z",
+              "started_at": "2026-01-01T10:00:00Z"
+            }
+          },
+          "entity": [
+            "session",
+            "t",
+            "s"
+          ],
+          "seen": {
+            "seed": 1
+          },
+          "seq": 2
+        },
+        {
+          "actor": "seed",
+          "changes": {
+            "$alive": true
+          },
+          "entity": [
+            "task",
+            "t"
+          ],
+          "seen": {
+            "seed": 2
+          },
+          "seq": 3
+        }
+      ],
+      "version": 2
+    },
+    "entity": [
+      "session",
+      "t",
+      "s"
+    ],
+    "expectedFields": {
+      "interval": {
+        "started_at": "2026-01-01T10:00:00Z",
+        "ended_at": "2026-01-01T10:40:00Z"
+      },
+      "comment": ""
+    },
+    "expectedConflictFields": []
+  },
+  {
+    "name": "deleted-session",
+    "left": {
+      "format": "tasktimer-sync",
+      "ops": [
+        {
+          "actor": "seed",
+          "changes": {
+            "$alive": true,
+            "description": "old",
+            "title": "Task"
+          },
+          "entity": [
+            "task",
+            "t"
+          ],
+          "seen": {},
+          "seq": 1
+        },
+        {
+          "actor": "seed",
+          "changes": {
+            "$alive": true,
+            "comment": "old",
+            "interval": {
+              "ended_at": "2026-01-01T11:00:00Z",
+              "started_at": "2026-01-01T10:00:00Z"
+            }
+          },
+          "entity": [
+            "session",
+            "t",
+            "s"
+          ],
+          "seen": {
+            "seed": 1
+          },
+          "seq": 2
+        },
+        {
+          "actor": "seed",
+          "changes": {
+            "$alive": true
+          },
+          "entity": [
+            "task",
+            "t"
+          ],
+          "seen": {
+            "seed": 2
+          },
+          "seq": 3
+        },
+        {
+          "actor": "android",
+          "changes": {
+            "$alive": false
+          },
+          "entity": [
+            "session",
+            "t",
+            "s"
+          ],
+          "seen": {
+            "seed": 3
+          },
+          "seq": 1
+        },
+        {
+          "actor": "android",
+          "changes": {
+            "$alive": true
+          },
+          "entity": [
+            "task",
+            "t"
+          ],
+          "seen": {
+            "android": 1,
+            "seed": 3
+          },
+          "seq": 2
+        }
+      ],
+      "version": 2
+    },
+    "right": {
+      "format": "tasktimer-sync",
+      "ops": [
+        {
+          "actor": "seed",
+          "changes": {
+            "$alive": true,
+            "description": "old",
+            "title": "Task"
+          },
+          "entity": [
+            "task",
+            "t"
+          ],
+          "seen": {},
+          "seq": 1
+        },
+        {
+          "actor": "seed",
+          "changes": {
+            "$alive": true,
+            "comment": "old",
+            "interval": {
+              "ended_at": "2026-01-01T11:00:00Z",
+              "started_at": "2026-01-01T10:00:00Z"
+            }
+          },
+          "entity": [
+            "session",
+            "t",
+            "s"
+          ],
+          "seen": {
+            "seed": 1
+          },
+          "seq": 2
+        },
+        {
+          "actor": "seed",
+          "changes": {
+            "$alive": true
+          },
+          "entity": [
+            "task",
+            "t"
+          ],
+          "seen": {
+            "seed": 2
+          },
+          "seq": 3
+        }
+      ],
+      "version": 2
+    },
+    "entity": [
+      "session",
+      "t",
+      "s"
+    ],
+    "expectedDeleted": true,
+    "expectedConflictFields": []
+  },
+  {
+    "name": "resolved-conflict",
+    "left": {
+      "format": "tasktimer-sync",
+      "ops": [
+        {
+          "actor": "android",
+          "changes": {
+            "$alive": true,
+            "description": ""
+          },
+          "entity": [
+            "task",
+            "t"
+          ],
+          "seen": {
+            "seed": 3
+          },
+          "seq": 1
+        },
+        {
+          "actor": "desktop",
+          "changes": {
+            "$alive": true,
+            "description": "conflict"
+          },
+          "entity": [
+            "task",
+            "t"
+          ],
+          "seen": {
+            "seed": 3
+          },
+          "seq": 1
+        },
+        {
+          "actor": "seed",
+          "changes": {
+            "$alive": true,
+            "description": "old",
+            "title": "Task"
+          },
+          "entity": [
+            "task",
+            "t"
+          ],
+          "seen": {},
+          "seq": 1
+        },
+        {
+          "actor": "seed",
+          "changes": {
+            "$alive": true,
+            "comment": "old",
+            "interval": {
+              "ended_at": "2026-01-01T11:00:00Z",
+              "started_at": "2026-01-01T10:00:00Z"
+            }
+          },
+          "entity": [
+            "session",
+            "t",
+            "s"
+          ],
+          "seen": {
+            "seed": 1
+          },
+          "seq": 2
+        },
+        {
+          "actor": "seed",
+          "changes": {
+            "$alive": true
+          },
+          "entity": [
+            "task",
+            "t"
+          ],
+          "seen": {
+            "seed": 2
+          },
+          "seq": 3
+        },
+        {
+          "actor": "android",
+          "changes": {
+            "description": "conflict"
+          },
+          "entity": [
+            "task",
+            "t"
+          ],
+          "seen": {
+            "android": 1,
+            "desktop": 1,
+            "seed": 3
+          },
+          "seq": 2
+        }
+      ],
+      "version": 2
+    },
+    "right": {
+      "format": "tasktimer-sync",
+      "ops": [
+        {
+          "actor": "seed",
+          "changes": {
+            "$alive": true,
+            "description": "old",
+            "title": "Task"
+          },
+          "entity": [
+            "task",
+            "t"
+          ],
+          "seen": {},
+          "seq": 1
+        },
+        {
+          "actor": "seed",
+          "changes": {
+            "$alive": true,
+            "comment": "old",
+            "interval": {
+              "ended_at": "2026-01-01T11:00:00Z",
+              "started_at": "2026-01-01T10:00:00Z"
+            }
+          },
+          "entity": [
+            "session",
+            "t",
+            "s"
+          ],
+          "seen": {
+            "seed": 1
+          },
+          "seq": 2
+        },
+        {
+          "actor": "seed",
+          "changes": {
+            "$alive": true
+          },
+          "entity": [
+            "task",
+            "t"
+          ],
+          "seen": {
+            "seed": 2
+          },
+          "seq": 3
+        },
+        {
+          "actor": "android",
+          "changes": {
+            "$alive": true,
+            "description": ""
+          },
+          "entity": [
+            "task",
+            "t"
+          ],
+          "seen": {
+            "seed": 3
+          },
+          "seq": 1
+        }
+      ],
+      "version": 2
+    },
+    "expectedFields": {
+      "description": "conflict"
+    },
+    "expectedConflictFields": []
+  },
+  {
+    "name": "legacy-against-delete",
+    "left": {
+      "format": "tasktimer-sync",
+      "ops": [
+        {
+          "actor": "seed",
+          "changes": {
+            "$alive": true,
+            "description": "old",
+            "title": "Task"
+          },
+          "entity": [
+            "task",
+            "t"
+          ],
+          "seen": {},
+          "seq": 1
+        },
+        {
+          "actor": "seed",
+          "changes": {
+            "$alive": true,
+            "comment": "old",
+            "interval": {
+              "ended_at": "2026-01-01T11:00:00Z",
+              "started_at": "2026-01-01T10:00:00Z"
+            }
+          },
+          "entity": [
+            "session",
+            "t",
+            "s"
+          ],
+          "seen": {
+            "seed": 1
+          },
+          "seq": 2
+        },
+        {
+          "actor": "seed",
+          "changes": {
+            "$alive": true
+          },
+          "entity": [
+            "task",
+            "t"
+          ],
+          "seen": {
+            "seed": 2
+          },
+          "seq": 3
+        },
+        {
+          "actor": "android",
+          "changes": {
+            "$alive": false
+          },
+          "entity": [
+            "task",
+            "t"
+          ],
+          "seen": {
+            "seed": 3
+          },
+          "seq": 1
+        }
+      ],
+      "version": 2
+    },
+    "right": {
+      "format": "tasktimer-sync",
+      "ops": [
+        {
+          "actor": "migration",
+          "changes": {
+            "$alive": true,
+            "description": "unsent",
+            "title": "Task"
+          },
+          "entity": [
+            "task",
+            "t"
+          ],
+          "seen": {},
+          "seq": 1
+        }
+      ],
+      "version": 2
+    },
+    "expectedDeleted": true,
+    "expectedConflictFields": [
+      "$alive",
+      "description"
+    ]
+  },
+  {
+    "name": "unicode-decimal-candidates-use-dot-order",
+    "left": {
+      "format": "tasktimer-sync",
+      "ops": [
+        {
+          "actor": "a",
+          "changes": {
+            "$alive": true,
+            "extension": {
+              "one": 1,
+              "": 1e-7,
+              "😀": 1.5
+            },
+            "title": "Task"
+          },
+          "entity": [
+            "task",
+            "t"
+          ],
+          "seen": {},
+          "seq": 1
+        }
+      ],
+      "version": 2
+    },
+    "right": {
+      "format": "tasktimer-sync",
+      "ops": [
+        {
+          "actor": "b",
+          "changes": {
+            "$alive": true,
+            "extension": {
+              "one": 1,
+              "": 1e+21,
+              "😀": 2.5
+            },
+            "title": "Task"
+          },
+          "entity": [
+            "task",
+            "t"
+          ],
+          "seen": {},
+          "seq": 1
+        }
+      ],
+      "version": 2
+    },
+    "expectedFields": {
+      "extension": {
+        "😀": 1.5,
+        "": 1e-7,
+        "one": 1
+      }
+    },
+    "expectedConflictFields": [
+      "extension"
+    ]
+  }
+]
