@@ -1101,13 +1101,14 @@ class SettingsDialog(QDialog):
         self.webdav_shutdown_upload_only_checkbox = QCheckBox(
             "При выходе только отправить локальную копию (без слияния с облаком)"
         )
-        self.webdav_shutdown_upload_only_checkbox.setChecked(webdav.shutdown_upload_only)
+        self.webdav_shutdown_upload_only_checkbox.setChecked(False)
+        self.webdav_shutdown_upload_only_checkbox.setEnabled(False)
+        self.webdav_shutdown_upload_only_checkbox.hide()
         _configure_settings_checkbox(self.webdav_shutdown_upload_only_checkbox)
-        webdav_layout.addWidget(self.webdav_shutdown_upload_only_checkbox)
+
 
         upload_only_hint = QLabel(
-            "Если выключено — перед отправкой при выходе данные объединяются с сервером. "
-            "При конфликте при следующем запуске будет уведомление."
+            "Перед отправкой данные всегда объединяются с сервером. Для обмена обновите Android и компьютер до версии с WebDAV v2."
         )
         upload_only_hint.setWordWrap(True)
         webdav_layout.addWidget(upload_only_hint)
@@ -1154,6 +1155,9 @@ class SettingsDialog(QDialog):
         self.webdav_log_button.clicked.connect(self._open_webdav_log)
         _configure_settings_action_button(self.webdav_log_button)
         webdav_layout.addWidget(self.webdav_log_button)
+        self.webdav_conflicts_button = QPushButton("Разрешить конфликты синхронизации")
+        self.webdav_conflicts_button.clicked.connect(self._resolve_webdav_conflicts)
+        webdav_layout.addWidget(self.webdav_conflicts_button)
 
         self.webdav_status = QLabel(self._webdav_status_text(webdav))
         _configure_settings_status_label(self.webdav_status)
@@ -1434,7 +1438,7 @@ class SettingsDialog(QDialog):
             remote_path=self.webdav_remote_path_edit.text().strip() or current.remote_path,
             sync_on_startup=self.webdav_sync_startup_checkbox.isChecked(),
             sync_on_shutdown=self.webdav_sync_shutdown_checkbox.isChecked(),
-            shutdown_upload_only=self.webdav_shutdown_upload_only_checkbox.isChecked(),
+            shutdown_upload_only=False,
             sync_interval_minutes=self.webdav_sync_interval_spin.value(),
             sync_remind_later_minutes=int(self.webdav_remind_later_combo.currentData()),
             last_sync_at=current.last_sync_at,
@@ -1677,6 +1681,50 @@ class SettingsDialog(QDialog):
         parent = self.parent()
         if isinstance(parent, MainWindow):
             parent.refresh_ui()
+
+    def _resolve_webdav_conflicts(self) -> None:
+        import json
+        from .sync_protocol import project_document
+        try:
+            state = self.controller.storage.load()
+            conflicts = project_document(state.sync_v2)["conflicts"] if state.sync_v2 else []
+            for conflict in conflicts:
+                box = QMessageBox(self)
+                box.setWindowTitle("Конфликт синхронизации")
+                entity_title = next((e["values"].get("title", e["entity"][1]) for e in project_document(state.sync_v2)["entities"] if e["entity"] == ["task", conflict["entity"][1]]), conflict["entity"][1])
+                field_labels = {"$alive": "Существование записи", "title": "Название", "description": "Описание", "interval": "Время сессии", "comment": "Комментарий", "daily_priorities": "Приоритеты по дням"}
+                box.setText(str(entity_title) + "\nПоле: " + field_labels.get(conflict["field"], conflict["field"]))
+                box.setInformativeText("Выберите сохранённый вариант. Другие конфликты останутся без изменений.")
+                choices = []
+                for candidate in conflict["candidates"]:
+                    value = candidate["value"]
+                    label = ("Сохранить запись" if value else "Удалить запись") if conflict["field"] == "$alive" else json.dumps(value, ensure_ascii=False)
+                    button = box.addButton(label[:240], QMessageBox.ButtonRole.ActionRole)
+                    button.setToolTip(label)
+                    choices.append((button, value))
+                box.addButton(QMessageBox.StandardButton.Cancel)
+                box.exec()
+                choice = next((value for button, value in choices if button is box.clickedButton()), None)
+                selected = any(button is box.clickedButton() for button, _ in choices)
+                if not selected:
+                    break
+                self.controller.storage.resolve_sync_conflict(conflict["entity"], conflict["field"], choice, expected=conflict["candidates"])
+            self.controller.reload_state_from_storage()
+            active = [(t, s) for t in self.controller.state.tasks for s in t.sessions if s.ended_at is None]
+            if len(active) > 1:
+                labels = [f"{i+1}. {t.title} — {session.started_at}" for i, (t, session) in enumerate(active)]
+                selected, ok = QInputDialog.getItem(self, "Одновременные таймеры", "Какую сессию оставить активной? Остальные завершатся текущим временем и сохранятся в истории.", labels, 0, False)
+                if ok:
+                    task, session = active[labels.index(selected)]
+                    self.controller.storage.keep_active_session(task.id, session.id, expected=[[t.id, s.id] for t, s in active])
+                    self.controller.reload_state_from_storage()
+            elif not conflicts:
+                QMessageBox.information(self, "WebDAV", "Конфликтов синхронизации нет.")
+            parent = self.parent()
+            if isinstance(parent, MainWindow):
+                parent.refresh_ui()
+        except (ValueError, OSError) as exc:
+            QMessageBox.warning(self, "WebDAV", str(exc))
 
     def _on_webdav_push_ok(self, outcome: object) -> None:
         self.controller.reload_state_from_storage()
@@ -4093,7 +4141,7 @@ class MainWindow(QMainWindow):
         if not isinstance(outcome, SyncOutcome):
             return
         if outcome.state is not None:
-            self.controller.state = outcome.state
+            self.controller.state = self.controller.storage.load()
             self.controller.apply_loaded_state()
             self.refresh_ui()
         elif not outcome.error:
@@ -4287,7 +4335,7 @@ class MainWindow(QMainWindow):
     def _on_main_webdav_sync_ok(self, outcome: object) -> None:
         sync_outcome = outcome if isinstance(outcome, SyncOutcome) else SyncOutcome()
         if sync_outcome.state is not None:
-            self.controller.state = sync_outcome.state
+            self.controller.state = self.controller.storage.load()
             self.controller.apply_loaded_state()
         else:
             self.controller.reload_state_from_storage()

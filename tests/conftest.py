@@ -8,7 +8,6 @@ import sys
 from pathlib import Path
 
 import pytest
-from PySide6.QtWidgets import QApplication
 
 from timerapp_ag.controller import AppController
 from timerapp_ag.storage import Storage
@@ -16,6 +15,7 @@ from timerapp_ag.storage import Storage
 
 @pytest.fixture(scope="session")
 def qapp():
+    from PySide6.QtWidgets import QApplication
     app = QApplication.instance()
     if app is None:
         app = QApplication(sys.argv)

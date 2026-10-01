@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import copy
+from uuid import uuid4
 import os
 import re
 import shutil
@@ -14,6 +16,8 @@ from . import platform_paths
 from .bitrix_secrets import strip_bitrix_secrets_from_ui
 from .domain.merge import merge_states, pick_best_data_file, score_data_file, states_equivalent
 from .domain.state import AppState
+from .storage_transaction import transaction, atomic_write
+from . import sync_protocol as protocol
 
 MAX_BACKUPS = 30
 BACKUP_REASON_RE = re.compile(r"[^\w.-]+")
@@ -145,7 +149,11 @@ class Storage:
 
         if self.path.exists():
             self.create_backup("before-merge")
-        self.save(merged, update_rolling_backup=False)
+        if current is not None and current.sync_v2 is not None:
+            imported = protocol.import_legacy([t.to_dict() for t in merged.tasks], "migration-" + uuid4().hex)
+            self.merge_sync_v2(imported)
+        else:
+            self.save(merged, update_rolling_backup=False)
         self.create_backup("merge")
         self._archive_legacy_sources(candidates)
 
@@ -194,18 +202,28 @@ class Storage:
         shutil.copy2(self.path, self.rolling_backup_path)
 
     def _load_from_rolling_backup(self) -> AppState | None:
-        if not self.rolling_backup_path.is_file():
-            return None
-        try:
-            data = json.loads(self.rolling_backup_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return None
-        try:
-            state = AppState.from_dict(data)
-        except (KeyError, TypeError, ValueError):
-            return None
-        self.save(state, update_rolling_backup=False)
-        return state
+        with transaction(self.path):
+            # Another process may have repaired the primary while this reader waited.
+            try:
+                current = self._raw_state()
+                if current.sync_v2 is not None:
+                    protocol.validate_document(current.sync_v2)
+                current.sync_base_tasks = copy.deepcopy([task.to_dict() for task in current.tasks])
+                return current
+            except (json.JSONDecodeError, UnicodeError):
+                pass
+            if not self.rolling_backup_path.is_file():
+                return None
+            try:
+                data = json.loads(self.rolling_backup_path.read_text(encoding="utf-8"))
+                state = AppState.from_dict(data)
+                if state.sync_v2 is not None:
+                    protocol.validate_document(state.sync_v2)
+            except (OSError, UnicodeError, json.JSONDecodeError, KeyError, TypeError, ValueError):
+                return None
+            self.create_backup("corrupt-" + uuid4().hex)
+            self._commit_state(state, update_rolling_backup=False)
+            return state
 
     def load(self) -> AppState:
         if self._migrate_legacy:
@@ -214,27 +232,172 @@ class Storage:
             return AppState()
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+        except (json.JSONDecodeError, UnicodeError) as exc:
             restored = self._load_from_rolling_backup()
             if restored is not None:
                 return restored
-            return AppState()
-        return AppState.from_dict(data)
+            raise ValueError("Файл данных повреждён; сохраните его и восстановите резервную копию") from exc
+        state = AppState.from_dict(data)
+        if state.sync_v2 is not None:
+            protocol.validate_document(state.sync_v2)
+        state.sync_base_tasks = copy.deepcopy([task.to_dict() for task in state.tasks])
+        return state
 
-    def save(self, state: AppState, *, update_rolling_backup: bool = True) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+    def _raw_state(self):
+        if not self.path.exists():
+            return AppState()
+        return AppState.from_dict(json.loads(self.path.read_text(encoding="utf-8")))
+
+    def _actor(self, doc):
+        # Installation metadata is intentionally outside backups and remote payloads.
+        path = self.path.parent / "sync-device.json"
+        data = json.loads(path.read_text()) if path.exists() else {"actor": "desktop-" + uuid4().hex, "seq": 0}
+        seen = max((o["seq"] for o in doc["ops"] if o["actor"] == data["actor"]), default=0)
+        if seen < data["seq"]:
+            data = {"actor": "desktop-" + uuid4().hex, "seq": 0}
+        return path, data
+
+    def _commit_state(self, state, *, update_rolling_backup=True):
         ui = dict(state.ui)
         strip_bitrix_secrets_from_ui(ui)
-        payload = json.dumps(
-            {"tasks": [task.to_dict() for task in state.tasks], "ui": ui},
-            ensure_ascii=False,
-            indent=2,
-        )
-        temp_path = self.path.with_suffix(".json.tmp")
-        temp_path.write_text(payload, encoding="utf-8")
-        os.replace(temp_path, self.path)
+        payload = state.to_dict()
+        payload["ui"] = ui
+        atomic_write(self.path, json.dumps(payload, ensure_ascii=False, indent=2))
         if update_rolling_backup:
             self._update_rolling_backup()
+        state.sync_base_tasks = copy.deepcopy([task.to_dict() for task in state.tasks])
+
+    def enable_sync_v2(self):
+        with transaction(self.path):
+            state = self._raw_state()
+            if state.sync_v2 is None:
+                self.create_backup("before-sync-v2")
+                tasks = [t.to_dict() for t in state.tasks]
+                state.sync_v2 = protocol.import_legacy(tasks, "migration-" + uuid4().hex)
+                self._commit_state(state)
+            else:
+                protocol.validate_document(state.sync_v2)
+            state.sync_base_tasks = copy.deepcopy([t.to_dict() for t in state.tasks])
+            return state
+
+    @staticmethod
+    def _project_state(doc, ui):
+        from datetime import date
+        from .domain.datetime_util import parse_iso_datetime
+        tasks = protocol.project_tasks(doc)["tasks"]
+        for task in tasks:
+            if not isinstance(task.get("title"), str) or not task["title"].strip() or not isinstance(task.get("description", ""), str):
+                raise ValueError("Некорректные поля задачи в синхронизации")
+            date.fromisoformat(task["day"])
+            if "created_at" in task:
+                parse_iso_datetime(task["created_at"])
+            for session in task["sessions"]:
+                start = parse_iso_datetime(session["started_at"])
+                end = parse_iso_datetime(session["ended_at"]) if session.get("ended_at") is not None else None
+                if not isinstance(session.get("comment", ""), str):
+                    raise ValueError("Некорректный комментарий сессии")
+                if end is not None:
+                    a = start if start.tzinfo else start.astimezone()
+                    b = end if end.tzinfo else end.astimezone()
+                    if b < a:
+                        raise ValueError("Окончание сессии раньше начала")
+        return AppState.from_dict({"tasks": tasks, "ui": ui, "sync_v2": doc})
+
+    def merge_sync_v2(self, remote, *, migration_key=None, legacy_tasks=None):
+        protocol.validate_document(remote)
+        with transaction(self.path):
+            state = self._raw_state()
+            if state.sync_v2 is None:
+                raise ValueError("Сначала включите синхронизацию v2")
+            doc = protocol.merge_documents(state.sync_v2, remote)
+            if migration_key:
+                migrated = list(state.ui.get("sync_v2_remote_imports", []))
+                if migration_key not in migrated:
+                    if legacy_tasks is not None:
+                        self.backup_dir.mkdir(parents=True, exist_ok=True)
+                        atomic_write(self.backup_dir / ("remote-legacy-" + migration_key + ".json"), json.dumps({"tasks": legacy_tasks}, ensure_ascii=False))
+                    migrated.append(migration_key)
+                    state.ui["sync_v2_remote_imports"] = migrated
+            result = self._project_state(doc, state.ui)
+            self._commit_state(result)
+            return result
+
+    def resolve_sync_conflict(self, entity, field, value, *, expected=None):
+        with transaction(self.path):
+            state = self._raw_state()
+            if state.sync_v2 is None:
+                raise ValueError("Нет данных синхронизации")
+            if expected is not None:
+                conflict = next((c for c in protocol.project_document(state.sync_v2)["conflicts"] if c["entity"] == entity and c["field"] == field), None)
+                if conflict is None or not protocol.equal(conflict["candidates"], expected):
+                    raise ValueError("Конфликт изменился; обновите список вариантов")
+            path, actor = self._actor(state.sync_v2)
+            doc = protocol.resolve_conflict(state.sync_v2, actor["actor"], entity, field, value)
+            actor["seq"] = max((o["seq"] for o in doc["ops"] if o["actor"] == actor["actor"]), default=0)
+            atomic_write(path, json.dumps(actor))
+            result = self._project_state(doc, state.ui)
+            self._commit_state(result)
+            return result
+
+    def keep_active_session(self, task_id, session_id, *, expected, now=None):
+        """Explicit resolution of concurrent starts; keep all intervals as history."""
+        from .models import TaskStatus
+        with transaction(self.path):
+            state = self._raw_state()
+            if state.sync_v2 is None:
+                raise ValueError("Нет данных синхронизации")
+            active = [(t, session) for t in state.tasks for session in t.sessions if session.ended_at is None]
+            actual = sorted([t.id, session.id] for t, session in active)
+            if actual != sorted(expected) or [task_id, session_id] not in actual:
+                raise ValueError("Список активных сессий изменился; повторите выбор")
+            before = [t.to_dict() for t in state.tasks]
+            moment = now or datetime.now().astimezone()
+            if moment.tzinfo is None:
+                moment = moment.astimezone()
+            for task, session in active:
+                if [task.id, session.id] == [task_id, session_id]:
+                    continue
+                start = session.start_dt
+                if start.tzinfo is None:
+                    start = start.astimezone()
+                end = max(start, moment)
+                session.ended_at = end.isoformat()
+                if "duration_seconds" in session.extra:
+                    session.extra["duration_seconds"] = int((end - start).total_seconds())
+            for task in state.tasks:
+                if task.active_session() is not None:
+                    task.status = TaskStatus.RUNNING
+                elif task.status == TaskStatus.RUNNING:
+                    task.status = TaskStatus.PAUSED
+            path, actor = self._actor(state.sync_v2)
+            state.sync_v2 = protocol.reconcile_tasks(state.sync_v2, before, [t.to_dict() for t in state.tasks], actor["actor"])
+            actor["seq"] = max((o["seq"] for o in state.sync_v2["ops"] if o["actor"] == actor["actor"]), default=0)
+            atomic_write(path, json.dumps(actor))
+            self._commit_state(state)
+            return state
+
+    def save(self, state: AppState, *, update_rolling_backup: bool = True) -> None:
+        with transaction(self.path):
+            current = self._raw_state()
+            if current.sync_v2 is not None:
+                before = state.sync_base_tasks
+                if before is None:
+                    raise ValueError("Устаревшая копия без исходной версии; перечитайте данные перед сохранением")
+                base = state.sync_v2
+                if base is None:
+                    # UI loaded before migration: independent ancestry must not overwrite tombstones.
+                    base = protocol.import_legacy(before, "migration-" + uuid4().hex)
+                path, actor = self._actor(current.sync_v2)
+                edit_actor = actor["actor"] if protocol.equal(base, current.sync_v2) else "branch-" + uuid4().hex
+                edited = protocol.reconcile_tasks(base, before, [t.to_dict() for t in state.tasks], edit_actor)
+                doc = protocol.merge_documents(current.sync_v2, edited)
+                actor["seq"] = max((o["seq"] for o in doc["ops"] if o["actor"] == actor["actor"]), default=0)
+                atomic_write(path, json.dumps(actor))
+                merged = self._project_state(doc, state.ui)
+                state.tasks, state.sync_v2 = merged.tasks, doc
+                if "sync_v2_remote_imports" in current.ui:
+                    state.ui["sync_v2_remote_imports"] = current.ui["sync_v2_remote_imports"]
+            self._commit_state(state, update_rolling_backup=update_rolling_backup)
 
 
 # Backward-compatible re-exports

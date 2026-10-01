@@ -41,3 +41,13 @@ Safety bounds: 20,000 operations and 20 MiB UTF-8 canonical envelope. Exceeding 
 - `canonical(value)` -> deterministic JSON string
 
 Fixtures in `tests/fixtures/sync-v2/cases.json` include inputs and independently inspected expected projections; Python/Kotlin should assert the same merge and conflict semantics. Engine does not validate app-specific calendar/status invariants; application adapters must validate these and retain incompatible concurrent versions for explicit resolution.
+
+## Desktop integration
+
+Desktop stores `sync_v2` and the task projection together in `data.json` under a process/thread-shared file lock; replacement uses a unique file in the same directory, fsync and atomic rename. Local UI snapshots retain their original causal document. Saving a stale snapshot creates an independent branch operation before merging with the current disk document, preserving unseen same-field changes as conflicts. Device actor metadata lives separately in `sync-device.json`; restoring a snapshot older than its saved counter rotates the actor.
+
+The first v2 exchange backs up local legacy data. If v2 is absent, an unprocessed legacy remote resource is imported once as an independent actor and task-only backup; historic UI credentials are neither imported nor copied. A per-target local migration marker is committed with the imported log. Deleting a v2 remote file later does not silently reimport stale legacy data. All desktop upload entry points, including shutdown and the historical upload-only API, now use conditional merge/PUT. The legacy unsafe checkbox is hidden; existing settings no longer enable unsafe writes.
+
+Settings provide conflict candidate selection and explicit selection of the active session when concurrent starts exist. Other active intervals close at the confirmed resolution time and remain in history. Background reload no longer normalizes or discards remote active sessions. Empty `result`, `daily_priorities` and false `keep_priority` serialize explicitly so clears propagate.
+
+A corrupt primary file with no usable backup raises an error without replacing data. When an existing valid rolling backup can recover the primary file, the corrupt original is retained separately. Tests cover real two-process storage writes, stale snapshots and remote concurrent changes, actor rollback, metadata/time preservation, first migration, ETag failures and conditional 412 retry. Actual public WebDAV interoperability and desktop Qt interaction still require runtime acceptance; pure/fake-HTTP tests do not replace those checks.

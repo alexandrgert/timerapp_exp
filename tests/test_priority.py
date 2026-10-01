@@ -26,7 +26,7 @@ def test_task_priority_defaults_to_four(controller: AppController) -> None:
     task = _add(controller, "Default")
     today = controller.today_str()
     assert priority_domain.task_priority(task, today) == 4
-    assert "daily_priorities" not in task.to_dict()
+    assert task.to_dict()["daily_priorities"] == {}
 
 
 def test_set_task_priority_persists_and_clears_default(controller: AppController) -> None:

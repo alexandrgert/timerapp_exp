@@ -119,10 +119,10 @@ def test_task_round_trip_serialization() -> None:
     assert restored == task
 
 
-def test_task_result_round_trip_omits_empty() -> None:
+def test_task_result_round_trip_preserves_explicit_empty() -> None:
     task = Task(id="t1", day="2026-01-01", title="Bare", result="")
     payload = task.to_dict()
-    assert "result" not in payload
+    assert payload["result"] == ""
     restored = Task.from_dict(payload)
     assert restored.result == ""
 
@@ -142,4 +142,4 @@ def test_task_keep_priority_round_trip() -> None:
     assert payload["keep_priority"] is True
     restored = Task.from_dict(payload)
     assert restored.keep_priority is True
-    assert "keep_priority" not in Task(id="t2", day="2026-01-01", title="X").to_dict()
+    assert Task(id="t2", day="2026-01-01", title="X").to_dict()["keep_priority"] is False

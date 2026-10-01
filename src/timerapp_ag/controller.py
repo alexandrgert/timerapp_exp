@@ -76,6 +76,13 @@ class AppController:
     def apply_loaded_state(self) -> None:
         """После load/pull: миграция секретов, rollover, одна running-задача, runtime таймера."""
         self._migrate_bitrix_webhook_from_data()
+        if self.state.sync_v2 is not None:
+            # A remote active session is not an orphaned local focus timer.
+            # Concurrent timers must remain visible until the user resolves them.
+            self.pending_confirmation_task_id = None
+            self.pending_confirmation_deadline = None
+            self._rebuild_runtime_state()
+            return
         changed_rollover = plan_domain.ensure_plan_rollover(self.state, today=self.today_str())
         changed_running = normalize_running_tasks(self.state)
         self.pending_confirmation_task_id = None

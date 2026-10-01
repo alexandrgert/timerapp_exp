@@ -11,11 +11,14 @@ from ..models import Task
 class AppState:
     tasks: list[Task] = field(default_factory=list)
     ui: dict[str, Any] = field(default_factory=default_ui)
+    sync_v2: dict[str, Any] | None = field(default=None, repr=False)
+    sync_base_tasks: list[dict] | None = field(default=None, repr=False, compare=False)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "tasks": [task.to_dict() for task in self.tasks],
             "ui": self.ui,
+            **({"sync_v2": self.sync_v2} if self.sync_v2 is not None else {}),
         }
 
     @classmethod
@@ -35,4 +38,5 @@ class AppState:
         return cls(
             tasks=[Task.from_dict(item) for item in data.get("tasks", [])],
             ui=ui,
+            sync_v2=data.get("sync_v2"),
         )

@@ -5,6 +5,8 @@ import base64
 import os
 import urllib.error
 import urllib.request
+import urllib.parse
+import re
 from typing import Mapping
 
 from .webdav_config import WebDavConfig
@@ -54,6 +56,9 @@ class WebDavClient:
         data: bytes | None = None,
         headers: Mapping[str, str] | None = None,
     ) -> tuple[int, bytes, Mapping[str, str]]:
+        parsed = urllib.parse.urlsplit(url)
+        if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.fragment:
+            raise WebDavError("WebDAV требует HTTPS URL без встроенных учётных данных")
         request_headers = {
             "Authorization": _basic_auth_header(self._config.username, self._config.password),
             "User-Agent": "TaskTimer-Experiment",
@@ -62,11 +67,17 @@ class WebDavClient:
             request_headers.update(headers)
         req = urllib.request.Request(url, data=data, method=method, headers=request_headers)
         try:
-            with urllib.request.urlopen(req, timeout=_timeout_seconds()) as response:
-                body = response.read()
+            class NoRedirect(urllib.request.HTTPRedirectHandler):
+                def redirect_request(self, req, fp, code, msg, headers, newurl):
+                    raise WebDavError("Перенаправление WebDAV отклонено; укажите конечный HTTPS адрес")
+            opener = urllib.request.build_opener(NoRedirect)
+            with opener.open(req, timeout=_timeout_seconds()) as response:
+                body = response.read(20 * 1024 * 1024 + 1)
+                if len(body) > 20 * 1024 * 1024:
+                    raise WebDavError("Ответ WebDAV превышает безопасный размер")
                 return response.status, body, dict(response.headers.items())
         except urllib.error.HTTPError as exc:
-            body = exc.read()
+            body = exc.read(65536)
             message = body.decode("utf-8", errors="replace") or exc.reason or str(exc.code)
             raise WebDavError(
                 _sanitize_error(f"WebDAV {method} {exc.code}: {message}", self._config),
@@ -111,6 +122,18 @@ class WebDavClient:
     def upload(self, url: str, payload: bytes, *, content_type: str = "application/json; charset=utf-8") -> None:
         self._ensure_collection(url)
         self._request("PUT", url, data=payload, headers={"Content-Type": content_type})
+
+    def download_versioned(self, url):
+        _, body, headers = self._request("GET", url)
+        etag = next((v for k, v in headers.items() if k.lower() == "etag"), None)
+        if not isinstance(etag, str) or not re.fullmatch(r'"[^"\r\n]*"', etag):
+            raise WebDavError("Сервер не предоставляет сильный ETag; безопасная синхронизация невозможна")
+        return body, etag
+
+    def upload_conditional(self, url, payload, *, etag):
+        self._ensure_collection(url)
+        condition = {"If-None-Match": "*"} if etag is None else {"If-Match": etag}
+        self._request("PUT", url, data=payload, headers={"Content-Type": "application/json; charset=utf-8", **condition})
 
     def _ensure_collection(self, file_url: str) -> None:
         if not file_url.endswith("/"):

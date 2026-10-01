@@ -27,6 +27,7 @@ class Session:
     ended_at: str | None = None
     bitrix_record_id: str | None = None
     comment: str = ""
+    extra: dict[str, Any] = field(default_factory=dict, repr=False)
 
     @property
     def start_dt(self) -> datetime:
@@ -41,6 +42,7 @@ class Session:
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            **self.extra,
             "id": self.id,
             "started_at": self.started_at,
             "ended_at": self.ended_at,
@@ -56,6 +58,7 @@ class Session:
             ended_at=data.get("ended_at"),
             bitrix_record_id=data.get("bitrix_record_id"),
             comment=str(data.get("comment", "") or ""),
+            extra={k: v for k, v in data.items() if k not in {"id", "started_at", "ended_at", "bitrix_record_id", "comment"}},
         )
 
 
@@ -75,6 +78,7 @@ class Task:
     planned_days: list[str] = field(default_factory=list)
     daily_priorities: dict[str, int] = field(default_factory=dict)
     keep_priority: bool = False
+    extra: dict[str, Any] = field(default_factory=dict, repr=False)
 
     def total_seconds(self, now: datetime | None = None) -> int:
         return sum(session.duration_seconds(now=now) for session in self.sessions)
@@ -90,6 +94,7 @@ class Task:
 
     def to_dict(self) -> dict[str, Any]:
         payload = {
+            **self.extra,
             "id": self.id,
             "day": self.day,
             "title": self.title,
@@ -102,12 +107,9 @@ class Task:
             "bitrix": self.bitrix,
             "planned_days": self.planned_days,
         }
-        if self.result:
-            payload["result"] = self.result
-        if self.daily_priorities:
-            payload["daily_priorities"] = dict(self.daily_priorities)
-        if self.keep_priority:
-            payload["keep_priority"] = True
+        payload["result"] = self.result
+        payload["daily_priorities"] = dict(self.daily_priorities)
+        payload["keep_priority"] = self.keep_priority
         return payload
 
     @classmethod
@@ -131,4 +133,5 @@ class Task:
                 if isinstance(value, int) and 1 <= value <= 4
             },
             keep_priority=bool(data.get("keep_priority", False)),
+            extra={k: v for k, v in data.items() if k not in {"id", "day", "title", "description", "result", "status", "sessions", "created_at", "completed_at", "continuation_of", "bitrix", "planned_days", "daily_priorities", "keep_priority"}},
         )
