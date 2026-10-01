@@ -2,7 +2,7 @@
 
 Минимальные требования для **установленных** сборок (не для разработки из исходников).
 
-Текущая версия исходников: **0.11.7** (см. [`pyproject.toml`](../pyproject.toml)).
+Текущая версия исходников: **0.11.8** (см. [`pyproject.toml`](../pyproject.toml)).
 
 Стабильные релизы **TaskTimer link B24** — [timer-app](https://github.com/alexandrgert/timer-app/releases).
 
@@ -237,7 +237,7 @@ Release APK из CI подписан постоянным ключом (GitHub S
 | `timerapp-exp-*-android.apk` | Android (Experiment) |
 | `tasktimer-link-b24-*` | стабильный продукт [timer-app](https://github.com/alexandrgert/timer-app/releases) |
 
-**Текущая версия исходников Experiment:** **0.11.7**. Полный выпуск опубликован через `full-release.yml`: [v0.11.7](https://github.com/alexandrgert/timerapp_exp/releases/tag/v0.11.7); описание изменений — [release-notes-v0.11.7.md](release-notes-v0.11.7.md). Сведения о проверках 0.11.6 выше относятся к предыдущей сборке.
+**Текущая версия исходников Experiment:** **0.11.8**. Последний опубликованный полный выпуск — **0.11.7**, опубликован через `full-release.yml`: [v0.11.7](https://github.com/alexandrgert/timerapp_exp/releases/tag/v0.11.7); описание изменений — [release-notes-v0.11.7.md](release-notes-v0.11.7.md). Сведения о проверках 0.11.6 выше относятся к предыдущей сборке.
 
 CI (`.github/workflows/ci.yml`) при push в `main` собирает полную матрицу **Linux** (`.deb`, `.rpm`, `.tar.xz`, `.tgz`, `.AppImage`, Flatpak, Snap, ebuild/overlay, PiSi, PET, PUP, LZM), **Windows .exe**, **macOS .zip** и **Android .apk**.
 

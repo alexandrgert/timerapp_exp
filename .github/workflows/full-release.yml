@@ -1,8 +1,8 @@
-name: Release 0.11.7 (all platforms)
+name: Release 0.11.8 (all platforms)
 
 on:
   push:
-    branches: [release/approved-all-20260930-01]
+    branches: [release/approved-all-20261001-01]
 
 permissions:
   contents: read
@@ -79,7 +79,7 @@ jobs:
           echo "APPIMAGETOOL=$HOME/linuxdeploy/appimagetool-x86_64.AppImage" >> "$GITHUB_ENV"
 
       - name: Verify DEB version
-        run: test "$(dpkg-deb -f dist/timerapp-exp-0.11.7-amd64.deb Version)" = 0.11.7
+        run: test "$(dpkg-deb -f dist/timerapp-exp-0.11.8-amd64.deb Version)" = 0.11.8
 
       - name: Build Linux extras (full matrix)
         run: |
@@ -234,8 +234,8 @@ jobs:
           from pathlib import Path
           line = Path("release-package-info.txt").read_text()
           assert "name='com.timerapp.exp'" in line
-          assert "versionCode='1107'" in line
-          assert "versionName='0.11.7'" in line
+          assert "versionCode='1108'" in line
+          assert "versionName='0.11.8'" in line
           PY
 
       - uses: actions/upload-artifact@v5
@@ -283,8 +283,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          gh release create v0.11.7 --target "$GITHUB_SHA" \
-            --title 'TaskTimer Experiment 0.11.7' \
-            --notes-file docs/release-notes-v0.11.7.md --draft \
+          gh release create v0.11.8 --target "$GITHUB_SHA" \
+            --title 'TaskTimer Experiment 0.11.8' \
+            --notes-file docs/release-notes-v0.11.8.md --draft \
             release-assets/*
-          gh release edit v0.11.7 --draft=false --latest
+          gh release edit v0.11.8 --draft=false --latest
