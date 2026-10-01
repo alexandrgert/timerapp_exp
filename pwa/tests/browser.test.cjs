@@ -132,3 +132,13 @@ test('known v2 target never reimports stale legacy after remote deletion; anothe
  });assert.deepEqual(result,{same:0,total:1});
  }finally{await context.close();}
 });
+
+test('editor refuses hidden concurrent candidate even when projected original remains unchanged',async()=>{
+ const {context,page}=await setup();try{
+ await create(page,'Первоначальное');
+ await page.evaluate(async()=>{const {openRepository}=await import('/repository.mjs');const {changeEntity}=await import('/sync-protocol.mjs');const r=await openRepository();await r.enableSync();const base=await r.mergeSync(null);const id=base.state.tasks[0].id;await r.mergeSync(changeEntity(base.document,'a',['task',id],{title:'Левый'}));globalThis.fixtureBranch=base.document;globalThis.fixtureTask=id;r.close();});
+ await page.getByRole('button',{name:'Изменить',exact:true}).click();assert.equal(await page.getByTestId('task-title').inputValue(),'Левый');await page.getByTestId('task-title').fill('Мой черновик');
+ await page.evaluate(async()=>{const {openRepository}=await import('/repository.mjs');const {changeEntity}=await import('/sync-protocol.mjs');const r=await openRepository();await r.mergeSync(changeEntity(globalThis.fixtureBranch,'z',['task',globalThis.fixtureTask],{title:'Правый'}));r.close();});
+ assert.equal((await read(page)).tasks[0].title,'Левый');await page.getByTestId('save').click();await page.locator('#editor-error').waitFor({state:'visible'});assert.match(await page.locator('#editor-error').textContent(),/Сначала разрешите конфликт/);assert.equal(await page.getByTestId('task-title').inputValue(),'Мой черновик');const current=await read(page);assert.equal(current.tasks[0].title,'Левый');assert.equal(current.sync.conflicts[0].candidates.length,2);
+ }finally{await context.close();}
+});

@@ -1,5 +1,5 @@
 import {initialState, apply, validateBackup} from './model.mjs';
-import {importLegacy, reconcileTasks, mergeDocuments, projectTasks, resolveConflict, changeEntity, validateDocument} from './sync-protocol.mjs';
+import {importLegacy, reconcileTasks, mergeDocuments, projectTasks, resolveConflict, changeEntity, validateDocument, emptyDocument} from './sync-protocol.mjs';
 
 function canonicalTasks(tasks){
  return tasks.map(task=>{
@@ -107,7 +107,7 @@ export async function openRepository({name='tasktimer-pwa'}={}) {
  if(sync)next=projectSynced(current,sync);
  if(sync?.projectionError&&command&&command.type!=='reconcile')throw new Error('Сначала разрешите конфликт синхронизации в настройках. '+sync.projectionError);
  if(!sync?.projectionError){
-   const reconciled=apply(next,{type:'reconcile'});
+   const reconciled=sync?.conflicts?.length?next:apply(next,{type:'reconcile'});
    if(command?.expected){
      const task=reconciled.tasks.find(t=>t.id===command.taskId);
      const entity=command.sessionId?task?.sessions.find(s=>s.id===command.sessionId):task;
@@ -117,6 +117,12 @@ export async function openRepository({name='tasktimer-pwa'}={}) {
    }
    const applied=validateBackup(command?apply(reconciled,command):reconciled);
    if(sync){
+     if(command?.type!=='replaceState'){
+       const delta=reconcileTasks(emptyDocument(),canonicalTasks(next.tasks),canonicalTasks(applied.tasks),'change-probe');
+       for(const op of delta.ops){
+         if(sync.conflicts.some(c=>JSON.stringify(c.entity)===JSON.stringify(op.entity)&&Object.hasOwn(op.changes,c.field)))throw new Error('Сначала разрешите конфликт этого поля в настройках синхронизации. Черновик сохранён в форме.');
+       }
+     }
      if(command?.type==='replaceState')sync.actor=crypto.randomUUID();
      sync.document=reconcileTasks(sync.document,canonicalTasks(next.tasks),canonicalTasks(applied.tasks),sync.actor);
    }

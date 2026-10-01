@@ -1,0 +1,102 @@
+name: Cross-client WebDAV v2 and PWA checks
+
+# Each run needs explicit user approval. No push, pull_request or release triggers.
+on:
+  workflow_dispatch:
+    inputs:
+      voice_inference:
+        description: Run real pinned Russian WASM browser inference (downloads 74 MB model)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  cross-client:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: pwa/package-lock.json
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Qt and browser host dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libxkbcommon-x11-0 libegl1 libgl1 libglib2.0-0 libdbus-1-3 libxcb-cursor0 libxcb-xinerama0 libfontconfig1 libx11-6
+          python -m pip install -e . -r requirements-dev.txt
+          npm ci --prefix pwa
+          cd pwa
+          npx playwright install --with-deps chromium
+      - name: Desktop tests and shared fixtures
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest -q --junitxml=desktop-sync-tests.xml
+      - name: PWA unit and browser tests (serial)
+        working-directory: pwa
+        run: |
+          set -o pipefail
+          timeout --kill-after=10s 240s node --test --test-concurrency=1 --test-timeout=30000 tests/*.test.mjs tests/*.test.cjs 2>&1 | tee pwa-tests.log
+      - name: Real Service Worker offline reload and accepted update
+        working-directory: pwa
+        run: |
+          set -o pipefail
+          timeout --kill-after=10s 120s node tests/live-offline.check.cjs 2>&1 | tee live-offline-tests.log
+      - name: Download and verify optional Russian model fixture
+        if: inputs.voice_inference
+        working-directory: pwa
+        run: |
+          node --input-type=module <<'JS'
+          import fs from 'node:fs/promises';
+          import path from 'node:path';
+          import crypto from 'node:crypto';
+          import {VOICE_FILES} from './public/voice-assets.mjs';
+          const folder=path.join(process.env.RUNNER_TEMP,'tasktimer-voice-fixture');
+          await fs.mkdir(folder,{recursive:true});
+          const base='https://huggingface.co/csukuangfj/sherpa-onnx-zipformer-ru-int8-2025-04-20/resolve/641de8d322c05b9087ad2927ccda4bda3cccc159/';
+          const files=[...VOICE_FILES.filter(file=>!file.runtime),{name:'test_wavs-0.wav',url:base+'test_wavs/0.wav',size:295758,sha256:'f3ac4f6e5b818ec89bdd884f60637daa32ef0ed19a11981b7e02e3e7799dfd79'}];
+          for(const file of files){
+            const response=await fetch(file.url,{signal:AbortSignal.timeout(120000)});
+            if(!response.ok)throw new Error(`Fixture HTTP ${response.status}`);
+            const bytes=Buffer.from(await response.arrayBuffer());
+            if(bytes.length!==file.size || crypto.createHash('sha256').update(bytes).digest('hex')!==file.sha256)throw new Error(`Fixture integrity: ${file.name}`);
+            await fs.writeFile(path.join(folder,file.name),bytes);
+          }
+          JS
+      - name: Real WASM worker inference (routed browser origin, not production HTTPS)
+        if: inputs.voice_inference
+        working-directory: pwa
+        run: timeout --kill-after=10s 200s node tests/voice-inference.check.cjs "$RUNNER_TEMP/tasktimer-voice-fixture"
+      - name: Prepare Android SDK
+        working-directory: android
+        run: |
+          sdk_root="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          "$sdk_root/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$sdk_root" 'platform-tools' 'platforms;android-35' 'build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Android compilation and unit tests (no APK packaging)
+        working-directory: android
+        run: bash ./gradlew --no-daemon :app:testDebugUnitTest
+      - name: Save verification reports
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: cross-client-test-reports
+          path: |
+            desktop-sync-tests.xml
+            pwa/pwa-tests.log
+            pwa/live-offline-tests.log
+            pwa/live-offline-report.json
+            android/app/build/test-results/testDebugUnitTest/
+            android/app/build/reports/tests/testDebugUnitTest/
+          if-no-files-found: ignore
