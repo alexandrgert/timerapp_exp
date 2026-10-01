@@ -115,7 +115,7 @@ class SyncV2Store(private val file: File) {
             sources[source]=JsonPrimitive(true)
         }
         state=state.copy(doc=doc,root=JsonObject(state.root+("_sync_legacy_sources" to JsonObject(sources))))
-        return commit(state)
+        commit(state)
     }
     fun resolve(conflict: SyncV2.Conflict,value: JsonElement): AppDataDto=locked {
         val state=read()
