@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import json
+from io import BytesIO
+from urllib.error import HTTPError
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from timerapp_ag.storage import Storage
+from timerapp_ag.domain.state import AppState
+from timerapp_ag import sync_protocol as protocol
 from timerapp_ag.webdav_client import WebDavClient, WebDavError
 from datetime import datetime, timedelta
 
@@ -93,58 +97,84 @@ def test_meta_remote_url_joins_base_and_path(webdav_config: WebDavConfig) -> Non
     )
 
 
+def _response(status: int, payload: bytes = b"", headers=None):
+    # A real bounded stream also checks _request's read(size) contract.
+    response = BytesIO(payload)
+    response.status = status
+    response.headers = headers or {}
+    return response
+
+
 def test_pull_and_merge_downloads_remote(tmp_path: Path, webdav_config: WebDavConfig) -> None:
     storage = Storage(path=tmp_path / "data.json", migrate_legacy=False)
     storage.save(storage.load())
-    remote_payload = json.dumps(
-        {"tasks": [{"id": "remote", "day": "2026-06-15", "title": "Из облака"}], "ui": {}}
-    ).encode("utf-8")
+    remote = protocol.import_legacy(
+        [{"id": "remote", "day": "2026-06-15", "title": "Из облака", "sessions": []}],
+        "remote-device",
+    )
+    calls = []
 
-    def fake_urlopen(request, timeout=0):
-        method = request.get_method()
-        if method == "GET":
-            response = MagicMock()
-            response.status = 200
-            response.read.return_value = remote_payload
-            response.headers.items.return_value = []
-            response.__enter__ = lambda self: response
-            response.__exit__ = lambda *args: None
-            return response
-        raise AssertionError(f"Unexpected method {method}")
+    def fake_open(request, timeout=0):
+        calls.append((request.get_method(), request.full_url))
+        assert calls == [("GET", webdav_config.remote_url() + ".v2.json")]
+        return _response(200, json.dumps(remote).encode(), {"ETag": '"remote-1"'})
 
-    with patch("timerapp_ag.webdav_client.urllib.request.urlopen", side_effect=fake_urlopen):
-        with patch.object(WebDavClient, "exists", return_value=True):
-            with patch("timerapp_ag.webdav_sync.mark_webdav_sync_ok"):
-                outcome = pull_and_merge(storage, webdav_config)
+    opener = MagicMock()
+    opener.open.side_effect = fake_open
+    with patch("timerapp_ag.webdav_client.urllib.request.build_opener", return_value=opener):
+        with patch("timerapp_ag.webdav_sync.mark_webdav_sync_ok"), patch("timerapp_ag.webdav_sync.append_entry"):
+            outcome = pull_and_merge(storage, webdav_config)
 
+    assert calls == [("GET", webdav_config.remote_url() + ".v2.json")]
     assert outcome.state is not None
     assert {task.id for task in outcome.state.tasks} == {"remote"}
-    reloaded = json.loads(storage.path.read_text(encoding="utf-8"))
-    assert reloaded["tasks"][0]["title"] == "Из облака"
+    reloaded = storage.load()
+    assert reloaded.tasks[0].title == "Из облака"
+    assert protocol.project_tasks(reloaded.sync_v2)["tasks"][0]["title"] == "Из облака"
+    assert reloaded.sync_v2["ops"] == remote["ops"]
 
 
-def test_push_local_uploads_file(tmp_path: Path, webdav_config: WebDavConfig) -> None:
+@pytest.mark.parametrize("remote_exists", [False, True])
+def test_push_local_uploads_file(tmp_path: Path, webdav_config: WebDavConfig, remote_exists: bool) -> None:
     storage = Storage(path=tmp_path / "data.json", migrate_legacy=False)
-    storage.save(storage.load())
-    calls: list[str] = []
+    storage.save(AppState.from_dict({"tasks": [{"id": "local", "day": "2026-06-15", "title": "Локальная"}]}))
+    calls = []
+    uploaded = []
+    v2_url = webdav_config.remote_url() + ".v2.json"
 
-    def fake_urlopen(request, timeout=0):
+    def fake_open(request, timeout=0):
         method = request.get_method()
-        calls.append(method)
-        response = MagicMock()
-        response.status = 201 if method == "MKCOL" else 204
-        response.read.return_value = b""
-        response.headers.items.return_value = []
-        response.__enter__ = lambda self: response
-        response.__exit__ = lambda *args: None
-        return response
+        calls.append((method, request.full_url))
+        if method == "GET":
+            if request.full_url == v2_url and remote_exists:
+                return _response(200, json.dumps(protocol.empty_document()).encode(), {"ETag": '"remote-1"'})
+            assert request.full_url in (v2_url, webdav_config.remote_url())
+            raise HTTPError(request.full_url, 404, "Not found", {}, BytesIO(b""))
+        if method == "MKCOL":
+            assert request.full_url == webdav_config.url + "tasktimer/"
+            return _response(201)
+        assert method == "PUT" and request.full_url == v2_url
+        headers = {key.lower(): value for key, value in request.header_items()}
+        assert headers.get("if-match") == ('"remote-1"' if remote_exists else None)
+        assert headers.get("if-none-match") == (None if remote_exists else "*")
+        uploaded.append(protocol.validate_document(json.loads(request.data)))
+        return _response(204)
 
-    with patch("timerapp_ag.webdav_client.urllib.request.urlopen", side_effect=fake_urlopen):
-        with patch.object(WebDavClient, "exists", return_value=False):
-            with patch("timerapp_ag.webdav_sync.mark_webdav_sync_ok"):
-                push_local(storage, webdav_config)
+    opener = MagicMock()
+    opener.open.side_effect = fake_open
+    with patch("timerapp_ag.webdav_client.urllib.request.build_opener", return_value=opener):
+        with patch("timerapp_ag.webdav_sync.mark_webdav_sync_ok"), patch("timerapp_ag.webdav_sync.append_entry"):
+            outcome = push_local(storage, webdav_config)
 
-    assert "PUT" in calls
+    expected = [("GET", v2_url)]
+    if not remote_exists:
+        expected.append(("GET", webdav_config.remote_url()))
+    expected += [("MKCOL", webdav_config.url + "tasktimer/"), ("PUT", v2_url)]
+    assert calls == expected
+    assert len(uploaded) == 1
+    assert uploaded[0] == storage.load().sync_v2
+    assert protocol.project_tasks(uploaded[0])["tasks"][0]["title"] == "Локальная"
+    assert outcome.uploaded_tasks == 1
 
 
 def test_webdav_client_requires_configuration() -> None:

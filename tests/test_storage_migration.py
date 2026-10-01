@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from timerapp_ag.app_info import APP_TITLE_BASE, STORAGE_ORG
 from timerapp_ag.storage import Storage, discover_data_files, discover_legacy_data_files, merge_data_files, pick_best_data_file, stable_data_path
 
@@ -99,28 +101,36 @@ def test_load_recovers_from_rolling_backup(tmp_path: Path) -> None:
     assert json.loads(path.read_text(encoding="utf-8"))["tasks"][0]["title"] == "Восстановлено"
 
 
-def test_load_returns_empty_when_main_and_backup_corrupt(tmp_path: Path) -> None:
+def test_load_rejects_corrupt_main_and_backup_without_overwriting_either(tmp_path: Path) -> None:
     path = tmp_path / "data.json"
     backup = tmp_path / "data.json.bak"
     path.write_text("{ broken", encoding="utf-8")
     backup.write_text("{ also broken", encoding="utf-8")
 
     storage = Storage(path=path, migrate_legacy=False)
-    state = storage.load()
+    original = path.read_bytes()
+    original_backup = backup.read_bytes()
+    with pytest.raises(ValueError, match="Файл данных повреждён"):
+        storage.load()
 
-    assert state.tasks == []
+    assert path.read_bytes() == original
+    assert backup.read_bytes() == original_backup
 
 
-def test_load_ignores_backup_with_invalid_task_schema(tmp_path: Path) -> None:
+def test_load_rejects_invalid_backup_without_overwriting_either(tmp_path: Path) -> None:
     path = tmp_path / "data.json"
     backup = tmp_path / "data.json.bak"
     backup.write_text(json.dumps({"tasks": [{"id": "t1"}], "ui": {}}), encoding="utf-8")
     path.write_text("{ broken", encoding="utf-8")
 
     storage = Storage(path=path, migrate_legacy=False)
-    state = storage.load()
+    original = path.read_bytes()
+    original_backup = backup.read_bytes()
+    with pytest.raises(ValueError, match="Файл данных повреждён"):
+        storage.load()
 
-    assert state.tasks == []
+    assert path.read_bytes() == original
+    assert backup.read_bytes() == original_backup
 
 
 def test_create_backup_writes_timestamped_copy(tmp_path: Path) -> None:
