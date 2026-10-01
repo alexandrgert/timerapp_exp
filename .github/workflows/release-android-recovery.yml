@@ -2,7 +2,8 @@ name: Recover Android and release 0.11.8
 
 # One explicitly approved manual run; desktop packages are never rebuilt here.
 on:
-  workflow_dispatch:
+  push:
+    branches: [release/approved-android-recovery-20261001-01]
 
 permissions:
   contents: read
