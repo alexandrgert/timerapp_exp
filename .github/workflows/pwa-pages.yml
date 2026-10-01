@@ -1,0 +1,42 @@
+name: Publish PWA to GitHub Pages
+
+# Manual publication only. No push, PR, tag or native-build trigger.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: tasktimer-pwa-pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - name: Check publication path transformations without building native clients
+        run: node --test pwa/tests/pages-stage.test.mjs
+      - name: Prepare already-enabled GitHub Pages
+        uses: actions/configure-pages@v5
+      - name: Stage allowlisted public files
+        env:
+          PWA_BASE_PATH: /timerapp_exp/
+        run: node pwa/scripts/pages-stage.mjs
+      - name: Upload static Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - name: Deploy GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
