@@ -286,6 +286,8 @@ class Storage:
         from .domain.datetime_util import parse_iso_datetime
         tasks = protocol.project_tasks(doc)["tasks"]
         for task in tasks:
+            if task.get("status", "open") not in ("open", "running", "paused", "completed"):
+                raise ValueError("Некорректный статус задачи в синхронизации")
             if not isinstance(task.get("title"), str) or not task["title"].strip() or not isinstance(task.get("description", ""), str):
                 raise ValueError("Некорректные поля задачи в синхронизации")
             date.fromisoformat(task["day"])
@@ -301,6 +303,12 @@ class Storage:
                     b = end if end.tzinfo else end.astimezone()
                     if b < a:
                         raise ValueError("Окончание сессии раньше начала")
+            # Concurrent status/interval registers may disagree. Derive only the
+            # local display state; keep the authoritative causal status untouched.
+            if any(session.get("ended_at") is None for session in task["sessions"]):
+                task["status"] = "running"
+            elif task.get("status") == "running":
+                task["status"] = "paused"
         return AppState.from_dict({"tasks": tasks, "ui": ui, "sync_v2": doc})
 
     def merge_sync_v2(self, remote, *, migration_key=None, legacy_tasks=None):

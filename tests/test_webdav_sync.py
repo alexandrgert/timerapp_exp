@@ -158,3 +158,12 @@ def test_https_required_before_any_credentials_sent(webdav_config):
     with patch('urllib.request.build_opener') as opener,pytest.raises(WebDavError,match='HTTPS'):
         client.download('http://example.test/data')
     opener.assert_not_called()
+
+
+@pytest.mark.parametrize('extra',[{'version':3},{'sync_v2':{}},{'_sync_v2':{}},{'schemaVersion':2}])
+def test_future_legacy_envelope_is_not_imported_or_uploaded(tmp_path,webdav_config,isolated_metadata,extra):
+    storage=local(tmp_path);server=Server(legacy={'tasks':[],**extra})
+    with patch.object(WebDavClient,'_request',side_effect=server.request),pytest.raises(WebDavError,match='Неподдерживаемый'):
+        push_local(storage,webdav_config)
+    assert not any(c[0]=='PUT' for c in server.calls)
+    assert storage.load().tasks[0].title=='Local'

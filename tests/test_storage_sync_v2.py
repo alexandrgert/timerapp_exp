@@ -168,3 +168,23 @@ def test_conflict_choice_rejects_unseen_new_candidate(tmp_path):
         storage.resolve_sync_conflict(['task','t'],'title','Left',expected=shown['candidates'])
     current=next(c for c in protocol.project_document(storage.load().sync_v2)['conflicts'] if c['field']=='title')
     assert {c['value'] for c in current['candidates']}=={'Left','Right','Third'}
+
+
+def test_effective_active_status_is_display_only_not_new_causal_write(tmp_path):
+    storage=prepared(tmp_path);base=storage.load().sync_v2
+    completed=protocol.change_entity(base,'desktop',['task','t'],{'status':'completed'})
+    started=protocol.change_entity(base,'phone',['session','t','new'],{'interval':{'started_at':'2026-01-01T10:00:00Z','ended_at':None},'comment':''})
+    state=storage.merge_sync_v2(protocol.merge_documents(completed,started))
+    assert state.tasks[0].status==TaskStatus.RUNNING
+    assert protocol.project_tasks(state.sync_v2)['tasks'][0]['status']=='completed'
+    state.tasks[0].description='unrelated';storage.save(state)
+    assert protocol.project_tasks(state.sync_v2)['tasks'][0]['status']=='completed'
+
+
+def test_invalid_status_is_rejected_even_with_active_session(tmp_path):
+    storage=prepared(tmp_path);original=storage.path.read_bytes();base=storage.load().sync_v2
+    invalid=protocol.change_entity(base,'phone',['task','t'],{'status':'invalid'})
+    invalid=protocol.change_entity(invalid,'phone',['session','t','s'],{'interval':{'started_at':'2026-01-01T10:00:00Z','ended_at':None}})
+    with pytest.raises(ValueError,match='статус'):
+        storage.merge_sync_v2(invalid)
+    assert storage.path.read_bytes()==original

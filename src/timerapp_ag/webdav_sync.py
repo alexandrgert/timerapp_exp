@@ -61,7 +61,7 @@ def _exchange(storage, config, *, upload, require_enabled, log_op):
                         raise
                 else:
                     legacy = json.loads(legacy_bytes)
-                    if not isinstance(legacy, dict) or not isinstance(legacy.get("tasks"), list) or legacy.get("format") or legacy.get("schemaVersion", 1) != 1:
+                    if not isinstance(legacy, dict) or not isinstance(legacy.get("tasks"), list) or "format" in legacy or legacy.get("schemaVersion", 1) != 1 or legacy.get("version", 1) != 1 or any(k in legacy for k in ("sync_v2", "_sync_v2", "syncDocument")):
                         raise ValueError("Неподдерживаемый старый файл WebDAV")
                     # UI may contain historic secrets: only task data is imported/backed up.
                     legacy_tasks = [t.to_dict() for t in AppState.from_dict({"tasks": legacy["tasks"]}).tasks]
