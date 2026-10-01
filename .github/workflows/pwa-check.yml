@@ -1,13 +1,9 @@
 name: PWA verification only
 
-# Each run needs explicit user approval. No push, pull_request or release triggers.
+# One user-approved PWA-only verification. Do not push this branch again without new approval.
 on:
-  workflow_dispatch:
-    inputs:
-      voice_inference:
-        description: Run real pinned Russian WASM browser inference (downloads 74 MB model)
-        type: boolean
-        default: false
+  push:
+    branches: [check/approved-pwa-20261001-01]
 
 permissions:
   contents: read
@@ -24,6 +20,7 @@ jobs:
           cache: npm
           cache-dependency-path: pwa/package-lock.json
       - name: Install PWA test dependencies and ready Chromium
+        id: dependencies
         working-directory: pwa
         run: |
           npm ci --ignore-scripts
@@ -34,12 +31,14 @@ jobs:
           set -o pipefail
           timeout --kill-after=10s 240s node --test --test-concurrency=1 --test-timeout=30000 tests/*.test.mjs tests/*.test.cjs 2>&1 | tee pwa-tests.log
       - name: Real Service Worker offline reload and accepted update
+        if: ${{ always() && !cancelled() && steps.dependencies.outcome == 'success' }}
         working-directory: pwa
         run: |
           set -o pipefail
           timeout --kill-after=10s 120s node tests/live-offline.check.cjs 2>&1 | tee live-offline-tests.log
-      - name: Download and verify optional Russian model fixture
-        if: inputs.voice_inference
+      - name: Download and verify Russian model fixture
+        id: voice_fixture
+        if: ${{ always() && !cancelled() && steps.dependencies.outcome == 'success' }}
         working-directory: pwa
         run: |
           set -o pipefail
@@ -61,7 +60,7 @@ jobs:
           }
           JS
       - name: Real WASM worker inference (routed browser origin, not production HTTPS)
-        if: inputs.voice_inference
+        if: ${{ always() && !cancelled() && steps.voice_fixture.outcome == 'success' }}
         working-directory: pwa
         run: |
           set -o pipefail
