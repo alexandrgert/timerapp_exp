@@ -228,7 +228,7 @@ private fun TaskListScreen(
                 syncConfigured = viewModel.hasConfiguredSync(),
                 onDismiss = { sessionEdit = null },
                 onSave = { start, end, comment, result ->
-                    viewModel.saveHistorySession(request.taskId, request.session?.id, start, end, comment, result)
+                    viewModel.saveHistorySession(request.taskId, request.session?.id, start, end, comment, result, request.session)
                 },
             )
         }
@@ -242,7 +242,7 @@ private fun TaskListScreen(
             syncConfigured = viewModel.hasConfiguredSync(),
             transferred = !session.bitrixRecordId.isNullOrBlank(),
             onDismiss = { sessionDelete = null },
-            onDelete = { viewModel.deleteHistorySession(request.taskId, session.id, it) },
+            onDelete = { viewModel.deleteHistorySession(request.taskId, session.id, it, session) },
         )
     }
     deleteTask?.let { task ->
@@ -253,18 +253,18 @@ private fun TaskListScreen(
             syncConfigured = viewModel.hasConfiguredSync(),
             transferred = task.sessions.any { !it.bitrixRecordId.isNullOrBlank() },
             onDismiss = { deleteTask = null },
-            onDelete = { viewModel.deleteTask(task.id, it) },
+            onDelete = { viewModel.deleteTask(task.id, it, task) },
         )
     }
 
     editTaskId?.let { taskId ->
-        val task = viewModel.findTask(taskId)
+        val task = remember(taskId) { viewModel.findTask(taskId) }
         if (task != null) {
             EditTaskDialog(
                 task = task,
                 onDismiss = { editTaskId = null },
                 onConfirm = { title, description, result, keepPriority, onResult ->
-                    viewModel.updateTask(taskId, title, description, result, keepPriority, onResult)
+                    viewModel.updateTask(taskId, title, description, result, keepPriority, onResult, task)
                 },
             )
         } else {
@@ -356,6 +356,11 @@ private fun TaskListScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            SyncConflictControls(uiState.syncConflicts, uiState.concurrentTasks,
+                viewModel::resolveSyncConflict) { taskId, sessionId ->
+                    val expected = uiState.concurrentTasks.flatMap { task -> task.sessions.filter { it.endedAt == null }.map { task.id to it.id } }.toSet()
+                    viewModel.resolveConcurrentTimer(taskId, sessionId, expected)
+                }
             ActiveFocusPanel(focus = uiState.focusTimer, taskTitle = uiState.focusTaskTitle,
                 nowMillis = uiState.tickMillis, onStop = viewModel::stopFocus)
             Row(

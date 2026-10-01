@@ -39,51 +39,25 @@ class TaskRepository(
         focusContext = runCatching { context.applicationContext }.getOrNull()
     }
 
-    private val backupFile: File
-        get() = File(dataFile.parentFile, "${dataFile.name}.bak")
+    private val syncStore = com.timerapp.linkb24.sync.SyncV2Store(dataFile)
 
-    fun load(): AppDataDto {
-        val raw = loadFromFile(dataFile) ?: loadFromFile(backupFile) ?: AppDataDto()
-        focusContext?.let { runCatching { com.timerapp.linkb24.focus.FocusAlarmScheduler.update(it, raw) } }
-        val prepared = prepareLoadedData(raw)
-        if (prepared != raw) {
-            save(prepared)
-        }
-        return prepared
+    fun load(): AppDataDto = syncStore.load().also { data ->
+        focusContext?.let { runCatching { com.timerapp.linkb24.focus.FocusAlarmScheduler.update(it, data) } }
     }
+    fun mutate(transform: (AppDataDto) -> AppDataDto): AppDataDto = syncStore.mutate(transform)
+    fun save(data: AppDataDto) { syncStore.bootstrap(data) }
+    fun syncSnapshot() = syncStore.snapshot()
+    fun needsLegacyImport(source: String) = syncStore.needsLegacy(source)
+    fun mergeSync(remote: kotlinx.serialization.json.JsonObject, legacy: ByteArray?, source: String) = syncStore.merge(remote, legacy, source)
+    fun resolveSync(conflict: com.timerapp.linkb24.sync.SyncV2.Conflict, value: kotlinx.serialization.json.JsonElement) = syncStore.resolve(conflict, value)
+    fun restoreBackup(backup: kotlinx.serialization.json.JsonObject) = syncStore.restore(backup)
 
     companion object {
         fun prepareLoadedData(data: AppDataDto): AppDataDto {
-            val normalized = normalizeRunningTasks(reconcileFocusTimer(data))
-            return reconcileFocusTimer(ensurePlanRollover(normalized).data)
+            // Never silently choose a winner among concurrently started timers.
+            if (data.syncConflicts.isNotEmpty() || data.tasks.sumOf { task -> task.sessions.count { it.endedAt == null } } > 1) return data
+            return reconcileFocusTimer(ensurePlanRollover(reconcileFocusTimer(data)).data)
         }
-    }
-
-    private fun loadFromFile(file: File): AppDataDto? {
-        if (!file.isFile) {
-            return null
-        }
-        return runCatching {
-            AppJson.decodeFromString(AppDataDto.serializer(), file.readText())
-        }.getOrNull()
-    }
-
-    fun save(data: AppDataDto) {
-        dataFile.parentFile?.mkdirs()
-        val prepared = reconcileFocusTimer(data)
-        val payload = AppJson.encodeToString(AppDataDto.serializer(), prepared)
-        val tempFile = File(dataFile.parentFile, "${dataFile.name}.tmp")
-        tempFile.writeText(payload)
-        if (dataFile.isFile) {
-            dataFile.copyTo(backupFile, overwrite = true)
-        }
-        Files.move(
-            tempFile.toPath(),
-            dataFile.toPath(),
-            StandardCopyOption.REPLACE_EXISTING,
-            StandardCopyOption.ATOMIC_MOVE,
-        )
-        focusContext?.let { runCatching { com.timerapp.linkb24.focus.FocusAlarmScheduler.update(it, data) } }
     }
 
     fun createTask(title: String, data: AppDataDto): AppDataDto {
@@ -102,6 +76,7 @@ class TaskRepository(
     }
 
     fun toggleTimer(taskId: String, data: AppDataDto): AppDataDto {
+        require(data.tasks.sumOf { t -> t.sessions.count { it.endedAt == null } } <= 1) { "Сначала выберите работающую сессию в конфликтах синхронизации." }
         val tasks = data.tasks.map { task ->
             if (task.id != taskId) {
                 pauseRunningTask(task)
@@ -116,6 +91,7 @@ class TaskRepository(
     }
 
     fun completeTask(taskId: String, data: AppDataDto, result: String): AppDataDto {
+        require(data.tasks.sumOf { t -> t.sessions.count { it.endedAt == null } } <= 1) { "Сначала выберите работающую сессию в конфликтах синхронизации." }
         val trimmed = result.trim()
         require(trimmed.isNotEmpty()) { "Введите результат выполнения задачи." }
         val now = OffsetDateTime.now(zoneId).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
@@ -135,6 +111,7 @@ class TaskRepository(
     }
 
     fun resumeCompletedTask(taskId: String, data: AppDataDto, comment: String = ""): AppDataDto {
+        require(data.tasks.sumOf { t -> t.sessions.count { it.endedAt == null } } <= 1) { "Сначала выберите работающую сессию в конфликтах синхронизации." }
         val pausedOthers = data.copy(tasks = data.tasks.map { pauseRunningTask(it) })
         val tasks = pausedOthers.tasks.map { task ->
             if (task.id != taskId) {
@@ -262,6 +239,18 @@ class TaskRepository(
             if (it.id == sessionId) it.copy(startedAt = startedAt, endedAt = endedAt, comment = comment.trim()) else it
         }.sortedBy { parseInstant(it.startedAt) }
         return replaceSessions(data, task, sessions)
+    }
+
+    fun updateSessionFromSnapshot(taskId: String, data: AppDataDto, original: SessionDto,
+        startedAt: String, endedAt: String?, comment: String): AppDataDto {
+        val fresh = requireTask(taskId, data).sessions.firstOrNull { it.id == original.id }
+            ?: error("Сессия удалена на другом устройстве")
+        val timeChanged = original.startedAt != startedAt || original.endedAt != endedAt
+        val commentChanged = original.comment != comment.trim()
+        require(!timeChanged || (fresh.startedAt == original.startedAt && fresh.endedAt == original.endedAt)) { "Время изменено на другом устройстве. Откройте историю заново; введённые значения пока сохранены в форме." }
+        require(!commentChanged || fresh.comment == original.comment) { "Комментарий изменён на другом устройстве. Откройте историю заново; введённый текст пока сохранён в форме." }
+        return updateSession(taskId, original.id, data, if(timeChanged) startedAt else fresh.startedAt,
+            if(timeChanged) endedAt else fresh.endedAt, if(commentChanged) comment else fresh.comment)
     }
 
     fun deleteSession(taskId: String, sessionId: String, data: AppDataDto): AppDataDto {

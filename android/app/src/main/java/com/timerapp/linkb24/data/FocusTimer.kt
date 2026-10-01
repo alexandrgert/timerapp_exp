@@ -5,6 +5,7 @@ import java.util.UUID
 
 /** Same JSON fields as desktop; Android focuses the chosen task rather than creating a synthetic task. */
 fun startFocusTimer(data: AppDataDto, taskId: String, minutes: Int, now: Instant = Instant.now()): AppDataDto {
+    require(data.tasks.sumOf { t -> t.sessions.count { it.endedAt == null } } <= 1) { "Сначала разрешите одновременные таймеры." }
     require(minutes in 1..180) { "Укажите от 1 до 180 минут." }
     val ready = reconcileFocusTimer(data, now)
     require(ready.ui.focusTimer.endsAt == null) { "Сначала остановите текущую концентрацию." }
@@ -39,7 +40,7 @@ fun stopFocusTimer(data: AppDataDto, now: Instant = Instant.now()): AppDataDto {
 /** Reconcile before persistence and after reload; background delays never add time past ends_at. */
 fun reconcileFocusTimer(data: AppDataDto, now: Instant = Instant.now()): AppDataDto {
     val focus = data.ui.focusTimer
-    if (focus.endsAt == null) return data
+    if (focus.endsAt == null || data.syncConflicts.isNotEmpty() || data.tasks.sumOf { t -> t.sessions.count { it.endedAt == null } } > 1) return data
     val end = parseInstant(focus.endsAt)
     val task = data.tasks.firstOrNull { it.id == focus.sessionTaskId }
     if (end == null || task == null || task.status != TaskStatus.RUNNING || task.sessions.none { it.endedAt == null }) {

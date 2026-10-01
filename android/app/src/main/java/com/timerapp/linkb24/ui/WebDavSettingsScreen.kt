@@ -187,12 +187,6 @@ fun WebDavSettingsScreen(
                 onCheckedChange = viewModel::onSyncOnShutdownChange,
             )
 
-            SettingsCheckboxRow(
-                label = stringResource(R.string.webdav_shutdown_upload_only),
-                checked = uiState.shutdownUploadOnly,
-                onCheckedChange = viewModel::onShutdownUploadOnlyChange,
-            )
-
             Text(
                 text = stringResource(R.string.webdav_upload_only_hint),
                 style = MaterialTheme.typography.bodySmall,

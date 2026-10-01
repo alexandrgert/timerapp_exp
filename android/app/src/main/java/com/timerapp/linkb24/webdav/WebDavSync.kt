@@ -1,456 +1,72 @@
 package com.timerapp.linkb24.webdav
 
-import com.timerapp.linkb24.data.AppDataDto
-import com.timerapp.linkb24.data.TaskRepository
-import com.timerapp.linkb24.data.WebDavConfig
-import com.timerapp.linkb24.data.WebDavConfigRepository
-import com.timerapp.linkb24.data.mergeDataFiles
+import com.timerapp.linkb24.data.*
+import com.timerapp.linkb24.sync.SyncV2
+import kotlinx.serialization.json.*
 
-data class SyncOutcome(
-    val data: AppDataDto? = null,
-    val error: String = "",
-    val conflictDetected: Boolean = false,
-    val notice: String = "",
-    val uploadedTasks: Int = 0,
-    val downloadedTasks: Int = 0,
-)
+data class SyncOutcome(val data: AppDataDto? = null, val error: String = "", val conflictDetected: Boolean = false,
+    val notice: String = "", val uploadedTasks: Int = 0, val downloadedTasks: Int = 0)
+data class RemoteCheckOutcome(val remoteChanged: Boolean = false, val remoteHash: String = "", val error: String = "")
 
-data class RemoteCheckOutcome(
-    val remoteChanged: Boolean = false,
-    val remoteHash: String = "",
-    val error: String = "",
-)
-
+/** Every entry point uses v2 compare-and-swap; legacy upload-only mode cannot bypass merge. */
 class WebDavSync(
     private val taskRepository: TaskRepository,
     private val configRepository: WebDavConfigRepository,
-    private val syncLog: WebDavSyncLog = WebDavSyncLog(
-        java.io.File(taskRepository.dataFile.parentFile, WebDavSyncLog.LOG_FILENAME),
-    ),
+    private val syncLog: WebDavSyncLog = WebDavSyncLog(java.io.File(taskRepository.dataFile.parentFile, WebDavSyncLog.LOG_FILENAME)),
+    private val clientFactory: (WebDavConfig) -> WebDavClient = { WebDavClient(it) },
 ) {
-    private fun logOutcome(
-        op: String,
-        outcome: SyncOutcome,
-        uploadedTasks: Int = outcome.uploadedTasks,
-        downloadedTasks: Int = outcome.downloadedTasks,
-    ): SyncOutcome {
-        syncLog.append(
-            op = op,
-            uploadedTasks = uploadedTasks,
-            downloadedTasks = downloadedTasks,
-            ok = outcome.error.isBlank(),
-            error = outcome.error,
-        )
-        return outcome.copy(uploadedTasks = uploadedTasks, downloadedTasks = downloadedTasks)
+    private fun v2Url(config: WebDavConfig): String {
+        require(config.remotePath.isNotBlank() && config.remotePath.none { it == '?' || it == '#' }) { "Некорректный путь WebDAV" }
+        return config.remoteUrl() + ".v2.json"
     }
-
-    fun syncOnStartup(): SyncOutcome {
-        val config = configRepository.load()
-        if (!config.enabled || !config.syncOnStartup) {
-            return SyncOutcome()
-        }
+    private fun source(config: WebDavConfig) = contentHash((config.remoteUrl()+"\n"+config.username).toByteArray())
+    private fun parse(bytes: ByteArray) = SyncV2.validate(AppJson.parseToJsonElement(SyncV2.decodeUtf8(bytes)).jsonObject)
+    fun syncOnStartup(): SyncOutcome { val c=configRepository.load();return if(c.enabled && c.syncOnStartup) syncNow(c,true) else SyncOutcome() }
+    fun syncOnShutdown(): SyncOutcome { val c=configRepository.load();return if(c.enabled && c.syncOnShutdown) syncNow(c,true) else SyncOutcome() }
+    fun syncOnReconnect(): SyncOutcome { val c=configRepository.load();return if(c.enabled && c.isConfigured()) syncNow(c,true) else SyncOutcome() }
+    fun checkRemoteOnPeriodic(): RemoteCheckOutcome { val c=configRepository.load();return if(c.periodicSyncEnabled())checkRemoteChanges(c,true) else RemoteCheckOutcome() }
+    fun checkRemoteChanges(config: WebDavConfig=configRepository.load(),requireEnabled: Boolean=true): RemoteCheckOutcome {
+        if(requireEnabled && !config.enabled)return RemoteCheckOutcome()
         return runCatching {
-            pullAndMerge(config, requireEnabled = true, logOp = "startup")
-        }.getOrElse { error ->
-            val message = syncErrorMessage(error)
-            configRepository.markSyncError(config, message)
-            SyncOutcome(error = message)
-        }
+            val remote=clientFactory(config).downloadVersioned(v2Url(config))
+            if(remote.payload==null) RemoteCheckOutcome(remoteChanged=taskRepository.needsLegacyImport(source(config)))
+            else { parse(remote.payload);val hash=contentHash(remote.payload);RemoteCheckOutcome(hash!=config.lastRemoteContentHash,hash) }
+        }.getOrElse { RemoteCheckOutcome(error=message(it)) }
     }
-
-    fun syncOnShutdown(): SyncOutcome {
-        val config = configRepository.load()
-        if (!config.enabled || !config.syncOnShutdown) {
-            return SyncOutcome()
+    fun syncNow(config: WebDavConfig=configRepository.load(),requireEnabled: Boolean=false): SyncOutcome =
+        runCatching { exchange(config,requireEnabled,"sync",true) }.getOrElse { error ->
+            val text=message(error);configRepository.markSyncError(config,text);SyncOutcome(error=text)
         }
-        return runCatching {
-            val outcome = if (config.shutdownUploadOnly) {
-                pushLocalUploadOnly(config, requireEnabled = true, logOp = "shutdown")
-            } else {
-                pushLocal(config, requireEnabled = true, logOp = "shutdown")
+    fun pullAndMerge(config: WebDavConfig=configRepository.load(),requireEnabled: Boolean=true,logOp: String="pull") = exchange(config,requireEnabled,logOp,false)
+    fun pushLocal(config: WebDavConfig=configRepository.load(),requireEnabled: Boolean=true,logOp: String="push") = exchange(config,requireEnabled,logOp,true)
+    fun pushMerged(config: WebDavConfig=configRepository.load(),requireEnabled: Boolean=true,logOp: String?=null) = exchange(config,requireEnabled,logOp ?: "push",true)
+    fun pushLocalUploadOnly(config: WebDavConfig=configRepository.load(),requireEnabled: Boolean=true,logOp: String="push_upload_only") = exchange(config,requireEnabled,logOp,true)
+
+    private fun exchange(config: WebDavConfig,requireEnabled: Boolean,op: String,upload: Boolean): SyncOutcome {
+        if(requireEnabled && !config.enabled)throw WebDavException("Синхронизация WebDAV отключена")
+        if(!config.isConfigured())throw WebDavException("WebDAV не настроен")
+        try {
+            val client=clientFactory(config);val url=v2Url(config);val source=source(config)
+            // Network outside the local lock. Legacy is imported independently only once.
+            repeat(3) { attempt ->
+                val remote=client.downloadVersioned(url)
+                val document=remote.payload?.let(::parse) ?: SyncV2.empty()
+                val legacy=if(remote.payload==null && taskRepository.needsLegacyImport(source))client.downloadVersioned(config.remoteUrl(),false).payload else null
+                val merged=taskRepository.mergeSync(document,legacy,source)
+                val payload=SyncV2.canonical(merged.document).toByteArray(Charsets.UTF_8)
+                if(upload)try { client.uploadVersioned(url,payload,remote.etag) }
+                catch(error: WebDavException) { if(error.statusCode==412 && attempt<2)return@repeat;throw error }
+                // Local edits made during PUT remain on disk; never replace them with sent snapshot.
+                val latest=taskRepository.syncSnapshot();val conflicts=latest.data.syncConflicts.isNotEmpty() || latest.data.tasks.sumOf { t->t.sessions.count { it.endedAt==null } }>1
+                val hash=if(upload)contentHash(payload) else remote.payload?.let(::contentHash).orEmpty()
+                configRepository.markSyncOk(config,hash,conflicts)
+                val notice=if(conflicts) "Сохранены конфликтующие изменения. Выберите варианты в списке задач." else "Синхронизация WebDAV v2 завершена"
+                val outcome=SyncOutcome(latest.data,conflictDetected=conflicts,notice=notice,uploadedTasks=if(upload)merged.data.tasks.size else 0,downloadedTasks=SyncV2.tasks(document).size)
+                syncLog.append(op,outcome.uploadedTasks,outcome.downloadedTasks,true,"")
+                return outcome
             }
-            if (outcome.notice.isNotBlank() && outcome.conflictDetected) {
-                configRepository.savePendingNotice(outcome.notice)
-            }
-            outcome
-        }.getOrElse { error ->
-            val message = syncErrorMessage(error)
-            configRepository.markSyncError(config, message)
-            SyncOutcome(error = message)
-        }
+            throw WebDavException("Файл изменялся одновременно. Повторите синхронизацию.")
+        }catch(error: Exception){syncLog.append(op,0,0,false,message(error));throw error}
     }
-
-    fun syncOnReconnect(): SyncOutcome {
-        val config = configRepository.load()
-        if (!config.enabled || !config.isConfigured()) {
-            return SyncOutcome()
-        }
-        return runCatching {
-            pushLocal(config, requireEnabled = true, logOp = "reconnect_push")
-        }.getOrElse { error ->
-            val message = syncErrorMessage(error)
-            configRepository.markSyncError(config, message)
-            SyncOutcome(error = message)
-        }
-    }
-
-    fun checkRemoteOnPeriodic(): RemoteCheckOutcome {
-        val config = configRepository.load()
-        if (!config.periodicSyncEnabled()) {
-            return RemoteCheckOutcome()
-        }
-        return checkRemoteChanges(config, requireEnabled = true)
-    }
-
-    fun checkRemoteChanges(
-        config: WebDavConfig = configRepository.load(),
-        requireEnabled: Boolean = true,
-    ): RemoteCheckOutcome {
-        if (requireEnabled && !config.enabled) {
-            return RemoteCheckOutcome()
-        }
-        if (!config.isConfigured()) {
-            return RemoteCheckOutcome(error = "WebDAV не настроен: укажите URL и имя пользователя")
-        }
-        return runCatching {
-            val client = WebDavClient(config.withDeviceId())
-            if (!client.exists()) {
-                return RemoteCheckOutcome()
-            }
-            val remotePayload = client.download()
-            val remoteMeta = readRemoteMeta(client, config)
-            val remoteHash = remotePayloadHash(remotePayload, remoteMeta)
-            val dataFile = taskRepository.dataFile
-            val localHash = if (dataFile.isFile) contentHash(dataFile.readBytes()) else ""
-            val changed = remoteChangedSinceSync(config, remoteHash, localHash)
-            RemoteCheckOutcome(remoteChanged = changed, remoteHash = remoteHash)
-        }.getOrElse { error ->
-            RemoteCheckOutcome(error = syncErrorMessage(error))
-        }
-    }
-
-    fun syncNow(
-        config: WebDavConfig = configRepository.load(),
-        requireEnabled: Boolean = false,
-    ): SyncOutcome {
-        if (requireEnabled && !config.enabled) {
-            return SyncOutcome(error = "Синхронизация WebDAV отключена")
-        }
-        if (!config.isConfigured()) {
-            return SyncOutcome(error = "WebDAV не настроен: укажите URL и имя пользователя")
-        }
-        return runCatching {
-            val pullOutcome = pullAndMerge(config, requireEnabled = false, logOp = "sync_pull")
-            val pushOutcome = pushMerged(config, requireEnabled = false, logOp = "sync_push")
-            val notices = listOf(pullOutcome.notice, pushOutcome.notice).filter { it.isNotBlank() }
-            SyncOutcome(
-                data = pushOutcome.data ?: pullOutcome.data,
-                conflictDetected = pullOutcome.conflictDetected || pushOutcome.conflictDetected,
-                notice = notices.joinToString(" ").ifBlank { "Синхронизация завершена" },
-                uploadedTasks = pushOutcome.uploadedTasks,
-                downloadedTasks = pullOutcome.downloadedTasks,
-            )
-        }.getOrElse { error ->
-            val message = syncErrorMessage(error)
-            configRepository.markSyncError(config, message)
-            SyncOutcome(error = message)
-        }
-    }
-
-    fun pullAndMerge(
-        config: WebDavConfig = configRepository.load(),
-        requireEnabled: Boolean = true,
-        logOp: String = "pull",
-    ): SyncOutcome {
-        if (requireEnabled && !config.enabled) {
-            throw WebDavException("Синхронизация WebDAV отключена")
-        }
-        return try {
-            val client = WebDavClient(config.withDeviceId())
-            var conflictDetected = false
-            val dataFile = taskRepository.dataFile
-            val remoteFound = client.exists()
-            var downloadedTasks = 0
-
-            val merged = if (remoteFound) {
-                val remotePayload = client.download()
-                downloadedTasks = WebDavSyncLog.countTasksInPayload(remotePayload)
-                val remoteMeta = readRemoteMeta(client, config)
-                val remoteHash = remotePayloadHash(remotePayload, remoteMeta)
-                val localHash = if (dataFile.isFile) contentHash(dataFile.readBytes()) else ""
-                if (remoteChangedSinceSync(config, remoteHash, localHash)) {
-                    conflictDetected = true
-                }
-                mergeDataFiles(dataFile, remotePayload)
-            } else if (dataFile.isFile) {
-                taskRepository.load()
-            } else {
-                AppDataDto()
-            }
-
-            val finalized = finalizeMergedState(merged)
-            val remoteHash = contentHash(dataFile.readBytes())
-            configRepository.markSyncOk(config.withDeviceId(), remoteHash, conflictDetected)
-
-            val notice = when {
-                conflictDetected -> "Обнаружен конфликт версий: данные объединены с сервера."
-                !remoteFound && merged.tasks.isEmpty() ->
-                    "Файл ${config.remotePath} на сервере не найден. " +
-                        "Сначала загрузите data.json с компьютера или нажмите «Загрузить сейчас»."
-                !remoteFound ->
-                    "Файл ${config.remotePath} на сервере не найден — использована локальная копия."
-                else -> ""
-            }
-            logOutcome(
-                logOp,
-                SyncOutcome(
-                    data = finalized,
-                    conflictDetected = conflictDetected,
-                    notice = notice,
-                    downloadedTasks = downloadedTasks,
-                ),
-            )
-        } catch (error: WebDavException) {
-            logOutcome(logOp, SyncOutcome(error = syncErrorMessage(error)))
-            throw error
-        }
-    }
-
-    fun pushLocal(
-        config: WebDavConfig = configRepository.load(),
-        requireEnabled: Boolean = true,
-        logOp: String = "push",
-    ): SyncOutcome {
-        if (requireEnabled && !config.enabled) {
-            throw WebDavException("Синхронизация WebDAV отключена")
-        }
-        val dataFile = taskRepository.dataFile
-        if (!dataFile.isFile) {
-            throw WebDavException("Локальный файл данных не найден")
-        }
-
-        return try {
-            val client = WebDavClient(config.withDeviceId())
-            var conflictDetected = false
-            var merged = taskRepository.load()
-            var downloadedTasks = 0
-
-            if (client.exists()) {
-                val remotePayload = client.download()
-                downloadedTasks = WebDavSyncLog.countTasksInPayload(remotePayload)
-                val remoteMeta = readRemoteMeta(client, config)
-                val remoteHash = remotePayloadHash(remotePayload, remoteMeta)
-                val localHash = contentHash(dataFile.readBytes())
-                if (remoteChangedSinceSync(config, remoteHash, localHash)) {
-                    conflictDetected = true
-                }
-                merged = mergeDataFiles(dataFile, remotePayload)
-                merged = finalizeMergedState(merged)
-            } else {
-                merged = finalizeMergedState(merged)
-            }
-
-            val payload = dataFile.readBytes()
-            val uploadedTasks = WebDavSyncLog.countTasksInPayload(payload)
-            val meta = uploadPayload(client, config.withDeviceId(), payload)
-            configRepository.markSyncOk(config.withDeviceId(), meta.contentHash, conflictDetected)
-
-            val notice = if (conflictDetected) {
-                "Перед загрузкой выполнено слияние с более новой версией на сервере."
-            } else {
-                ""
-            }
-            logOutcome(
-                logOp,
-                SyncOutcome(
-                    data = merged,
-                    conflictDetected = conflictDetected,
-                    notice = notice,
-                    uploadedTasks = uploadedTasks,
-                    downloadedTasks = downloadedTasks,
-                ),
-            )
-        } catch (error: WebDavException) {
-            logOutcome(logOp, SyncOutcome(error = syncErrorMessage(error)))
-            throw error
-        }
-    }
-
-    fun pushMerged(
-        config: WebDavConfig = configRepository.load(),
-        requireEnabled: Boolean = true,
-        logOp: String? = null,
-    ): SyncOutcome {
-        if (requireEnabled && !config.enabled) {
-            throw WebDavException("Синхронизация WebDAV отключена")
-        }
-        val dataFile = taskRepository.dataFile
-        if (!dataFile.isFile) {
-            throw WebDavException("Локальный файл данных не найден")
-        }
-
-        return try {
-            val merged = TaskRepository.prepareLoadedData(taskRepository.load())
-            taskRepository.save(merged)
-            val client = WebDavClient(config.withDeviceId())
-            val payload = dataFile.readBytes()
-            val uploadedTasks = WebDavSyncLog.countTasksInPayload(payload)
-            val meta = uploadPayload(client, config.withDeviceId(), payload)
-            configRepository.markSyncOk(config.withDeviceId(), meta.contentHash, false)
-            val outcome = SyncOutcome(data = merged, uploadedTasks = uploadedTasks)
-            if (logOp != null) {
-                logOutcome(logOp, outcome)
-            } else {
-                outcome
-            }
-        } catch (error: WebDavException) {
-            if (logOp != null) {
-                logOutcome(logOp, SyncOutcome(error = syncErrorMessage(error)))
-            }
-            throw error
-        }
-    }
-
-    fun pushLocalUploadOnly(
-        config: WebDavConfig = configRepository.load(),
-        requireEnabled: Boolean = true,
-        logOp: String = "push_upload_only",
-    ): SyncOutcome {
-        if (requireEnabled && !config.enabled) {
-            throw WebDavException("Синхронизация WebDAV отключена")
-        }
-        val dataFile = taskRepository.dataFile
-        if (!dataFile.isFile) {
-            throw WebDavException("Локальный файл данных не найден")
-        }
-
-        return try {
-            val client = WebDavClient(config.withDeviceId())
-            var conflictDetected = false
-            val localPayload = dataFile.readBytes()
-            val localHash = contentHash(localPayload)
-            var downloadedTasks = 0
-
-            if (client.exists()) {
-                val remotePayload = client.download()
-                downloadedTasks = WebDavSyncLog.countTasksInPayload(remotePayload)
-                val remoteMeta = readRemoteMeta(client, config)
-                val remoteHash = remotePayloadHash(remotePayload, remoteMeta)
-                if (remoteChangedSinceSync(config, remoteHash, localHash)) {
-                    conflictDetected = true
-                }
-            }
-
-            val uploadedTasks = WebDavSyncLog.countTasksInPayload(localPayload)
-            val meta = uploadPayload(client, config.withDeviceId(), localPayload)
-            configRepository.markSyncOk(config.withDeviceId(), meta.contentHash, conflictDetected)
-
-            val notice = if (conflictDetected) {
-                "При выходе на сервер отправлена локальная копия без слияния; " +
-                    "в облаке была более новая версия."
-            } else {
-                ""
-            }
-            logOutcome(
-                logOp,
-                SyncOutcome(
-                    conflictDetected = conflictDetected,
-                    notice = notice,
-                    uploadedTasks = uploadedTasks,
-                    downloadedTasks = downloadedTasks,
-                ),
-            )
-        } catch (error: WebDavException) {
-            logOutcome(logOp, SyncOutcome(error = syncErrorMessage(error)))
-            throw error
-        }
-    }
-
-    private fun finalizeMergedState(merged: AppDataDto): AppDataDto {
-        val prepared = TaskRepository.prepareLoadedData(merged)
-        taskRepository.save(prepared)
-        return prepared
-    }
-
-    private fun readRemoteMeta(client: WebDavClient, config: WebDavConfig): RemoteSyncMeta? {
-        val metaUrl = config.metaRemoteUrl()
-        if (!client.exists(metaUrl)) {
-            return null
-        }
-        return runCatching {
-            parseMetaBytes(client.download(metaUrl))
-        }.getOrNull()
-    }
-
-    private fun remoteChangedSinceSync(
-        config: WebDavConfig,
-        remoteHash: String,
-        localHash: String,
-    ): Boolean {
-        if (config.lastRemoteContentHash.isNotBlank()) {
-            return remoteHash != config.lastRemoteContentHash
-        }
-        return localHash.isNotEmpty() && remoteHash != localHash
-    }
-
-    private fun uploadPayload(
-        client: WebDavClient,
-        config: WebDavConfig,
-        payload: ByteArray,
-    ): RemoteSyncMeta {
-        val dataUrl = config.remoteUrl()
-        val metaUrl = config.metaRemoteUrl()
-        val deviceId = config.withDeviceId().deviceId
-        val meta = newMeta(payload, deviceId)
-        val metaBytes = metaToBytes(meta)
-        var lastError: WebDavException? = null
-        repeat(FULL_UPLOAD_CYCLES) { cycle ->
-            try {
-                client.upload(dataUrl, payload)
-                uploadMetaWithRetries(client, metaUrl, metaBytes)
-                return meta
-            } catch (error: WebDavException) {
-                lastError = error
-                if (cycle < FULL_UPLOAD_CYCLES - 1) {
-                    Thread.sleep(500L * (cycle + 1))
-                }
-            }
-        }
-        throw WebDavException(
-            "Не удалось загрузить data.json и sync-meta после $FULL_UPLOAD_CYCLES циклов: $lastError",
-        )
-    }
-
-    private fun uploadMetaWithRetries(
-        client: WebDavClient,
-        metaUrl: String,
-        metaBytes: ByteArray,
-    ) {
-        var lastError: WebDavException? = null
-        repeat(META_UPLOAD_ATTEMPTS) { attempt ->
-            try {
-                client.upload(metaUrl, metaBytes)
-                return
-            } catch (error: WebDavException) {
-                lastError = error
-                if (attempt < META_UPLOAD_ATTEMPTS - 1) {
-                    Thread.sleep(500L * (attempt + 1))
-                }
-            }
-        }
-        throw lastError ?: WebDavException("Не удалось загрузить sync-meta")
-    }
-
-    private fun syncErrorMessage(error: Throwable): String {
-        return when (error) {
-            is WebDavException -> error.message ?: "Ошибка WebDAV"
-            is IllegalArgumentException -> error.message ?: "Ошибка данных"
-            else -> error.message ?: error.javaClass.simpleName
-        }
-    }
-
-    companion object {
-        private const val META_UPLOAD_ATTEMPTS = 3
-        private const val FULL_UPLOAD_CYCLES = 2
-    }
+    private fun message(error: Throwable)=when(error){is WebDavException,is IllegalArgumentException,is IllegalStateException->error.message ?: "Ошибка данных WebDAV";else->"Не удалось синхронизировать WebDAV"}
 }

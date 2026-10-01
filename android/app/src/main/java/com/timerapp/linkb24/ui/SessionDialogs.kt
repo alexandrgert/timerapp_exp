@@ -23,8 +23,8 @@ import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.util.Locale
 
-internal const val SYNC_EDIT_WARNING = "При синхронизации старая длительность или комментарий могут восстановиться. Исправление применяется локально."
-internal const val SYNC_DELETE_WARNING = "При синхронизации удалённая запись может восстановиться с другого устройства."
+internal const val SYNC_EDIT_WARNING = "Правка передаётся устройствам с WebDAV v2. Старые версии приложения используют отдельный файл."
+internal const val SYNC_DELETE_WARNING = "Удаление передаётся устройствам с WebDAV v2. При одновременной правке потребуется выбрать вариант."
 internal const val BITRIX_EDIT_WARNING = "Время уже передано в Битрикс24. Эта правка изменит только локальную запись, без изменения или повторной отправки в Битрикс24."
 internal const val BITRIX_DELETE_WARNING = "Переданная запись времени в Битрикс24 не будет удалена."
 

@@ -3,6 +3,7 @@ package com.timerapp.linkb24.webdav
 import com.timerapp.linkb24.data.WebDavConfig
 import java.io.IOException
 import java.util.concurrent.TimeUnit
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Credentials
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -17,12 +18,52 @@ class WebDavException(
 class WebDavClient(
     private val config: WebDavConfig,
     private val timeoutMs: Int = 60_000,
+    private val allowInsecureLoopbackForTests: Boolean = false,
 ) {
     private val http = OkHttpClient.Builder()
+        .followRedirects(false)
+        .followSslRedirects(false)
         .connectTimeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
         .readTimeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
         .writeTimeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
         .build()
+
+    data class Versioned(val payload: ByteArray?, val etag: String?)
+
+    fun downloadVersioned(url: String, requireEtag: Boolean = true): Versioned {
+        requireConfigured()
+        try {
+            http.newCall(buildRequest("GET", url, null, emptyMap())).execute().use { response ->
+                if (response.code == 404) return Versioned(null, null)
+                if (response.code != 200) throw WebDavException("WebDAV GET HTTP ${response.code}", response.code)
+                val etag = response.header("ETag")
+                if (requireEtag && !isStrongEtag(etag)) throw WebDavException("Сервер WebDAV не вернул сильный ETag. Безопасная синхронизация невозможна.")
+                val source = response.body?.source() ?: throw WebDavException("Пустой ответ WebDAV")
+                val sink = java.io.ByteArrayOutputStream()
+                val buffer = ByteArray(8192)
+                while (true) {
+                    val read = source.read(buffer)
+                    if (read == -1) break
+                    if (sink.size() + read > com.timerapp.linkb24.sync.SyncV2.MAX_BYTES) throw WebDavException("Файл WebDAV превышает безопасный размер")
+                    sink.write(buffer, 0, read)
+                }
+                return Versioned(sink.toByteArray(), etag)
+            }
+        } catch (error: IOException) { throw WebDavException("Сетевая ошибка WebDAV GET") }
+    }
+
+    fun uploadVersioned(url: String, payload: ByteArray, etag: String?) {
+        require(payload.size <= com.timerapp.linkb24.sync.SyncV2.MAX_BYTES)
+        if (etag != null && !isStrongEtag(etag)) throw WebDavException("Небезопасный ETag")
+        ensureCollection(url)
+        val headers = mapOf("Content-Type" to "application/json; charset=utf-8") +
+            if (etag == null) mapOf("If-None-Match" to "*") else mapOf("If-Match" to etag)
+        try {
+            http.newCall(buildRequest("PUT", url, payload, headers)).execute().use { response ->
+                if (response.code !in setOf(200, 201, 204)) throw WebDavException("WebDAV PUT HTTP ${response.code}", response.code)
+            }
+        } catch (error: IOException) { throw WebDavException("Сетевая ошибка WebDAV PUT") }
+    }
 
     fun testConnection(): String {
         requireConfigured()
@@ -162,8 +203,15 @@ class WebDavClient(
         body: ByteArray?,
         extraHeaders: Map<String, String>,
     ): Request {
+        val target = url.toHttpUrlOrNull() ?: throw WebDavException("Некорректный адрес WebDAV")
+        val base = config.url.toHttpUrlOrNull() ?: throw WebDavException("Некорректный адрес WebDAV")
+        val localTest = allowInsecureLoopbackForTests && target.host in setOf("127.0.0.1", "localhost", "::1")
+        if ((!target.isHttps && !localTest) || target.encodedUsername.isNotEmpty() || target.encodedPassword.isNotEmpty() ||
+            target.query != null || target.fragment != null || target.scheme != base.scheme || target.host != base.host || target.port != base.port) {
+            throw WebDavException("WebDAV требует HTTPS без логина, пароля, параметров и фрагмента в адресе")
+        }
         val builder = Request.Builder()
-            .url(url)
+            .url(target)
             .header("Authorization", basicAuthHeader(config.username, config.password))
             .header("User-Agent", "TaskTimer-Experiment-Android")
         val contentType = extraHeaders["Content-Type"]
@@ -191,6 +239,8 @@ class WebDavClient(
     }
 
     companion object {
+        fun isStrongEtag(value: String?): Boolean = value != null && Regex("\"[!#-~]*\"").matches(value)
+
         private val SUCCESS_CODES = setOf(200, 201, 204, 206, 207, 416)
         private val MKCOL_IGNORE_CODES = setOf(405, 409, 423)
 

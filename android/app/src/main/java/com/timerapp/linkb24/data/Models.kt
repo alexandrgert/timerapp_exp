@@ -74,6 +74,7 @@ data class UiSettingsDto(
 data class AppDataDto(
     val tasks: List<TaskDto> = emptyList(),
     val ui: UiSettingsDto = UiSettingsDto(),
+    @kotlinx.serialization.Transient val syncConflicts: List<com.timerapp.linkb24.sync.SyncV2.Conflict> = emptyList(),
 )
 
 val AppJson = Json {

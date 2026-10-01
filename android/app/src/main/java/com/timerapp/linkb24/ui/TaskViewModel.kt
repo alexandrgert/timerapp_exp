@@ -43,6 +43,8 @@ import kotlinx.coroutines.sync.withLock
 
 data class TaskListUiState(
     val tasks: List<TaskDto> = emptyList(),
+    val syncConflicts: List<com.timerapp.linkb24.sync.SyncV2.Conflict> = emptyList(),
+    val concurrentTasks: List<TaskDto> = emptyList(),
     val focusTimer: FocusTimerDto = FocusTimerDto(),
     val focusTaskTitle: String = "",
     val taskFilter: TaskViewFilter = TaskViewFilter.TODAY,
@@ -307,39 +309,76 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         result: String,
         keepPriority: Boolean,
         onResult: (String?) -> Unit,
+        original: TaskDto? = null,
     ) {
         mutateTasks("Не удалось сохранить задачу", onResult = onResult) { data ->
-            repository.updateTask(
-                taskId,
-                data,
-                title = title,
-                description = description,
-                result = result,
-                keepPriority = keepPriority,
-            )
+            val fresh = data.tasks.firstOrNull { it.id == taskId } ?: error("Задача удалена на другом устройстве")
+            val baseline = original ?: fresh
+            fun <T> edit(old: T, wanted: T, current: T): T? {
+                if (wanted == old) return null
+                require(current == old) { "Это поле изменено на другом устройстве. Закройте форму и проверьте новую версию; введённый текст пока сохранён в форме." }
+                return wanted
+            }
+            repository.updateTask(taskId, data,
+                title = edit(baseline.title, title, fresh.title),
+                description = edit(baseline.description, description, fresh.description),
+                result = edit(baseline.result, result, fresh.result),
+                keepPriority = edit(baseline.keepPriority, keepPriority, fresh.keepPriority))
         }
     }
 
     fun saveHistorySession(
         taskId: String, sessionId: String?, startedAt: String, endedAt: String?, comment: String,
         onResult: (String?) -> Unit,
+        original: com.timerapp.linkb24.data.SessionDto? = null,
     ) {
         mutateTasks("Не удалось сохранить сессию", onResult = onResult) { data ->
             if (sessionId == null) repository.addClosedSession(taskId, data, startedAt,
                 requireNotNull(endedAt) { "Укажите окончание." }, comment)
-            else repository.updateSession(taskId, sessionId, data, startedAt, endedAt, comment)
+            else {
+                val fresh = data.tasks.firstOrNull { it.id == taskId }?.sessions?.firstOrNull { it.id == sessionId }
+                    ?: error("Сессия удалена на другом устройстве")
+                val baseline = original ?: fresh
+                repository.updateSessionFromSnapshot(taskId, data, baseline, startedAt, endedAt, comment)
+            }
         }
     }
 
-    fun deleteHistorySession(taskId: String, sessionId: String, onResult: (String?) -> Unit) {
+    fun deleteHistorySession(taskId: String, sessionId: String, onResult: (String?) -> Unit, original: com.timerapp.linkb24.data.SessionDto? = null) {
         mutateTasks("Не удалось удалить сессию", onResult = onResult) { data ->
+            require(original == null || data.tasks.firstOrNull { it.id == taskId }?.sessions?.firstOrNull { it.id == sessionId } == original) { "Сессия изменилась. Проверьте её перед удалением." }
             repository.deleteSession(taskId, sessionId, data)
         }
     }
 
-    fun deleteTask(taskId: String, onResult: (String?) -> Unit) {
+    fun deleteTask(taskId: String, onResult: (String?) -> Unit, original: TaskDto? = null) {
         mutateTasks("Не удалось удалить задачу", onResult = onResult) { data ->
+            require(original == null || data.tasks.firstOrNull { it.id == taskId } == original) { "Задача изменилась. Проверьте её перед удалением." }
             repository.deleteTask(taskId, data)
+        }
+    }
+
+    fun resolveSyncConflict(conflict: com.timerapp.linkb24.sync.SyncV2.Conflict, value: kotlinx.serialization.json.JsonElement) {
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { repository.resolveSync(conflict, value) } }
+                .onSuccess { appData = it; publishLoaded("Вариант сохранён. Синхронизируйте устройства.") }
+                .onFailure { error -> _uiState.update { it.copy(errorMessage = error.message) } }
+        }
+    }
+
+    fun resolveConcurrentTimer(taskId: String, sessionId: String, expected: Set<Pair<String, String>>) {
+        mutateTasks("Не удалось разрешить одновременные таймеры") { data ->
+            val current = data.tasks.flatMap { task -> task.sessions.filter { it.endedAt == null }.map { task.id to it.id } }.toSet()
+            require(current == expected) { "Список работающих сессий изменился. Проверьте его и выберите снова." }
+            require(data.tasks.any { t -> t.id == taskId && t.sessions.any { s -> s.id == sessionId && s.endedAt == null } }) { "Выбранная сессия уже завершена. Обновите список." }
+            val now = java.time.Instant.now()
+            data.copy(tasks = data.tasks.map { task ->
+                val sessions = task.sessions.map { session ->
+                    if (session.endedAt != null || (task.id == taskId && session.id == sessionId)) session
+                    else session.copy(endedAt = maxOf(com.timerapp.linkb24.data.parseInstant(session.startedAt) ?: now, now).toString())
+                }
+                task.copy(sessions = sessions, status = if (task.status == TaskStatus.COMPLETED) task.status else if (sessions.any { it.endedAt == null }) TaskStatus.RUNNING else if (sessions.isEmpty()) task.status else TaskStatus.PAUSED)
+            })
         }
     }
 
@@ -446,6 +485,8 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update {
             it.copy(
                 tasks = visibleTasks(appData),
+                syncConflicts = appData.syncConflicts,
+                concurrentTasks = if (appData.tasks.sumOf { t -> t.sessions.count { s -> s.endedAt == null } } > 1) appData.tasks else emptyList(),
                 focusTimer = appData.ui.focusTimer,
                 focusTaskTitle = appData.tasks.firstOrNull { task -> task.id == appData.ui.focusTimer.sessionTaskId }?.title.orEmpty(),
                 priorityFilter = priorityFilterLevels(appData.ui),
@@ -482,6 +523,8 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
             val selectedTaskIds = pruneSelection(_uiState.value.selectedTaskIds, appData.tasks)
             it.copy(
                 tasks = visibleTasks(appData),
+                syncConflicts = appData.syncConflicts,
+                concurrentTasks = if (appData.tasks.sumOf { t -> t.sessions.count { s -> s.endedAt == null } } > 1) appData.tasks else emptyList(),
                 focusTimer = appData.ui.focusTimer,
                 focusTaskTitle = appData.tasks.firstOrNull { task -> task.id == appData.ui.focusTimer.sessionTaskId }?.title.orEmpty(),
                 priorityFilter = priorityFilterLevels(appData.ui),
@@ -504,9 +547,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
                 val previous = appData
                 runCatching {
                     withContext(Dispatchers.IO) {
-                        val updated = reconcileFocusTimer(transform(reconcileFocusTimer(previous)))
-                        repository.save(updated)
-                        updated
+                        repository.mutate { fresh -> transform(fresh) }
                     }
                 }.onSuccess { updated ->
                     runCatching {
@@ -522,6 +563,8 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
                         )
                         it.copy(
                             tasks = visibleTasks(appData),
+                syncConflicts = appData.syncConflicts,
+                concurrentTasks = if (appData.tasks.sumOf { t -> t.sessions.count { s -> s.endedAt == null } } > 1) appData.tasks else emptyList(),
                             focusTimer = appData.ui.focusTimer,
                             focusTaskTitle = appData.tasks.firstOrNull { task -> task.id == appData.ui.focusTimer.sessionTaskId }?.title.orEmpty(),
                             priorityFilter = priorityFilterLevels(appData.ui),

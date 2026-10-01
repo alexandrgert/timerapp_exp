@@ -25,10 +25,10 @@
     <string name="webdav_hide_password">Скрыть пароль</string>
     <string name="webdav_remote_path">Путь к файлу на сервере</string>
     <string name="webdav_remote_path_placeholder">tasktimer/data.json</string>
-    <string name="webdav_sync_on_startup">Скачивать и объединять при запуске</string>
+    <string name="webdav_sync_on_startup">Синхронизировать при запуске</string>
     <string name="webdav_sync_on_shutdown">Загружать на сервер при выходе</string>
     <string name="webdav_shutdown_upload_only">При выходе только отправить локальную копию (без слияния)</string>
-    <string name="webdav_upload_only_hint">Если выключено — перед отправкой при выходе данные объединяются с сервером.</string>
+    <string name="webdav_upload_only_hint">WebDAV v2 всегда объединяет изменения перед отправкой. Используется указанный путь с добавлением .v2.json; старый файл не изменяется.</string>
     <string name="webdav_sync_interval_minutes">Синхронизировать каждые (минут)</string>
     <string name="webdav_sync_interval_placeholder">0</string>
     <string name="webdav_sync_interval_hint">0 — периодическая проверка выключена. Иначе каждые N минут (минимум 15 — ограничение Android в фоне) проверяется сервер. В открытом приложении интервал точный; в фоне — не чаще 15 мин. При изменениях с другого устройства — запрос «Скачать и объединить».</string>
