@@ -4,8 +4,8 @@
   "private": true,
   "scripts": {
     "start": "node server.cjs",
-    "test": "node --test --test-concurrency=1 tests/model.test.mjs tests/server.test.cjs tests/sw.test.cjs tests/browser.test.cjs",
-    "test:unit": "node --test --test-concurrency=1 tests/model.test.mjs tests/server.test.cjs tests/sw.test.cjs"
+    "test": "node --test --test-concurrency=1 tests/*.test.mjs tests/*.test.cjs",
+    "test:unit": "node --test --test-concurrency=1 tests/model.test.mjs tests/sync-protocol.test.mjs tests/webdav-client.test.mjs tests/voice.test.mjs tests/sync-controller.test.mjs tests/server.test.cjs tests/sw.test.cjs"
   },
   "devDependencies": {
     "playwright": "1.63.0"

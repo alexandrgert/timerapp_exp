@@ -32,27 +32,12 @@ export function createWebDavClient({ url, username = '', password = '', fetchImp
     if (response.redirected || response.type === 'opaque' || response.type === 'opaqueredirect') throw fail('REDIRECT', 'WebDAV должен отвечать напрямую без перенаправления.');
     return response;
   }
-  return {
-    async write(body, { etag, create = false, signal } = {}) {
-      if ((create && etag != null) || (!create && !strongETag(etag))) throw fail('ETAG', 'Для записи нужна точная версия ETag или явное создание нового файла.');
-      if (typeof body !== 'string') throw fail('BODY', 'WebDAV принимает сериализованный JSON.');
-      if (new TextEncoder().encode(body).byteLength > MAX_WEBDAV_BYTES) throw fail('SIZE', 'Файл WebDAV превышает 32 МиБ.');
-      const response = await request('PUT', { signal, body, headers: {
-        ...headers(), 'Content-Type': 'application/json; charset=utf-8',
-        ...(create ? { 'If-None-Match': '*' } : { 'If-Match': etag }),
-      } });
-      await response.body?.cancel();
-      if (response.status === 412) throw fail(412, 'Файл изменён другим устройством. Требуется повторное чтение и объединение.', 412);
-      if (!response.ok) throw fail('HTTP', `WebDAV: ошибка записи HTTP ${response.status}.`, response.status);
-      const next = response.headers.get('ETag');
-      return { etag: strongETag(next) ? next : null };
-    },
-    async read({ signal } = {}) {
+  async function readFile({ signal } = {}, requireETag = true) {
       const response = await request('GET', { headers: headers(), signal });
       if (response.status === 404) return null;
       if (!response.ok) throw fail('HTTP', `WebDAV: ошибка чтения HTTP ${response.status}.`, response.status);
       const etag = response.headers.get('ETag');
-      if (!strongETag(etag)) {
+      if (requireETag && !strongETag(etag)) {
         await response.body?.cancel();
         throw fail('ETAG', 'WebDAV не вернул сильный ETag. Нужны сильные ETag и Access-Control-Expose-Headers: ETag; без них безопасная синхронизация невозможна.');
       }
@@ -80,6 +65,23 @@ export function createWebDavClient({ url, username = '', password = '', fetchImp
         throw fail('BODY', 'Не удалось прочитать JSON WebDAV: ответ повреждён или соединение прервано.');
       } finally { reader.releaseLock(); }
       return { body, etag };
+  }
+  return {
+    async write(body, { etag, create = false, signal } = {}) {
+      if ((create && etag != null) || (!create && !strongETag(etag))) throw fail('ETAG', 'Для записи нужна точная версия ETag или явное создание нового файла.');
+      if (typeof body !== 'string') throw fail('BODY', 'WebDAV принимает сериализованный JSON.');
+      if (new TextEncoder().encode(body).byteLength > MAX_WEBDAV_BYTES) throw fail('SIZE', 'Файл WebDAV превышает 32 МиБ.');
+      const response = await request('PUT', { signal, body, headers: {
+        ...headers(), 'Content-Type': 'application/json; charset=utf-8',
+        ...(create ? { 'If-None-Match': '*' } : { 'If-Match': etag }),
+      } });
+      await response.body?.cancel();
+      if (response.status === 412) throw fail(412, 'Файл изменён другим устройством. Требуется повторное чтение и объединение.', 412);
+      if (!response.ok) throw fail('HTTP', `WebDAV: ошибка записи HTTP ${response.status}.`, response.status);
+      const next = response.headers.get('ETag');
+      return { etag: strongETag(next) ? next : null };
     },
+    read: options => readFile(options),
+    readLegacy: options => readFile(options, false),
   };
 }

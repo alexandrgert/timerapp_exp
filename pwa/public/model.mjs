@@ -23,6 +23,7 @@ function taskFields(values, task, now) {
  if('description' in values) {if(typeof values.description!=='string') fail('Описание должно быть текстом'); task.description=values.description;}
  if('day' in values) task.day=calendar(values.day);
  if('priority' in values) {if(!Number.isInteger(values.priority)||values.priority<1||values.priority>4) fail('Приоритет должен быть от 1 до 4'); task.priority=values.priority;}
+ if('priority' in values || 'day' in values){task.daily_priorities={...task.daily_priorities};if(task.priority===4)delete task.daily_priorities[task.day];else task.daily_priorities[task.day]=task.priority;}
 }
 function close(task, now) { const session=active(task); if(session) {if(timestamp(now)<timestamp(session.started_at)) fail('Время окончания раньше начала сессии'); session.ended_at=now;} if(task.status==='running')task.status='paused'; }
 function start(state, task, now) {
@@ -88,7 +89,7 @@ function checkSession(entry, requireEnd) {
  }
  if(typeof entry.comment!=='string')fail('Комментарий должен быть текстом');
 }
-export function validateBackup(value) {
+export function validateBackup(value, {allowMultipleActive=false} = {}) {
  const object=v=>v!==null && typeof v==='object' && !Array.isArray(v);
  if(!object(value)||value.schemaVersion!==1||!Array.isArray(value.tasks)||!('focus' in value))fail('Неподдерживаемый формат резервной копии');
  const ids=new Set();let running=0;
@@ -105,9 +106,9 @@ export function validateBackup(value) {
  if(entry.ended_at===null)opened++;else if(timestamp(entry.ended_at)<timestamp(entry.started_at))fail('Окончание сессии раньше начала');
  if(typeof entry.comment!=='string'||!(entry.bitrix_record_id===null||typeof entry.bitrix_record_id==='string'))fail('Некорректные поля сессии');
  }
- if(opened>1||(task.status==='running')!==(opened===1))fail('Статус задачи не соответствует активной сессии');running+=opened;
+ if((opened>1&&!allowMultipleActive)||(task.status==='running')!==(opened>=1))fail('Статус задачи не соответствует активной сессии');running+=opened;
  }
- if(running>1)fail('В копии несколько активных задач');
+ if(running>1&&!allowMultipleActive)fail('В копии несколько активных задач');
  if(value.focus!==null) {
  const f=value.focus;if(!object(f))fail('Некорректная концентрация');
  const task=value.tasks.find(t=>t.id===f.taskId);

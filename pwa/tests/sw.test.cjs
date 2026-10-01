@@ -42,7 +42,7 @@ function worker({installationError, offline = false, cacheEntries = {}, cacheNam
 test('installation precaches complete shell and waits for user activation', async () => {
   const sw = worker(); await sw.lifecycle('install');
   assert.deepEqual(sw.calls.precached.map(request => new URL(request.url).pathname), [
-    '/', '/index.html', '/app.mjs', '/model.mjs', '/repository.mjs', '/pwa.mjs', '/styles.css',
+    '/', '/index.html', '/app.mjs', '/model.mjs', '/repository.mjs', '/sync-protocol.mjs', '/webdav-client.mjs', '/sync-controller.mjs', '/voice-ui.mjs', '/voice.mjs', '/voice-assets.mjs', '/voice-worker.mjs', '/voice-worklet.mjs', '/pwa.mjs', '/styles.css',
     '/manifest.webmanifest', '/icons/icon.svg', '/icons/icon-192.png', '/icons/icon-512.png'
   ]);
   assert.ok(sw.calls.precached.every(request => request.cache === 'reload'));
@@ -81,4 +81,11 @@ test('only explicit update message activates worker; activation retains two old 
   await sw.lifecycle('message', {type: 'TASKTIMER_APPLY_UPDATE'}); assert.equal(sw.calls.skipWaiting, 1);
   await sw.lifecycle('activate'); assert.equal(sw.calls.claim, 1);
   assert.deepEqual(sw.calls.deleted, ['tasktimer-shell-first']);
+});
+
+test('verified voice runtime cache is available offline without precaching the model',async()=>{
+ const sw=worker({offline:true,cacheEntries:{'/voice-assets/sherpa-onnx-asr.js':new Response('verified runtime')}});
+ assert.equal(await(await sw.fetchEvent('/voice-assets/sherpa-onnx-asr.js')).text(),'verified runtime');
+ await sw.lifecycle('install');assert.ok(sw.calls.precached.every(r=>!new URL(r.url).pathname.startsWith('/voice-assets/')));
+ assert.equal(sw.fetchEvent('/voice-assets/unlisted.js'),undefined);
 });

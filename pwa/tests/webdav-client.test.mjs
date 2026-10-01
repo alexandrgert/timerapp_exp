@@ -63,3 +63,9 @@ test('network errors explain CORS without reflecting secret-bearing errors; canc
   const redirected = createWebDavClient({ url: 'https://dav.example/a', fetchImpl: async () => ({ redirected: true }) });
   await assert.rejects(redirected.read(), { code: 'REDIRECT' });
 });
+
+test('legacy migration read does not demand ETag while v2 read still does',async()=>{
+ const client=createWebDavClient({url:'https://dav.example/tasks.json',fetchImpl:async()=>new Response('{"tasks":[]}')});
+ assert.deepEqual(await client.readLegacy(),{body:'{"tasks":[]}',etag:null});
+ await assert.rejects(client.read(),{code:'ETAG'});
+});
