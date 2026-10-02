@@ -46,7 +46,20 @@
 
 ### Статус совместимости Ubuntu
 
-Текущий полный релиз — **[0.11.7](https://github.com/alexandrgert/timerapp_exp/releases/tag/v0.11.7)**,
+Текущий полный релиз — **[0.11.8](https://github.com/alexandrgert/timerapp_exp/releases/tag/v0.11.8)**.
+[Публикация 36975767255](https://github.com/alexandrgert/timerapp_exp/actions/runs/36975767255)
+объединила новый Android APK и неизменённые desktop-пакеты из
+[сборки 36859044412](https://github.com/alexandrgert/timerapp_exp/actions/runs/36859044412).
+Установка/главное окно DEB проверены на Ubuntu **20.04, 22.04, 24.04 и 26.04**, amd64.
+DEB: **56 532 488 байт**, SHA256:
+`f6db40378067c1287324d253d0082d58f59919bf2eb6b3d4c2f04ec8c564191a`.
+Установка: `sudo apt install ./timerapp-exp-0.11.8-amd64.deb`.
+APK: **146 784 306 байт**; Android unit-тесты: **111**, без ошибок и пропусков.
+[Точные источники и результаты проверок](release-verification-v0.11.8.md).
+
+#### История полного выпуска 0.11.7
+
+Предыдущий полный релиз — **[0.11.7](https://github.com/alexandrgert/timerapp_exp/releases/tag/v0.11.7)**,
 коммит `fa264e93e846595ca8a6e25028f38954f5d77148`.
 [GitHub Actions 36684514177](https://github.com/alexandrgert/timerapp_exp/actions/runs/36684514177)
 успешно собрал все 16 пакетов и проверил установку/главное окно DEB на Ubuntu
@@ -237,7 +250,7 @@ Release APK из CI подписан постоянным ключом (GitHub S
 | `timerapp-exp-*-android.apk` | Android (Experiment) |
 | `tasktimer-link-b24-*` | стабильный продукт [timer-app](https://github.com/alexandrgert/timer-app/releases) |
 
-**Текущая версия исходников Experiment:** **0.11.8**. Последний опубликованный полный выпуск — **0.11.7**, опубликован через `full-release.yml`: [v0.11.7](https://github.com/alexandrgert/timerapp_exp/releases/tag/v0.11.7); описание изменений — [release-notes-v0.11.7.md](release-notes-v0.11.7.md). Сведения о проверках 0.11.6 выше относятся к предыдущей сборке.
+**Текущая версия исходников Experiment:** **0.11.8**. Последний опубликованный полный выпуск — **[0.11.8](https://github.com/alexandrgert/timerapp_exp/releases/tag/v0.11.8)**, опубликован через `release-android-recovery.yml` с повторным использованием проверенных desktop-пакетов; [изменения](release-notes-v0.11.8.md) и [проверки](release-verification-v0.11.8.md). Сведения о проверках 0.11.6 выше относятся к предыдущей сборке.
 
 CI (`.github/workflows/ci.yml`) при push в `main` собирает полную матрицу **Linux** (`.deb`, `.rpm`, `.tar.xz`, `.tgz`, `.AppImage`, Flatpak, Snap, ebuild/overlay, PiSi, PET, PUP, LZM), **Windows .exe**, **macOS .zip** и **Android .apk**.
 
