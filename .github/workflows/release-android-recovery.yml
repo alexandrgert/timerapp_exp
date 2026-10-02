@@ -33,12 +33,19 @@ jobs:
           subprocess.run(['git', 'merge-base', '--is-ancestor', base, 'HEAD'], check=True)
           changed = set(subprocess.check_output(['git', 'diff', '--name-only', base, 'HEAD'], text=True).splitlines())
           source = 'android/app/src/main/java/com/timerapp/linkb24/sync/SyncV2Store.kt'
-          allowed = {source, '.github/workflows/release-android-recovery.yml', 'docs/release-recovery-v0.11.8.md'}
+          gradle = 'android/app/build.gradle.kts'
+          transport_test = 'android/app/src/test/java/com/timerapp/linkb24/sync/WebDavV2TransportTest.kt'
+          allowed = {source, gradle, transport_test, '.github/workflows/release-android-recovery.yml', 'docs/release-recovery-v0.11.8.md'}
           assert changed <= allowed and source in changed, f'Unexpected recovery changes: {sorted(changed)}'
           before = subprocess.check_output(['git', 'show', f'{base}:{source}'], text=True)
           needle = '        return commit(state)\n'
           assert before.count(needle) == 1
           assert Path(source).read_text() == before.replace(needle, '        commit(state)\n'), 'Android change is not the approved one-line fix'
+          before_gradle = subprocess.check_output(['git', 'show', f'{base}:{gradle}'], text=True)
+          junit = '    testImplementation("junit:junit:4.13.2")\n'
+          test_dependency = '    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")\n'
+          assert before_gradle.count(junit) == 1 and test_dependency not in before_gradle
+          assert Path(gradle).read_text() == before_gradle.replace(junit, junit + test_dependency), 'Only the test-scoped MockWebServer dependency may change'
           PYCODE
           python3 scripts/check_version_sync.py
       - name: Verify exact prior run, desktop gates and immutable artifacts
@@ -100,12 +107,36 @@ jobs:
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > android/keystore/tasktimer-release.jks
           python3 scripts/write_android_keystore_from_env.py
 
-      - name: Build Android APK
+      - name: Prepare SDK for release unit tests
         run: |
+          set -euo pipefail
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" \
+            'platform-tools' 'platforms;android-35' 'platforms;android-29' 'build-tools;35.0.0' \
+            2>&1 | tee android-sdk.log
+          printf 'sdk.dir=%s\n' "$ANDROID_HOME" > android/local.properties
+
+      - name: Compile release unit tests before packaging
+        run: |
+          set -euo pipefail
+          bash android/gradlew -p android --no-daemon --console=plain :app:compileReleaseUnitTestKotlin \
+            2>&1 | tee android-compile-tests.log
+
+      - name: Run release unit tests before packaging
+        run: |
+          set -euo pipefail
+          bash android/gradlew -p android --no-daemon --console=plain :app:testReleaseUnitTest \
+            2>&1 | tee android-unit-tests.log
+
+      - name: Build Android APK after passing unit tests
+        run: |
+          set -euo pipefail
           chmod +x build_apk.sh
-          ./build_apk.sh
+          ./build_apk.sh 2>&1 | tee android-assemble.log
+
+      - name: Verify APK signature and package version
+        run: |
           cd android
-          bash ./gradlew --no-daemon :app:testReleaseUnitTest
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify app/build/outputs/apk/release/app-release.apk
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging app/build/outputs/apk/release/app-release.apk > release-package-info.txt
           python3 - <<'PY'
@@ -115,6 +146,29 @@ jobs:
           assert "versionCode='1108'" in line
           assert "versionName='0.11.8'" in line
           PY
+
+      - name: Preserve bounded Android diagnostics
+        if: always()
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          destination = Path('android-diagnostics')
+          destination.mkdir(exist_ok=True)
+          for name in ('android-sdk.log', 'android-compile-tests.log', 'android-unit-tests.log', 'android-assemble.log'):
+              source = Path(name)
+              if source.is_file():
+                  with source.open('rb') as stream:
+                      stream.seek(max(0, source.stat().st_size - 2 * 1024 * 1024))
+                      (destination / name).write_bytes(stream.read())
+          PY
+
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: android-build-diagnostics
+          path: android-diagnostics/*.log
+          if-no-files-found: ignore
+          retention-days: 14
 
       - uses: actions/upload-artifact@v5
         if: always()
