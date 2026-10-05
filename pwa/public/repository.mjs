@@ -18,7 +18,7 @@ function projectSynced(current, sync) {
  // Status is derived for display; the causal source value remains in the log.
  for(const task of tasks){if(!['open','running','paused','completed'].includes(task.status))throw new Error('Некорректный статус задачи в синхронизации');const running=task.sessions.some(session=>session.ended_at===null);if(running)task.status='running';else if(task.status==='running')task.status='paused';}
  let focus=current.focus;
- if(focus&&!tasks.some(task=>task.id===focus.taskId&&task.sessions.some(session=>session.ended_at===null)))focus=null;
+ if(focus&&focus.taskId!==null&&!tasks.some(task=>task.id===focus.taskId&&task.sessions.some(session=>session.ended_at===null)))focus=null;
  // Validate all domain fields even when multi-active projection needs explicit resolution.
  validateBackup({...current,tasks,focus:null},{allowMultipleActive:true});
  if(active.length>1){sync.projectionError='Одновременно работают несколько сессий. Выберите одну.';return current;}
@@ -105,9 +105,14 @@ export async function openRepository({name='tasktimer-pwa'}={}) {
    }
  }
  if(sync)next=projectSynced(current,sync);
+ const localFocusOnly = ((!command||command.type==='reconcile'||command.type==='stopFocus')&&next.focus?.taskId===null) || (command?.type==='startFocus'&&command.taskId==null&&(!next.focus||next.focus.taskId===null));
+ if(sync?.projectionError&&localFocusOnly){
+   // Local standalone focus never writes task registers, including during unresolved remote starts.
+   next=validateBackup(apply(next,command||{type:'reconcile'}));
+ } else {
  if(sync?.projectionError&&command&&command.type!=='reconcile')throw new Error('Сначала разрешите конфликт синхронизации в настройках. '+sync.projectionError);
  if(!sync?.projectionError){
-   const reconciled=sync?.conflicts?.length?next:apply(next,{type:'reconcile'});
+   const reconciled=sync?.conflicts?.length&&next.focus?.taskId!==null?next:apply(next,{type:'reconcile'});
    if(command?.expected){
      const task=reconciled.tasks.find(t=>t.id===command.taskId);
      const entity=command.sessionId?task?.sessions.find(s=>s.id===command.sessionId):task;
@@ -127,6 +132,7 @@ export async function openRepository({name='tasktimer-pwa'}={}) {
      sync.document=reconcileTasks(sync.document,canonicalTasks(next.tasks),canonicalTasks(applied.tasks),sync.actor);
    }
    next=applied;
+ }
  }
  // Public backup metadata is not local synchronization state.
  delete next.sync;

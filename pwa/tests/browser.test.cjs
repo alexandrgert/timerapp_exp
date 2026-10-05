@@ -27,7 +27,7 @@ test('mobile CRUD, validation retains input, cancel, history, export/import and 
  }finally{await context.close();}
 });
 test('comment edit preserves exact imported timestamps and metadata',async()=>{const {context,page}=await setup();try{await create(page,'Точность');await page.evaluate(async()=>{const {openRepository}=await import('/repository.mjs');const r=await openRepository();const s=await r.read();s.tasks[0].sessions.push({id:'precision',started_at:'2026-09-28T10:00:00.123456+03:00',ended_at:'2026-09-28T11:00:00.987654+03:00',comment:'До',bitrix_record_id:'123'});await r.dispatch({type:'replaceState',values:s});r.close();});await page.getByTestId('session').waitFor();await page.getByTestId('session').getByRole('button',{name:'Изменить',exact:true}).click();await page.getByTestId('session-comment').fill('После');await page.getByTestId('save').click();await page.locator('#editor-dialog').waitFor({state:'hidden'});const session=(await read(page)).tasks[0].sessions[0];assert.equal(session.started_at,'2026-09-28T10:00:00.123456+03:00');assert.equal(session.ended_at,'2026-09-28T11:00:00.987654+03:00');assert.equal(session.bitrix_record_id,'123');assert.equal(session.comment,'После');}finally{await context.close();}});
-test('two tabs refresh and focus expiration closes exactly at saved deadline after reload',async()=>{const {context,page}=await setup();try{await create(page,'Фокус');const second=await context.newPage();await second.goto(origin);await second.getByTestId('task-row').waitFor();await page.getByRole('button',{name:'Концентрация',exact:true}).click();await page.getByTestId('focus-minutes').fill('1');await page.getByTestId('save').click();await page.locator('#editor-dialog').waitFor({state:'hidden'});await second.getByTestId('live-clock').waitFor();const started=await read(page);assert.ok(started.focus);const deadline=started.focus.ends_at;
+test('two tabs refresh and focus expiration closes exactly at saved deadline after reload',async()=>{const {context,page}=await setup();try{await create(page,'Фокус');const second=await context.newPage();await second.goto(origin);await second.getByTestId('task-row').waitFor();await page.locator('#task-details').getByRole('button',{name:'Концентрация',exact:true}).click();assert.equal(await page.getByTestId('focus-task').inputValue(),(await read(page)).tasks[0].id);await page.getByTestId('focus-minutes').fill('1');await page.getByTestId('save').click();await page.locator('#editor-dialog').waitFor({state:'hidden'});await second.getByTestId('live-clock').waitFor();const started=await read(page);assert.ok(started.focus);const deadline=started.focus.ends_at;
  await page.clock.install({time:new Date(new Date(deadline).getTime()+1000)});await page.reload();await page.locator('#task-list .task-row').waitFor();assert.equal((await read(page)).focus,null);assert.equal((await read(page)).tasks[0].sessions[0].ended_at,deadline);await second.locator('#active-timer').waitFor({state:'hidden'});assert.equal((await read(second)).tasks[0].status,'paused');
  }finally{await context.close();}});
 test('storage quota error retains form and existing data, retry commits once',async()=>{const {context,page}=await setup();try{await create(page,'Сохранённая');await page.evaluate(()=>{const original=IDBObjectStore.prototype.put;IDBObjectStore.prototype.put=function(...args){IDBObjectStore.prototype.put=original;throw new DOMException('Недостаточно места на устройстве','QuotaExceededError');};});await page.getByTestId('new-task').click();await page.getByTestId('task-title').fill('После ошибки');await page.getByTestId('save').click();await page.locator('#editor-error').waitFor({state:'visible'});assert.equal(await page.getByTestId('task-title').inputValue(),'После ошибки');assert.equal((await read(page)).tasks.length,1);await page.getByTestId('save').click();await page.locator('#editor-dialog').waitFor({state:'hidden'});assert.equal((await read(page)).tasks.length,2);}finally{await context.close();}});
@@ -140,5 +140,49 @@ test('editor refuses hidden concurrent candidate even when projected original re
  await page.getByRole('button',{name:'Изменить',exact:true}).click();assert.equal(await page.getByTestId('task-title').inputValue(),'Левый');await page.getByTestId('task-title').fill('Мой черновик');
  await page.evaluate(async()=>{const {openRepository}=await import('/repository.mjs');const {changeEntity}=await import('/sync-protocol.mjs');const r=await openRepository();await r.mergeSync(changeEntity(globalThis.fixtureBranch,'z',['task',globalThis.fixtureTask],{title:'Правый'}));r.close();});
  assert.equal((await read(page)).tasks[0].title,'Левый');await page.getByTestId('save').click();await page.locator('#editor-error').waitFor({state:'visible'});assert.match(await page.locator('#editor-error').textContent(),/Сначала разрешите конфликт/);assert.equal(await page.getByTestId('task-title').inputValue(),'Мой черновик');const current=await read(page);assert.equal(current.tasks[0].title,'Левый');assert.equal(current.sync.conflicts[0].candidates.length,2);
+ }finally{await context.close();}
+});
+test('standalone focus starts empty, survives reload, expires without task time and can stop',async()=>{
+ const {context,page}=await setup();try{
+ await page.getByTestId('start-focus').click();assert.equal(await page.getByTestId('focus-task').inputValue(),'');
+ await page.getByTestId('focus-minutes').fill('1');await page.getByTestId('save').click();await page.locator('#editor-dialog').waitFor({state:'hidden'});
+ const before=await read(page);assert.equal(before.focus.taskId,null);assert.deepEqual(before.tasks,[]);
+ await page.reload();await page.getByTestId('focus-clock').waitFor();assert.deepEqual((await read(page)).focus,before.focus);
+ await page.clock.install({time:new Date(Date.parse(before.focus.ends_at)+1000)});await page.reload();await page.getByTestId('start-focus').waitFor();assert.equal((await read(page)).focus,null);assert.deepEqual((await read(page)).tasks,[]);await page.locator('#standalone-focus').waitFor({state:'hidden'});
+ await page.getByTestId('start-focus').click();await page.getByTestId('save').click();await page.locator('#editor-dialog').waitFor({state:'hidden'});await page.locator('#standalone-focus [data-action="stopFocus"]').click();await page.locator('#standalone-focus').waitFor({state:'hidden'});assert.deepEqual((await read(page)).tasks,[]);
+ }finally{await context.close();}
+});
+test('standalone focus survives sync projection and keeps concurrent task timer independent',async()=>{
+ const {context,page}=await setup();try{
+ await create(page,'Независимая задача');await page.getByTestId('task-toggle').click();await page.getByTestId('live-clock').waitFor();
+ await page.getByTestId('start-focus').click();assert.equal(await page.getByTestId('focus-task').inputValue(),'');await page.getByTestId('save').click();await page.locator('#editor-dialog').waitFor({state:'hidden'});
+ const before=await read(page);assert.equal(before.focus.taskId,null);
+ await page.evaluate(async()=>{const {openRepository}=await import('/repository.mjs');const r=await openRepository();try{await r.enableSync();const b=await r.exportBackup();await r.mergeSync(b.syncDocument);}finally{r.close();}});
+ await page.reload();await page.getByTestId('focus-clock').waitFor();await page.getByTestId('live-clock').waitFor();assert.deepEqual((await read(page)).focus,before.focus);assert.deepEqual((await read(page)).tasks[0].sessions,before.tasks[0].sessions);
+ assert.notEqual(await page.getByTestId('focus-clock').textContent(),await page.getByTestId('live-clock').textContent());
+ await page.locator('#standalone-focus [data-action="stopFocus"]').click();await page.locator('#standalone-focus').waitFor({state:'hidden'});assert.deepEqual((await read(page)).tasks[0].sessions,before.tasks[0].sessions);await page.getByTestId('live-clock').waitFor();
+ }finally{await context.close();}
+});
+test('global focus optionally selects task and accounts time only for that task',async()=>{
+ const {context,page}=await setup();try{
+ await create(page,'Выбранная');const taskId=(await read(page)).tasks[0].id;
+ await page.getByTestId('start-focus').click();await page.getByTestId('focus-task').selectOption(taskId);await page.getByTestId('save').click();await page.locator('#editor-dialog').waitFor({state:'hidden'});await page.getByTestId('live-clock').waitFor();
+ const state=await read(page);assert.equal(state.focus.taskId,taskId);assert.equal(state.tasks[0].sessions.length,1);assert.equal(state.tasks[0].sessions[0].ended_at,null);await page.locator('#standalone-focus').waitFor({state:'hidden'});
+ }finally{await context.close();}
+});
+test('standalone focus remains local through unresolved concurrent remote sessions',async()=>{
+ const {context,page}=await setup();try{
+ const result=await page.evaluate(async()=>{
+  const {openRepository}=await import('/repository.mjs');const p=await import('/sync-protocol.mjs');const r=await openRepository();
+  try{
+   await r.dispatch({type:'createTask',values:{title:'Conflict'}});await r.enableSync();const backup=await r.exportBackup();const taskId=backup.tasks[0].id;const now=new Date().toISOString();
+   let remote=p.changeEntity(backup.syncDocument,'remote-a',['session',taskId,'a'],{interval:{started_at:now,ended_at:null},comment:''});
+   remote=p.changeEntity(remote,'remote-b',['session',taskId,'b'],{interval:{started_at:now,ended_at:null},comment:''});await r.mergeSync(remote);
+   const before=await r.exportBackup();const projectionError=(await r.read()).sync.projectionError;await r.dispatch({type:'startFocus',taskId:null,values:{minutes:1}});const started=await r.exportBackup();await r.dispatch({type:'stopFocus'});const stopped=await r.exportBackup();
+   await r.dispatch({type:'startFocus',taskId:null,values:{minutes:1}});return {before,started,stopped,projectionError,deadline:(await r.read()).focus.ends_at};
+  }finally{r.close();}
+ });
+ assert.ok(result.projectionError);assert.equal(result.started.focus.taskId,null);assert.equal(result.stopped.focus,null);assert.deepEqual(result.started.tasks,result.before.tasks);assert.deepEqual(result.stopped.syncDocument,result.before.syncDocument);
+ await page.clock.install({time:new Date(Date.parse(result.deadline)+1000)});await page.reload();const expired=await page.evaluate(async()=>{const{openRepository}=await import('/repository.mjs');const r=await openRepository();try{return await r.exportBackup();}finally{r.close();}});assert.equal(expired.focus,null);assert.deepEqual(expired.syncDocument,result.before.syncDocument);assert.deepEqual(expired.tasks,result.before.tasks);
  }finally{await context.close();}
 });

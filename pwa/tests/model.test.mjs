@@ -69,3 +69,20 @@ test('clock rollback cannot create focus preceding existing active session',()=>
  const focused=apply(s,{type:'startFocus',taskId,values:{minutes:25}},t2);
  assert.deepEqual(validateBackup(focused),focused);
 });
+test('standalone focus validates and expires without creating tasks or session time',()=>{
+ const s=apply(initialState(),{type:'startFocus',taskId:null,values:{minutes:1}},t0);
+ assert.equal(s.focus.taskId,null);assert.deepEqual(validateBackup(s),s);assert.deepEqual(s.tasks,[]);
+ assert.deepEqual(apply(s,{type:'reconcile'},t2),initialState());
+ assert.deepEqual(apply(s,{type:'stopFocus'},t0),initialState());
+ assert.throws(()=>validateBackup({...s,focus:{...s.focus,taskId:undefined}}));
+ for(const minutes of [0,181,1.5])assert.throws(()=>apply(initialState(),{type:'startFocus',values:{minutes}},t0));
+});
+test('standalone focus and task timing remain independent through start pause expiry and stop',()=>{
+ let s=create();const taskId=s.tasks[0].id;
+ s=apply(s,{type:'startFocus',values:{minutes:1}},t0);
+ s=apply(s,{type:'startTask',taskId},t0);assert.equal(s.focus.taskId,null);
+ const expired=apply(s,{type:'reconcile'},t2);assert.equal(expired.focus,null);assert.equal(expired.tasks[0].sessions[0].ended_at,null);assert.equal(totalSeconds(expired.tasks[0],t2),120);
+ const stopped=apply(s,{type:'stopFocus'},t1);assert.deepEqual(stopped.tasks,s.tasks);
+ const paused=apply(s,{type:'pauseTask',taskId},t0);assert.deepEqual(paused.focus,s.focus);
+ assert.throws(()=>apply(s,{type:'startFocus',taskId,values:{minutes:1}},t0),/остановите/);
+});
