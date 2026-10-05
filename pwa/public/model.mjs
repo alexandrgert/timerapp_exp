@@ -30,7 +30,7 @@ function start(state, task, now) {
  if(task.status==='completed') fail('Завершённую задачу нельзя запустить');
  if(active(task)){if(timestamp(active(task).started_at)>timestamp(now))fail('Текущее время раньше начала сессии. Проверьте часы устройства или исправьте сессию.');return;}
  for(const other of state.tasks)if(other!==task && active(other))close(other,now);
- if(state.focus && state.focus.taskId!==task.id)state.focus=null;
+ if(state.focus && state.focus.taskId!==null && state.focus.taskId!==task.id)state.focus=null;
  task.sessions.push({id:id(),started_at:now,ended_at:null,comment:'',bitrix_record_id:null}); task.status='running';
 }
 export function apply(state, command, now=new Date().toISOString()) {
@@ -45,13 +45,15 @@ export function apply(state, command, now=new Date().toISOString()) {
  taskFields(values,task,now); if(!task.title)fail('Введите название задачи'); s.tasks.push(task); return s;
  }
  if(command.type==='reconcile')return s;
- const task=s.tasks.find(t=>t.id===command.taskId); if(!task)fail('Задача не найдена');
- switch(command.type) {
- case 'startFocus': {
+ if(command.type==='startFocus') {
  if(s.focus)fail('Сначала остановите текущую концентрацию');
  if(!Number.isInteger(values.minutes)||values.minutes<1||values.minutes>180)fail('Длительность должна быть целым числом от 1 до 180 минут');
- start(s,task,now);s.focus={taskId:task.id,started_at:now,ends_at:new Date(timestamp(now)+values.minutes*60000).toISOString()};break;
+ const taskId=command.taskId??null;
+ if(taskId!==null){const task=s.tasks.find(t=>t.id===taskId);if(!task)fail('Задача не найдена');start(s,task,now);}
+ s.focus={taskId,started_at:now,ends_at:new Date(timestamp(now)+values.minutes*60000).toISOString()};return s;
  }
+ const task=s.tasks.find(t=>t.id===command.taskId); if(!task)fail('Задача не найдена');
+ switch(command.type) {
  case 'addSession': {
  const entry={id:id(),started_at:values.started_at,ended_at:values.ended_at,comment:values.comment??'',bitrix_record_id:null};
  checkSession(entry,true);task.sessions.push(entry);break;
@@ -112,7 +114,7 @@ export function validateBackup(value, {allowMultipleActive=false} = {}) {
  if(value.focus!==null) {
  const f=value.focus;if(!object(f))fail('Некорректная концентрация');
  const task=value.tasks.find(t=>t.id===f.taskId);
- if(!task||!active(task)||timestamp(f.ends_at)<=timestamp(f.started_at)||timestamp(active(task).started_at)>timestamp(f.started_at))fail('Концентрация не соответствует активной задаче');
+ if(f.taskId!==null&&(!task||!active(task)||timestamp(active(task).started_at)>timestamp(f.started_at)))fail('Концентрация не соответствует активной задаче');
  const duration=timestamp(f.ends_at)-timestamp(f.started_at);if(duration<60000||duration>10800000||duration%60000!==0)fail('Некорректная длительность концентрации');
  }
  // Only JSON snapshots are accepted; additional JSON metadata is retained unchanged.

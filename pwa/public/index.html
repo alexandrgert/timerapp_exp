@@ -11,7 +11,8 @@
 <div class="app-shell">
 <header class="header"><a class="brand" href="/" aria-label="TaskTimer, главная"><span class="brand-icon" aria-hidden="true">◷</span> TaskTimer</a><div class="header-actions"><span id="connection" class="connection"></span><button class="icon-button" id="settings-button" aria-label="Настройки и резервные копии" title="Настройки и резервные копии">⚙</button></div></header>
 <main>
-<div class="page-heading"><div><p class="eyebrow" id="today-date"></p><h1>Мои задачи</h1></div><button class="primary" id="new-task" data-testid="new-task">＋ Новая задача</button></div>
+<div class="page-heading"><div><p class="eyebrow" id="today-date"></p><h1>Мои задачи</h1></div><div class="button-row"><button class="secondary" data-action="focus" data-testid="start-focus">Концентрация</button><button class="primary" id="new-task" data-testid="new-task">＋ Новая задача</button></div></div>
+<section id="standalone-focus" class="active-timer" hidden aria-label="Концентрация без задачи"></section>
 <div id="global-error" class="notice error" role="alert" hidden></div>
 <button class="secondary" id="sync-attention" hidden>Разрешить конфликты синхронизации</button><section id="active-timer" class="active-timer" aria-label="Текущий таймер" hidden></section>
 <div class="workspace">
