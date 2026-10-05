@@ -21,19 +21,31 @@ export function visibleTasks(state,{view='today',day=localDay(),query='',priorit
 const hm=seconds=>String(Math.floor(seconds/3600)).padStart(2,'0')+':'+String(Math.floor(seconds/60)%60).padStart(2,'0');
 const dayLabel=day=>day.split('-').reverse().join('.');
 function dateLabel(value){const d=new Date(value);return dayLabel(localDay(d))+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');}
-export function buildDayReport(state,day,{extended=false,now=new Date().toISOString()}={}){
- const tasks=state.tasks.filter(t=>secondsOnDay(t,day,now)>0).sort((a,b)=>secondsOnDay(b,day,now)-secondsOnDay(a,day,now));
- const label=dayLabel(day);if(!tasks.length)return '# Отчёт за '+label+'\n\nЗа '+label+' время не учтено.';
- const lines=['# Отчёт за '+label,'','**Итого:** '+hm(tasks.reduce((n,t)=>n+secondsOnDay(t,day,now),0)),''];
+// One snapshot is shared by Markdown and the table, including running sessions.
+export function dayReportData(state,day,{now=new Date().toISOString()}={}){
+ const tasks=state.tasks.map(task=>({
+  title:task.title,result:task.result?.trim()||'',description:task.description.trim(),
+  concentration:task.title.startsWith('Концентрация · ')&&task.description==='Режим концентрации',
+  seconds:secondsOnDay(task,day,now),
+  sessions:task.sessions.filter(s=>localDay(s.started_at)===day).map(s=>({
+   start:dateLabel(s.started_at),end:s.ended_at?dateLabel(s.ended_at):'идёт',
+   elapsed:hm(duration(s,now)),comment:s.comment||'',transferred:String(s.bitrix_record_id??'')
+  }))
+ })).filter(t=>t.seconds>0).sort((a,b)=>b.seconds-a.seconds);
+ return {day,label:dayLabel(day),total:hm(tasks.reduce((n,t)=>n+t.seconds,0)),tasks:tasks.map(t=>({...t,elapsed:hm(t.seconds)}))};
+}
+export function formatDayReport(report,{extended=false}={}){
+ const {tasks,label}=report;if(!tasks.length)return '# Отчёт за '+label+'\n\nЗа '+label+' время не учтено.';
+ const lines=['# Отчёт за '+label,'','**Итого:** '+report.total,''];
  tasks.forEach((task,index)=>{
- if(index)lines.push('');lines.push('## '+task.title+' — '+hm(secondsOnDay(task,day,now)));
- if(task.result?.trim())lines.push('','**Результат:** '+task.result.trim());
+ if(index)lines.push('');lines.push('## '+task.title+' — '+task.elapsed);
+ if(task.result)lines.push('','**Результат:** '+task.result);
  if(!extended)return;
- if(task.description.trim())lines.push('','### Описание',task.description.trim());
- const sessions=task.sessions.filter(s=>localDay(s.started_at)===day);
- if(sessions.length)lines.push('','### Сессии за день','| Начало | Окончание | Длительность | Комментарий | Передано |','| --- | --- | --- | --- | --- |');
+ if(task.description)lines.push('','### Описание',task.description);
+ if(task.sessions.length)lines.push('','### Сессии за день','| Начало | Окончание | Длительность | Комментарий | Передано |','| --- | --- | --- | --- | --- |');
  const cell=value=>String(value??'').replaceAll('|','\\|').replaceAll('\n',' ');
- for(const session of sessions)lines.push('| '+[dateLabel(session.started_at),session.ended_at?dateLabel(session.ended_at):'идёт',hm(duration(session,now)),cell(session.comment),cell(session.bitrix_record_id)].join(' | ')+' |');
+ for(const session of task.sessions)lines.push('| '+[session.start,session.end,session.elapsed,cell(session.comment),cell(session.transferred)].join(' | ')+' |');
  });
  return lines.join('\n');
 }
+export function buildDayReport(state,day,options={}){return formatDayReport(dayReportData(state,day,options),options);}
