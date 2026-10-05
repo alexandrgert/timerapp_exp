@@ -2,7 +2,8 @@ name: Publish PWA to GitHub Pages
 
 # Manual publication only. No push, PR, tag or native-build trigger.
 on:
-  workflow_dispatch:
+  push:
+    branches: [publish/approved-pwa-20261005-01]
 
 permissions:
   contents: read
