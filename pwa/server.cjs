@@ -11,7 +11,7 @@ const root = path.join(__dirname, 'public');
 const assets = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
   ['/index.html', ['index.html', 'text/html; charset=utf-8']],
-  ...['app.mjs', 'model.mjs', 'repository.mjs', 'pwa.mjs', 'sw.js', 'sync-protocol.mjs', 'webdav-client.mjs', 'sync-controller.mjs', 'voice-ui.mjs', 'voice.mjs', 'voice-assets.mjs', 'voice-worker.mjs', 'voice-worklet.mjs'].map(name => ['/' + name, [name, 'text/javascript; charset=utf-8']]),
+  ...['app.mjs', 'model.mjs','desktop-domain.mjs', 'repository.mjs', 'pwa.mjs', 'sw.js', 'sync-protocol.mjs', 'webdav-client.mjs', 'sync-controller.mjs', 'voice-ui.mjs', 'voice.mjs', 'voice-assets.mjs', 'voice-worker.mjs', 'voice-worklet.mjs'].map(name => ['/' + name, [name, 'text/javascript; charset=utf-8']]),
   ...['sherpa-onnx-asr.js','sherpa-onnx-wasm-main-vad-asr.js','sherpa-onnx-wasm-main-vad-asr.wasm'].map(name=>['/voice-assets/'+name,['voice-assets/'+name,name.endsWith('.wasm')?'application/wasm':'text/javascript; charset=utf-8']]),
   ['/styles.css', ['styles.css', 'text/css; charset=utf-8']],
   ['/manifest.webmanifest', ['manifest.webmanifest', 'application/manifest+json; charset=utf-8']],

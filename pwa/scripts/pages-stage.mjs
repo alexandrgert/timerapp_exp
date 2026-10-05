@@ -3,7 +3,7 @@ import {readFile,writeFile,mkdir,access} from 'node:fs/promises';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import path from 'node:path';
 export const PUBLIC_FILES = [
- 'index.html','app.mjs','model.mjs','repository.mjs','pwa.mjs','sw.js','sync-protocol.mjs','webdav-client.mjs','sync-controller.mjs',
+ 'index.html','app.mjs','model.mjs','desktop-domain.mjs','repository.mjs','pwa.mjs','sw.js','sync-protocol.mjs','webdav-client.mjs','sync-controller.mjs',
  'voice-ui.mjs','voice.mjs','voice-assets.mjs','voice-worker.mjs','voice-worklet.mjs','styles.css','manifest.webmanifest',
  'icons/icon.svg','icons/icon-192.png','icons/icon-512.png',
  'voice-assets/sherpa-onnx-asr.js','voice-assets/sherpa-onnx-wasm-main-vad-asr.js','voice-assets/sherpa-onnx-wasm-main-vad-asr.wasm',
