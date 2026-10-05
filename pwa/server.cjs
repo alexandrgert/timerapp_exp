@@ -14,6 +14,7 @@ const assets = new Map([
   ...['app.mjs', 'model.mjs','desktop-domain.mjs', 'repository.mjs', 'pwa.mjs', 'sw.js', 'sync-protocol.mjs', 'webdav-client.mjs', 'sync-controller.mjs', 'voice-ui.mjs', 'voice.mjs', 'voice-assets.mjs', 'voice-worker.mjs', 'voice-worklet.mjs'].map(name => ['/' + name, [name, 'text/javascript; charset=utf-8']]),
   ...['sherpa-onnx-asr.js','sherpa-onnx-wasm-main-vad-asr.js','sherpa-onnx-wasm-main-vad-asr.wasm'].map(name=>['/voice-assets/'+name,['voice-assets/'+name,name.endsWith('.wasm')?'application/wasm':'text/javascript; charset=utf-8']]),
   ['/styles.css', ['styles.css', 'text/css; charset=utf-8']],
+  ['/release-notes.json', ['release-notes.json', 'application/json; charset=utf-8']],
   ['/manifest.webmanifest', ['manifest.webmanifest', 'application/manifest+json; charset=utf-8']],
   ['/icons/icon.svg', ['icons/icon.svg', 'image/svg+xml']],
   ...[192, 512].map(size => [`/icons/icon-${size}.png`, [`icons/icon-${size}.png`, 'image/png']])
@@ -37,13 +38,14 @@ http.createServer(async (request, response) => {
   if (!asset) return reply(404, 'not found\n', {'cache-control': 'no-store'});
   try {
     let body = await fs.readFile(path.join(root, asset[0]));
-    if (pathname === '/sw.js') {
+    if (pathname === '/sw.js' || pathname === '/release-notes.json') {
       // Any source edit creates a distinct worker/cache without a build step.
       const hash = createHash('sha256');
       for (const name of new Set([...assets.values()].map(value => value[0]))) {
-        hash.update(name); hash.update(await fs.readFile(path.join(root, name)));
+        hash.update(name);try{hash.update(await fs.readFile(path.join(root, name)));}catch(error){if(name!=='release-notes.json'||error.code!=='ENOENT')throw error;hash.update('optional-notes-missing');}
       }
-      body = Buffer.from(body.toString().replace('__TASKTIMER_REVISION__', hash.digest('hex').slice(0, 24)));
+      const revision=hash.digest('hex').slice(0,24);
+      body = Buffer.from(pathname==='/sw.js'?body.toString().replaceAll('__TASKTIMER_REVISION__',revision):JSON.stringify({...JSON.parse(body),revision}));
     }
     reply(200, body, {'content-type': asset[1], 'content-length': body.length, ...(pathname === '/sw.js' ? {'service-worker-allowed': '/', 'cache-control': 'no-store'} : {})});
   } catch {

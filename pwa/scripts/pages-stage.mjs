@@ -3,7 +3,7 @@ import {readFile,writeFile,mkdir,access} from 'node:fs/promises';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import path from 'node:path';
 export const PUBLIC_FILES = [
- 'index.html','app.mjs','model.mjs','desktop-domain.mjs','repository.mjs','pwa.mjs','sw.js','sync-protocol.mjs','webdav-client.mjs','sync-controller.mjs',
+ 'release-notes.json','index.html','app.mjs','model.mjs','desktop-domain.mjs','repository.mjs','pwa.mjs','sw.js','sync-protocol.mjs','webdav-client.mjs','sync-controller.mjs',
  'voice-ui.mjs','voice.mjs','voice-assets.mjs','voice-worker.mjs','voice-worklet.mjs','styles.css','manifest.webmanifest',
  'icons/icon.svg','icons/icon-192.png','icons/icon-512.png',
  'voice-assets/sherpa-onnx-asr.js','voice-assets/sherpa-onnx-wasm-main-vad-asr.js','voice-assets/sherpa-onnx-wasm-main-vad-asr.wasm',
@@ -15,6 +15,7 @@ export function renderAsset(relative, bytes, {basePath, revision}) {
  if(!/^[a-f0-9]{40}$/.test(revision))throw new Error('Expected full Git commit SHA');
  if(!PUBLIC_FILES.includes(relative))throw new Error('Asset not allowlisted');
  const namespace='pages-'+Buffer.from(basePath).toString('hex');
+ if(relative==='release-notes.json')return Buffer.from(JSON.stringify({...JSON.parse(bytes),revision})+'\n');
  if(relative==='manifest.webmanifest') {
   const manifest=JSON.parse(bytes);manifest.id=basePath;manifest.start_url=basePath;manifest.scope=basePath;
   manifest.icons=manifest.icons.map(icon=>({...icon,src:basePath+icon.src.replace(/^\//,'')}));
