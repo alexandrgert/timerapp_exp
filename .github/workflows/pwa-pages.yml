@@ -16,7 +16,7 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -25,8 +25,37 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: '22'
-      - name: Check publication path transformations without building native clients
-        run: node --test pwa/tests/pages-stage.test.mjs
+          cache: npm
+          cache-dependency-path: pwa/package-lock.json
+      - name: Install PWA test dependencies and ready Chromium
+        working-directory: pwa
+        run: |
+          set -o pipefail
+          npm ci --ignore-scripts 2>&1 | tee pwa-dependencies.log
+          npx playwright install --with-deps chromium 2>&1 | tee chromium-install.log
+      - name: PWA unit and browser tests (serial)
+        working-directory: pwa
+        run: |
+          set -o pipefail
+          timeout --kill-after=10s 240s node --test --test-concurrency=1 --test-timeout=30000 tests/*.test.mjs tests/*.test.cjs 2>&1 | tee pwa-tests.log
+      - name: Real Service Worker offline reload and accepted update
+        working-directory: pwa
+        run: |
+          set -o pipefail
+          timeout --kill-after=10s 120s node tests/live-offline.check.cjs 2>&1 | tee live-offline-tests.log
+      - name: Save PWA publication verification reports
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: pwa-pages-verification-reports
+          path: |
+            pwa/pwa-dependencies.log
+            pwa/chromium-install.log
+            pwa/pwa-tests.log
+            pwa/live-offline-tests.log
+            pwa/live-offline-report.json
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Prepare already-enabled GitHub Pages
         uses: actions/configure-pages@v5
       - name: Stage allowlisted public files
