@@ -4,8 +4,7 @@ import {importLegacy, reconcileTasks, mergeDocuments, projectTasks, resolveConfl
 function canonicalTasks(tasks){
  return tasks.map(task=>{
    const copy=structuredClone(task);delete copy.priority;
-   copy.daily_priorities={...task.daily_priorities};
-   if(task.priority===4)delete copy.daily_priorities[task.day];else copy.daily_priorities[task.day]=task.priority;
+   copy.daily_priorities=task.daily_priorities?{...task.daily_priorities}:(task.priority!==4?{[task.day]:task.priority}:{});
    return copy;
  });
 }
@@ -105,14 +104,14 @@ export async function openRepository({name='tasktimer-pwa'}={}) {
    }
  }
  if(sync)next=projectSynced(current,sync);
- const localFocusOnly = ((!command||command.type==='reconcile'||command.type==='stopFocus')&&next.focus?.taskId===null) || (command?.type==='startFocus'&&command.taskId==null&&(!next.focus||next.focus.taskId===null));
+ const localFocusOnly = ((!command||command.type==='reconcile'||command.type==='stopFocus')&&next.focus?.taskId===null);
  if(sync?.projectionError&&localFocusOnly){
    // Local standalone focus never writes task registers, including during unresolved remote starts.
-   next=validateBackup(apply(next,command||{type:'reconcile'}));
+   next=structuredClone(next);if(command?.type==='stopFocus'||Date.now()>=Date.parse(next.focus.ends_at))next.focus=null;
  } else {
  if(sync?.projectionError&&command&&command.type!=='reconcile')throw new Error('Сначала разрешите конфликт синхронизации в настройках. '+sync.projectionError);
  if(!sync?.projectionError){
-   const reconciled=sync?.conflicts?.length&&next.focus?.taskId!==null?next:apply(next,{type:'reconcile'});
+   const reconciled=sync?.conflicts?.length?next:apply(next,{type:'reconcile'});
    if(command?.expected){
      const task=reconciled.tasks.find(t=>t.id===command.taskId);
      const entity=command.sessionId?task?.sessions.find(s=>s.id===command.sessionId):task;
@@ -120,7 +119,7 @@ export async function openRepository({name='tasktimer-pwa'}={}) {
      const changed=Object.keys(command.expected).filter(key=>JSON.stringify(entity[key])!==JSON.stringify(command.expected[key]));
      if(changed.length){const error=new Error('Эти поля изменились после открытия формы: '+changed.map(key=>key+' = '+JSON.stringify(entity[key])).join('; ')+'. Ваш черновик сохранён.');error.name='ConcurrentEditError';throw error;}
    }
-   const applied=validateBackup(command?apply(reconciled,command):reconciled);
+   const applied=validateBackup(command?apply(reconciled,command,undefined,{reconcile:!sync?.conflicts?.length}):reconciled);
    if(sync){
      if(command?.type!=='replaceState'){
        const delta=reconcileTasks(emptyDocument(),canonicalTasks(next.tasks),canonicalTasks(applied.tasks),'change-probe');

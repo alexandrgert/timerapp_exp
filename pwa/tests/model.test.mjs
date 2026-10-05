@@ -27,9 +27,10 @@ test('session edits retain metadata and timestamp bytes; reject invalid dates an
  assert.throws(()=>apply(s,{type:'addSession',taskId,values:{started_at:t1,ended_at:t0}},t1));
  s=apply(s,{type:'deleteSession',taskId,sessionId},t1);assert.equal(s.tasks[0].sessions.length,0);assert.equal(s.tasks[0].status,'completed');
 });
-test('focus expires at stored deadline after sleep and active changes cancel it',()=>{
+function legacyLinked(s,taskId,minutes=1){s=apply(s,{type:'startTask',taskId},t0);s.focus={taskId,started_at:t0,ends_at:new Date(Date.parse(t0)+minutes*60000).toISOString()};return s;}
+test('legacy focus expires at stored deadline after sleep and active changes cancel it',()=>{
  let s=create();const taskId=s.tasks[0].id;
- s=apply(s,{type:'startFocus',taskId,values:{minutes:1}},t0);
+ s=legacyLinked(s,taskId);
  assert.throws(()=>apply(s,{type:'startFocus',taskId,values:{minutes:2}},t0));
  const asleep=apply(s,{type:'reconcile'},t2);assert.equal(asleep.tasks[0].sessions[0].ended_at,t1);assert.equal(asleep.focus,null);assert.equal(totalSeconds(asleep.tasks[0]),60);
  const stopped=apply(s,{type:'stopFocus'},'2026-09-30T10:00:30.000Z');assert.equal(stopped.tasks[0].status,'paused');assert.equal(totalSeconds(stopped.tasks[0]),30);
@@ -55,7 +56,7 @@ test('comment-only edit remains possible for immediately stopped timer',()=>{
 });
 test('editing focused session cannot persist a start later than the focus start',()=>{
  let s=create();const taskId=s.tasks[0].id;
- s=apply(s,{type:'startFocus',taskId,values:{minutes:25}},t0);
+ s=legacyLinked(s,taskId,25);
  const sessionId=s.tasks[0].sessions[0].id;
  assert.throws(()=>apply(s,{type:'updateSession',taskId,sessionId,values:{started_at:t2}},'2026-09-30T10:05:00.000Z'),/концентрации/);
  const edited=apply(s,{type:'updateSession',taskId,sessionId,values:{started_at:'2026-09-30T09:59:00.000Z',comment:'Уточнение'}},'2026-09-30T10:05:00.000Z');
@@ -70,16 +71,16 @@ test('clock rollback cannot create focus preceding existing active session',()=>
  assert.deepEqual(validateBackup(focused),focused);
 });
 test('standalone focus validates and expires without creating tasks or session time',()=>{
- const s=apply(initialState(),{type:'startFocus',taskId:null,values:{minutes:1}},t0);
+ const s={...initialState(),focus:{taskId:null,started_at:t0,ends_at:t1}};
  assert.equal(s.focus.taskId,null);assert.deepEqual(validateBackup(s),s);assert.deepEqual(s.tasks,[]);
- assert.deepEqual(apply(s,{type:'reconcile'},t2),initialState());
- assert.deepEqual(apply(s,{type:'stopFocus'},t0),initialState());
+ assert.deepEqual(apply(s,{type:'reconcile'},t2),{...initialState(),plan_rollover_day:'2026-09-30'});
+ assert.deepEqual(apply(s,{type:'stopFocus'},t0),{...initialState(),plan_rollover_day:'2026-09-30'});
  assert.throws(()=>validateBackup({...s,focus:{...s.focus,taskId:undefined}}));
  for(const minutes of [0,181,1.5])assert.throws(()=>apply(initialState(),{type:'startFocus',values:{minutes}},t0));
 });
 test('standalone focus and task timing remain independent through start pause expiry and stop',()=>{
  let s=create();const taskId=s.tasks[0].id;
- s=apply(s,{type:'startFocus',values:{minutes:1}},t0);
+ s.focus={taskId:null,started_at:t0,ends_at:t1};
  s=apply(s,{type:'startTask',taskId},t0);assert.equal(s.focus.taskId,null);
  const expired=apply(s,{type:'reconcile'},t2);assert.equal(expired.focus,null);assert.equal(expired.tasks[0].sessions[0].ended_at,null);assert.equal(totalSeconds(expired.tasks[0],t2),120);
  const stopped=apply(s,{type:'stopFocus'},t1);assert.deepEqual(stopped.tasks,s.tasks);

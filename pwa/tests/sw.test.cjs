@@ -42,7 +42,7 @@ function worker({installationError, offline = false, cacheEntries = {}, cacheNam
 test('installation precaches complete shell and waits for user activation', async () => {
   const sw = worker(); await sw.lifecycle('install');
   assert.deepEqual(sw.calls.precached.map(request => new URL(request.url).pathname), [
-    '/', '/index.html', '/app.mjs', '/model.mjs', '/repository.mjs', '/sync-protocol.mjs', '/webdav-client.mjs', '/sync-controller.mjs', '/voice-ui.mjs', '/voice.mjs', '/voice-assets.mjs', '/voice-worker.mjs', '/voice-worklet.mjs', '/pwa.mjs', '/styles.css',
+    '/', '/index.html', '/app.mjs', '/model.mjs', '/desktop-domain.mjs', '/repository.mjs', '/sync-protocol.mjs', '/webdav-client.mjs', '/sync-controller.mjs', '/voice-ui.mjs', '/voice.mjs', '/voice-assets.mjs', '/voice-worker.mjs', '/voice-worklet.mjs', '/pwa.mjs', '/styles.css',
     '/manifest.webmanifest', '/icons/icon.svg', '/icons/icon-192.png', '/icons/icon-512.png'
   ]);
   assert.ok(sw.calls.precached.every(request => request.cache === 'reload'));
