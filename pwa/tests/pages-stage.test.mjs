@@ -45,3 +45,5 @@ test('Pages voice paths and cache match SW while native model paths and vendor h
  }
  const repo=renderAsset('repository.mjs',await source('repository.mjs'),options).toString();assert.ok(repo.includes("name='tasktimer-pwa-pages-"));
 });
+
+test('Pages release metadata is stamped with same immutable revision as its worker',async()=>{const revision='a'.repeat(40),basePath='/timerapp_exp/';const notes=JSON.parse(renderAsset('release-notes.json',Buffer.from(JSON.stringify({title:'Next',changes:['Change'],revision:'stale'})),{revision,basePath}));assert.equal(notes.revision,revision);const worker=renderAsset('sw.js',Buffer.from("const REVISION='__TASKTIMER_REVISION__';"),{revision,basePath}).toString();assert.ok(worker.includes(revision));});

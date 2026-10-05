@@ -7,17 +7,17 @@ const {readFileSync} = require('node:fs');
 const path = require('node:path');
 const source = readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
 const origin = 'https://tasktimer.test';
-function worker({installationError, offline = false, cacheEntries = {}, cacheNames = []} = {}) {
-  const handlers = {}, calls = {skipWaiting: 0, claim: 0, fetched: [], precached: [], deleted: []};
+function worker({installationError, offline = false, cacheEntries = {}, cacheNames = [], ownNotes, otherNotes} = {}) {
+  const handlers = {}, calls = {skipWaiting: 0, claim: 0, fetched: [], precached: [], deleted: [], opened: []};
   vm.runInNewContext(source, {
     URL,
     Request: class extends Request {constructor(url, options) {super(new URL(url, origin), options);}},
     self: {location: {origin}, addEventListener: (name, handler) => handlers[name] = handler,
       skipWaiting: async () => {calls.skipWaiting++;}, clients: {claim: async () => {calls.claim++;}}},
     caches: {
-      open: async () => ({addAll: async requests => {
+      open: async name => {calls.opened.push(name);return {add:async request=>calls.precached.push(request),addAll: async requests => {
         calls.precached.push(...requests); if (installationError) throw installationError;
-      }, match: async resource => cacheEntries[resource]}),
+      }, match: async resource => resource==='/release-notes.json'&&ownNotes?new Response(JSON.stringify(name==='tasktimer-shell-__TASKTIMER_REVISION__'?ownNotes:otherNotes)):cacheEntries[resource]};},
       keys: async () => cacheNames,
       delete: async name => {calls.deleted.push(name); return true;}
     },
@@ -27,9 +27,9 @@ function worker({installationError, offline = false, cacheEntries = {}, cacheNam
       return new Response('network asset');
     }
   });
-  const lifecycle = (name, data) => {
+  const lifecycle = (name, data, ports=[]) => {
     let pending;
-    handlers[name]({data, waitUntil: promise => {pending = promise;}});
+    handlers[name]({data,ports, waitUntil: promise => {pending = promise;}});
     return pending;
   };
   const fetchEvent = (url, options) => {
@@ -43,7 +43,7 @@ test('installation precaches complete shell and waits for user activation', asyn
   const sw = worker(); await sw.lifecycle('install');
   assert.deepEqual(sw.calls.precached.map(request => new URL(request.url).pathname), [
     '/', '/index.html', '/app.mjs', '/model.mjs', '/desktop-domain.mjs', '/repository.mjs', '/sync-protocol.mjs', '/webdav-client.mjs', '/sync-controller.mjs', '/voice-ui.mjs', '/voice.mjs', '/voice-assets.mjs', '/voice-worker.mjs', '/voice-worklet.mjs', '/pwa.mjs', '/styles.css',
-    '/manifest.webmanifest', '/icons/icon.svg', '/icons/icon-192.png', '/icons/icon-512.png'
+    '/manifest.webmanifest', '/icons/icon.svg', '/icons/icon-192.png', '/icons/icon-512.png', '/release-notes.json'
   ]);
   assert.ok(sw.calls.precached.every(request => request.cache === 'reload'));
   assert.equal(sw.calls.skipWaiting, 0); assert.equal(sw.calls.claim, 0);
@@ -89,3 +89,6 @@ test('verified voice runtime cache is available offline without precaching the m
  await sw.lifecycle('install');assert.ok(sw.calls.precached.every(r=>!new URL(r.url).pathname.startsWith('/voice-assets/')));
  assert.equal(sw.fetchEvent('/voice-assets/unlisted.js'),undefined);
 });
+
+test('waiting metadata reads only own revision cache and never latest network or other cache',async()=>{const ownNotes={revision:'__TASKTIMER_REVISION__',title:'Waiting',changes:['Own']},sw=worker({ownNotes,otherNotes:{title:'Wrong'},offline:true});let response;await sw.lifecycle('message',{type:'TASKTIMER_UPDATE_INFO'},[{postMessage:data=>response=data}]);assert.equal(response.revision,'__TASKTIMER_REVISION__');assert.deepEqual(response.notes,ownNotes);assert.deepEqual(sw.calls.opened,['tasktimer-shell-__TASKTIMER_REVISION__']);assert.deepEqual(sw.calls.fetched,[]);assert.equal(sw.calls.skipWaiting,0);});
+test('mismatched or missing release metadata returns revision with generic fallback',async()=>{for(const ownNotes of [undefined,{revision:'different',title:'Wrong',changes:['Wrong']}]){const sw=worker({ownNotes,offline:true});let response;await sw.lifecycle('message',{type:'TASKTIMER_UPDATE_INFO'},[{postMessage:data=>response=data}]);assert.equal(response.notes,null);assert.equal(response.revision,'__TASKTIMER_REVISION__');await sw.lifecycle('message',{type:'TASKTIMER_APPLY_UPDATE'});assert.equal(sw.calls.skipWaiting,1);}});

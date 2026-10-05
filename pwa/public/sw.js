@@ -1,9 +1,10 @@
 'use strict';
-const CACHE = 'tasktimer-shell-__TASKTIMER_REVISION__';
-const ASSETS = ['/', '/index.html', '/app.mjs', '/model.mjs', '/desktop-domain.mjs', '/repository.mjs', '/sync-protocol.mjs', '/webdav-client.mjs', '/sync-controller.mjs', '/voice-ui.mjs', '/voice.mjs', '/voice-assets.mjs', '/voice-worker.mjs', '/voice-worklet.mjs', '/pwa.mjs', '/styles.css', '/manifest.webmanifest', '/icons/icon.svg', '/icons/icon-192.png', '/icons/icon-512.png'];
+const REVISION = '__TASKTIMER_REVISION__';
+const CACHE = 'tasktimer-shell-'+REVISION;
+const ASSETS = ['/', '/index.html', '/app.mjs', '/model.mjs', '/desktop-domain.mjs', '/repository.mjs', '/sync-protocol.mjs', '/webdav-client.mjs', '/sync-controller.mjs', '/voice-ui.mjs', '/voice.mjs', '/voice-assets.mjs', '/voice-worker.mjs', '/voice-worklet.mjs', '/pwa.mjs', '/styles.css', '/manifest.webmanifest', '/release-notes.json', '/icons/icon.svg', '/icons/icon-192.png', '/icons/icon-512.png'];
 self.addEventListener('install', event => {
   // No automatic skipWaiting: an existing client explicitly accepts updates.
-  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS.map(url => new Request(url, {cache: 'reload'})))));
+  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS.filter(url=>url!=='/release-notes.json').map(url => new Request(url, {cache: 'reload'}))).then(()=>cache.add(new Request('/release-notes.json',{cache:'reload'})).catch(()=>{}))));
 });
 self.addEventListener('activate', event => {
   // Keep two prior shells for open tabs; bound storage across repeated updates.
@@ -14,6 +15,11 @@ self.addEventListener('activate', event => {
   })());
 });
 self.addEventListener('message', event => {
+  if(event.data?.type==='TASKTIMER_UPDATE_INFO'&&event.ports?.[0])event.waitUntil((async()=>{
+    let notes=null;
+    try{const cache=await caches.open(CACHE),response=await cache.match('/release-notes.json');if(response){const candidate=await response.json();if(candidate.revision===REVISION)notes=candidate;}}catch{/* Optional release text never blocks activation. */}
+    event.ports[0].postMessage({revision:REVISION,notes});
+  })());
   if (event.data?.type === 'TASKTIMER_APPLY_UPDATE') event.waitUntil(self.skipWaiting());
 });
 const VOICE_RUNTIME = ['/voice-assets/sherpa-onnx-asr.js','/voice-assets/sherpa-onnx-wasm-main-vad-asr.js','/voice-assets/sherpa-onnx-wasm-main-vad-asr.wasm'];

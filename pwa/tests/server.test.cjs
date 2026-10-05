@@ -51,6 +51,7 @@ test('manifest exposes installable icons and service worker is JavaScript with r
   assert.equal(response.headers['cache-control'], 'no-store');
   assert.match(response.headers['content-security-policy'], /script-src 'self'/);
   assert.doesNotMatch(response.text, /__TASKTIMER_REVISION__/);
+  const notes=await request(url,'/release-notes.json');assert.equal(notes.status,200);assert.match(notes.headers['content-type'],/^application\/json/);assert.ok(response.text.includes(JSON.parse(notes.text).revision));
   const head = await request(url, '/manifest.webmanifest', {method: 'HEAD'});
   assert.equal(head.status, 200); assert.equal(head.text, '');
 });
