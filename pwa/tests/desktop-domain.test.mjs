@@ -52,3 +52,36 @@ test('local date accounting converts offsets, fractional midnight stays valid, r
  const focus=s.tasks[0];assert.equal(visibleTasks(s,{view:'today',day:'2026-10-07',priorities:[1]}).length,0);assert.ok(focus.planned_days.includes('2026-10-07'));
  }finally{if(originalTZ===undefined)delete process.env.TZ;else process.env.TZ=originalTZ;}
 });
+test('midnight closes concentration accounting but preserves countdown until its deadline',()=>{
+ let s=apply(initialState(),{type:'createTask',values:{title:'Работа'}},'2026-10-05T23:57:00');
+ const previous=s.tasks[0].id;s=apply(s,{type:'startTask',taskId:previous},'2026-10-05T23:57:00');
+ s=apply(s,{type:'startFocus',values:{minutes:5}},'2026-10-05T23:58:00');
+ const focusId=s.focus.taskId,deadline=s.focus.ends_at;
+ s=apply(s,{type:'reconcile'},'2026-10-06T00:00:30');
+ assert.equal(s.focus?.ends_at,deadline);assert.equal(s.tasks[1].status,'paused');assert.equal(totalSeconds(s.tasks[1]),119);assert.equal(s.focusResumeTaskId,null);
+ s=validateBackup(JSON.parse(JSON.stringify(s)));
+ const before=apply(s,{type:'reconcile'},'2026-10-06T00:02:00');assert.equal(before.focus.taskId,focusId);
+ s=apply(before,{type:'reconcile'},'2026-10-06T00:04:00');
+ assert.equal(s.focus,null);assert.equal(s.tasks[1].status,'completed');assert.equal(totalSeconds(s.tasks[1]),119);assert.equal(s.tasks[1].completed_at,deadline);assert.equal(s.focusResumeTaskId,previous);
+});
+test('calendar-closed focus rejects changed synchronized intervals and explicit edits cancel it',async()=>{
+ const {focusMatchesTask}=await import('../public/model.mjs');
+ let s=apply(initialState(),{type:'startFocus',values:{minutes:5}},'2026-10-05T23:58:00');
+ s=apply(s,{type:'reconcile'},'2026-10-06T00:00:30');
+ const task=s.tasks[0],sessionId=task.sessions[0].id;
+ assert.equal(focusMatchesTask(s.focus,structuredClone(task)),true);
+ assert.equal(focusMatchesTask(s.focus,{...task,status:'completed'}),false);
+ const changed=structuredClone(task);changed.sessions[0].ended_at='2026-10-06T00:00:10';assert.equal(focusMatchesTask(s.focus,changed),false);assert.equal(focusMatchesTask(s.focus,undefined),false);
+ const edited=apply(s,{type:'updateSession',taskId:task.id,sessionId,values:{ended_at:'2026-10-06T00:00:10'}},'2026-10-06T00:01:00');assert.equal(edited.focus,null);validateBackup(edited);
+ const restarted=apply(s,{type:'startTask',taskId:task.id},'2026-10-06T00:01:00');assert.equal(restarted.focus,null);assert.equal(restarted.tasks[0].status,'running');assert.equal(restarted.tasks[0].sessions.length,2);validateBackup(restarted);
+});
+test('editing another task session with the same ID does not cancel midnight focus',()=>{
+ let s=apply(initialState(),{type:'createTask',values:{title:'Другая задача'}},'2026-10-05T23:57:00');
+ const otherId=s.tasks[0].id;
+ s=apply(s,{type:'addSession',taskId:otherId,values:{started_at:'2026-10-05T22:00:00',ended_at:'2026-10-05T22:01:00'}},'2026-10-05T23:57:00');
+ s=apply(s,{type:'startFocus',values:{minutes:5}},'2026-10-05T23:58:00');
+ s=apply(s,{type:'reconcile'},'2026-10-06T00:00:30');
+ const collision=s.focus.calendarClosed.sessionId;s.tasks[0].sessions[0].id=collision;validateBackup(s);
+ const edited=apply(s,{type:'updateSession',taskId:otherId,sessionId:collision,values:{ended_at:'2026-10-05T22:02:00'}},'2026-10-06T00:01:00');assert.deepEqual(edited.focus,s.focus);
+ const deleted=apply(s,{type:'deleteSession',taskId:otherId,sessionId:collision},'2026-10-06T00:01:00');assert.deepEqual(deleted.focus,s.focus);validateBackup(deleted);
+});

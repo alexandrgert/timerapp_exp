@@ -53,7 +53,12 @@ function reconcileCalendar(s, now) {
  const end=new Date(session.started_at);end.setHours(23,59,59,0);
  // Desktop closes at 23:59:59; a subsecond start after that boundary must never yield a negative interval.
  const at=new Date(Math.max(end.getTime(),timestamp(session.started_at))).toISOString();
- if(s.focus?.taskId===task.id)finishFocus(s,timestamp(s.focus.ends_at)<timestamp(at)?s.focus.ends_at:at);else close(task,at);
+ if(s.focus?.taskId===task.id&&timestamp(s.focus.ends_at)<=timestamp(at))finishFocus(s,s.focus.ends_at);
+ else {
+ close(task,at);
+ if(s.focus?.taskId===task.id&&s.focus.kind==='desktop')s.focus.calendarClosed={sessionId:session.id,started_at:session.started_at,ended_at:at};
+ else if(s.focus?.taskId===task.id)s.focus=null;
+ }
  }
  }
  if(s.plan_rollover_day!==today){
@@ -116,6 +121,7 @@ export function apply(state, command, now=new Date().toISOString(), {reconcile=t
  const wasActive=entry.ended_at===null;
  const unchangedTimes=(!('started_at' in values)||values.started_at===entry.started_at)&&(!('ended_at' in values)||values.ended_at===entry.ended_at);
  for(const key of ['started_at','ended_at','comment'])if(key in values)entry[key]=values[key];
+ if(s.focus?.taskId===task.id&&s.focus?.calendarClosed?.sessionId===entry.id&&!unchangedTimes)s.focus=null;
  if(!wasActive && entry.ended_at===null)fail('Закрытую сессию нельзя открыть');
  if(unchangedTimes){if(typeof entry.comment!=='string')fail('Комментарий должен быть текстом');}else checkSession(entry,false);
  if(wasActive && entry.ended_at!==null){task.status='paused';if(s.focus?.taskId===task.id)finishFocus(s,entry.ended_at);}
@@ -125,11 +131,12 @@ export function apply(state, command, now=new Date().toISOString(), {reconcile=t
  }
  case 'deleteSession': {
  const entry=task.sessions.find(e=>e.id===command.sessionId);if(!entry)fail('Сессия не найдена');
+ if(s.focus?.taskId===task.id&&s.focus?.calendarClosed?.sessionId===entry.id)s.focus=null;
  task.sessions=task.sessions.filter(e=>e.id!==command.sessionId);
  if(entry.ended_at===null){task.status='paused';if(s.focus?.taskId===task.id)finishFocus(s,now);}break;
  }
  case 'updateTask':taskFields(values,task,now);break;
- case 'startTask':start(s,task,now);s.focusResumeTaskId=null;if(!task.planned_days.includes(localDay(now)))task.planned_days.push(localDay(now));break;
+ case 'startTask':if(s.focus?.kind==='desktop')finishFocus(s,now);start(s,task,now);s.focusResumeTaskId=null;if(!task.planned_days.includes(localDay(now)))task.planned_days.push(localDay(now));break;
  case 'pauseTask':if(s.focus?.taskId===task.id)finishFocus(s,now);else close(task,now);break;
  case 'completeTask':if('result' in values)taskFields({result:values.result},task,now);close(task,now);task.status='completed';task.completed_at=now;if(s.focus?.taskId===task.id)finishFocus(s,now);break;
  case 'deleteTask':if(s.focus?.taskId===task.id)finishFocus(s,now);s.tasks=s.tasks.filter(t=>t.id!==task.id);if(s.focusResumeTaskId===task.id)s.focusResumeTaskId=null;break;
@@ -143,6 +150,20 @@ function checkSession(entry, requireEnd) {
  if(timestamp(entry.ended_at)<=timestamp(entry.started_at))fail('Окончание должно быть позже начала');
  }
  if(typeof entry.comment!=='string')fail('Комментарий должен быть текстом');
+}
+// A local midnight closure is the sole closed-session focus state. Exact interval
+// matching prevents sync deletions or edited/stopped sessions from reviving its countdown.
+export function focusMatchesTask(f, task) {
+ if(!task)return false;
+ const opened=active(task);
+ if(f.calendarClosed){
+ const c=f.calendarClosed;
+ if(f.kind!=='desktop'||!c||typeof c!=='object'||Array.isArray(c)||typeof c.sessionId!=='string'||typeof c.started_at!=='string'||typeof c.ended_at!=='string')return false;
+ const session=task.sessions.find(s=>s.id===c.sessionId);
+ const start=Date.parse(c.started_at),end=Date.parse(c.ended_at),deadline=Date.parse(f.ends_at),focusStart=Date.parse(f.started_at);
+ return task.status==='paused'&&!opened&&!!session&&session.started_at===c.started_at&&session.ended_at===c.ended_at&&Number.isFinite(start)&&Number.isFinite(end)&&start<=focusStart&&end>=focusStart&&end<deadline&&end-focusStart<=10800000;
+ }
+ return !!opened&&Date.parse(opened.started_at)<=Date.parse(f.started_at);
 }
 export function validateBackup(value, {allowMultipleActive=false} = {}) {
  const object=v=>v!==null && typeof v==='object' && !Array.isArray(v);
@@ -175,7 +196,7 @@ export function validateBackup(value, {allowMultipleActive=false} = {}) {
  if('kind'in f&&f.kind!=='desktop')fail('Некорректный режим концентрации');
  if(f.kind==='desktop'&&(typeof f.taskId!=='string'||!(f.previousTaskId===null||typeof f.previousTaskId==='string')))fail('Некорректная задача концентрации');
  const task=value.tasks.find(t=>t.id===f.taskId);
- if(f.taskId!==null&&(!task||!active(task)||timestamp(active(task).started_at)>timestamp(f.started_at)))fail('Концентрация не соответствует активной задаче');
+ if(f.taskId!==null&&!focusMatchesTask(f,task))fail('Концентрация не соответствует активной задаче');
  const duration=timestamp(f.ends_at)-timestamp(f.started_at);if(duration<60000||duration>10800000||duration%60000!==0)fail('Некорректная длительность концентрации');
  }
  // Only JSON snapshots are accepted; additional JSON metadata is retained unchanged.
