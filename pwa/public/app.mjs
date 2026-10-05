@@ -3,7 +3,7 @@ import { createWebDavClient } from './webdav-client.mjs';
 import { synchronize } from './sync-controller.mjs';
 import { remoteV2Path } from './sync-protocol.mjs';
 import { openRepository } from './repository.mjs';
-import { localDay, priorityFor, secondsOnDay, visibleTasks, buildDayReport } from './desktop-domain.mjs';
+import { localDay, priorityFor, secondsOnDay, visibleTasks, dayReportData, formatDayReport } from './desktop-domain.mjs';
 import { validateBackup, totalSeconds, sessionSeconds } from './model.mjs';
 const $ = (s, root = document) => root.querySelector(s);
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -75,7 +75,20 @@ function tick() {
    dispatch({type:'reconcile'}).catch(e=>errorAt('#global-error',e)).finally(()=>reconciling=false);
  }
 }
-function renderReport(){ $('#report-title').textContent=`Отчёт за ${dateLabel(viewDay+'T12:00:00')}`;$('#report-text').value=buildDayReport(state,viewDay,{extended:$('#report-extended').checked,now:new Date().toISOString()}); }
+let reportView='markdown',reportSnapshot=null;
+function renderReport(){
+ const extended=$('#report-extended').checked,table=reportView==='table',report=reportSnapshot;
+ $('#report-title').textContent=`Отчёт за ${dateLabel(report.day+'T12:00:00')}`;
+ $('#report-text').value=formatDayReport(report,{extended});
+ $('#report-markdown').hidden=table;$('#report-table').hidden=!table;
+ document.querySelectorAll('[data-action="reportView"]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.view===reportView)));
+ $('[data-action="copyReport"]').textContent=table?'Копировать Markdown':'Копировать';
+ $('[data-action="downloadReport"]').textContent=table?'Скачать Markdown':'Скачать';
+ if(!report.tasks.length){$('#report-table').innerHTML='<p class="empty">За '+escape(report.label)+' время не учтено.</p>';return;}
+ const count=extended?5:2;
+ $('#report-table').innerHTML=`<div class="report-table-scroll" tabindex="0" role="region" aria-label="Табличный отчёт за ${escape(report.label)}"><table class="day-report-table"><caption class="report-total">Итого за день <strong>${escape(report.total)}</strong></caption>${extended?'<colgroup><col class="report-date"><col class="report-date"><col class="report-duration"><col><col class="report-transfer"></colgroup><thead><tr><th scope="col">Начало</th><th scope="col">Окончание</th><th scope="col">Время</th><th scope="col">Комментарий</th><th scope="col">Передано</th></tr></thead>':'<thead><tr><th scope="col">Задача</th><th scope="col">Время</th></tr></thead>'}${report.tasks.map(t=>`<tbody class="${t.concentration?'report-focus':'report-task'}"><tr class="report-task-heading"><th scope="rowgroup" colspan="${count-1}">${escape(t.title)}</th><td class="report-time">${escape(t.elapsed)}</td></tr>${t.result?`<tr><td colspan="${count}" class="report-detail"><strong>Результат:</strong> ${escape(t.result)}</td></tr>`:''}${extended&&t.description?`<tr><td colspan="${count}" class="report-detail">${escape(t.description)}</td></tr>`:''}${extended?t.sessions.map(s=>`<tr class="report-session"><td>${escape(s.start)}</td><td>${escape(s.end)}</td><td class="report-time">${escape(s.elapsed)}</td><td class="report-comment">${escape(s.comment)||'—'}</td><td>${escape(s.transferred)||'—'}</td></tr>`).join(''):''}</tbody>`).join('')}</table></div>`;
+}
+
 function openEditor(title, fields, action, submit='Сохранить') { $('#editor-title').textContent=title; $('#editor-fields').innerHTML=fields; $('#editor-error').hidden=true; $('#editor-overwrite').hidden=true; $('#editor-form [type=submit]').textContent=submit; editorAction=action; addVoiceButtons($('#editor-form')); $('#editor-dialog').showModal(); }
 function taskEditor(id) {
   const t=id ? taskById(id) : {title:'',description:'',result:'',keep_priority:false,priority:4,day:localDate()};
@@ -120,10 +133,11 @@ document.addEventListener('click',async event=>{
     if(action==='focus'){openEditor('Концентрация',`<label class="field">Длительность, минуты<input type="number" name="minutes" min="1" max="180" step="1" value="${focusMinutes}" required data-testid="focus-minutes"></label><p class="field-note">Текущая задача будет приостановлена. Время сохранится в отдельной задаче концентрации. В фоне сигнал не гарантирован.</p>`,form=>dispatch({type:'startFocus',values:{minutes:Number(form.get('minutes'))}}),'Начать');return;}
     if(action==='startPanelFocus'){await dispatch({type:'startFocus',values:{minutes:Number($('#panel-focus-minutes').value)}});return;}
     if(action==='addToPlan'||action==='removeFromPlan'){await dispatch({type:action,taskId:id,values:{day:viewDay}});return;}
-    if(action==='report'){renderReport();$('#report-status').textContent='';$('#report-dialog').showModal();return;}
+    if(action==='report'){reportView='markdown';reportSnapshot=dayReportData(state,viewDay);renderReport();$('#report-status').textContent='';$('#report-dialog').showModal();return;}
+    if(action==='reportView'){reportView=button.dataset.view;renderReport();return;}
     if(action==='copyReport'){await navigator.clipboard.writeText($('#report-text').value);$('#report-status').textContent='Отчёт скопирован.';return;}
     if(action==='downloadReport'){const url=URL.createObjectURL(new Blob([$('#report-text').value],{type:'text/plain;charset=utf-8'})),a=document.createElement('a');a.href=url;a.download=`tasktimer-report-${viewDay}.txt`;a.click();setTimeout(()=>URL.revokeObjectURL(url),10000);return;}
-    if(action==='printReport'){let printable=$('#report-print');if(!printable){printable=document.createElement('pre');printable.id='report-print';printable.hidden=true;$('#report-dialog').append(printable);}printable.textContent=$('#report-text').value;window.print();return;}
+    if(action==='printReport'){let printable=$('#report-print');if(!printable){printable=document.createElement('div');printable.id='report-print';printable.hidden=true;$('#report-dialog').append(printable);}printable.className=reportView==='table'?'report-print-table':'report-print-markdown';if(reportView==='table'){printable.replaceChildren(...[...$('#report-table').childNodes].map(node=>node.cloneNode(true)));}else{printable.textContent=$('#report-text').value;}window.print();return;}
     button.disabled=true;await dispatch({type:action,taskId:id});
   }catch(error){errorAt('#global-error',error);}finally{button.disabled=false;}
 });
