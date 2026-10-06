@@ -12,3 +12,5 @@
 @media print{#report-dialog .report-switch,#report-markdown,#report-table{display:none!important}#report-print.report-print-table{white-space:normal;font:10pt/1.4 sans-serif}#report-print .report-table-scroll{overflow:visible;border:0}#report-print .day-report-table{min-width:0;width:100%;font-size:9pt}#report-print .day-report-table tr{break-inside:avoid}#report-print .day-report-table thead{display:table-header-group}#report-print .report-task-heading,#report-print .report-total{print-color-adjust:exact;-webkit-print-color-adjust:exact}#report-print .day-report-table th,#report-print .day-report-table td{padding:7px}}
 
 #editor-form .dialog-actions{flex-wrap:wrap}
+
+.task-priority{display:inline-flex;align-items:center;gap:2px;flex-shrink:0}.priority-lock{display:inline-grid;place-items:center;width:32px;height:32px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--muted);flex-shrink:0}.priority-lock[aria-pressed=true]{color:var(--green)}.priority-lock:hover{background:#edf2e9}.priority-lock:focus-visible{outline:2px solid var(--green);outline-offset:2px}.priority-lock:disabled{opacity:.5;cursor:wait}
