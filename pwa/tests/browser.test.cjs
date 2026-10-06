@@ -209,3 +209,13 @@ test('close warning protects voice startup recording recognition and unadded tex
  await page.locator('#editor-dialog .close-dialog').first().click();await page.locator('#settings-button').click();await page.locator('#voice-settings').click();await page.locator('#voice-dialog').waitFor();assert.equal(await warned(),false);
  }finally{await context.close();}
 });
+test('new task offers add and add-start, Enter only adds, switching persists and edit keeps Save',async()=>{const {context,page}=await setup();try{
+ await page.getByTestId('new-task').click();const editor=page.locator('#editor-dialog');
+ assert.equal(await editor.getByRole('button',{name:'Добавить',exact:true}).count(),1);assert.equal(await editor.getByRole('button',{name:'Добавить и начать',exact:true}).count(),1);
+ await page.getByTestId('task-title').fill('Only added');await page.getByTestId('task-title').press('Enter');await editor.waitFor({state:'hidden'});let state=await read(page);assert.equal(state.tasks.length,1);assert.equal(state.tasks[0].status,'open');assert.equal(state.tasks[0].sessions.length,0);
+ await page.getByTestId('new-task').click();await page.getByTestId('task-title').fill('   ');await editor.getByRole('button',{name:'Добавить и начать',exact:true}).click();await page.locator('#editor-error').waitFor();assert.equal(await page.getByTestId('task-title').inputValue(),'   ');assert.equal((await read(page)).tasks.length,1);await page.getByTestId('task-title').fill('First running');await page.evaluate(()=>{const form=document.querySelector('#editor-form'),button=document.querySelector('#editor-add-start');form.requestSubmit(button);form.requestSubmit(button);});await editor.waitFor({state:'hidden'});
+ await page.getByTestId('new-task').click();await page.getByTestId('task-title').fill('Next running');const bounds=await editor.getByRole('button',{name:'Добавить и начать',exact:true}).boundingBox();assert.ok(bounds.x>=0&&bounds.x+bounds.width<=390);
+ await editor.getByRole('button',{name:'Добавить и начать',exact:true}).click();await editor.waitFor({state:'hidden'});state=await read(page);assert.equal(state.tasks.length,3);assert.equal(state.tasks[1].status,'paused');assert.ok(state.tasks[1].sessions[0].ended_at);assert.equal(state.tasks[2].status,'running');assert.equal(state.tasks[2].sessions.length,1);
+ await reload(page);assert.deepEqual((await read(page)).tasks,state.tasks);
+ await page.locator(`[data-action="editTask"][data-id="${state.tasks[2].id}"]`).click();assert.equal(await editor.getByRole('button',{name:'Сохранить',exact:true}).count(),1);assert.equal(await editor.getByRole('button',{name:'Добавить и начать',exact:true}).isVisible(),false);
+ }finally{await context.close();}});

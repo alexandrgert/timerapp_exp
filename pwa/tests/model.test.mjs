@@ -87,3 +87,14 @@ test('standalone focus and task timing remain independent through start pause ex
  const paused=apply(s,{type:'pauseTask',taskId},t0);assert.deepEqual(paused.focus,s.focus);
  assert.throws(()=>apply(s,{type:'startFocus',taskId,values:{minutes:1}},t0),/остановите/);
 });
+test('create and start atomically switches the timer and leaves input untouched on failure',()=>{
+ const original=create();const running=apply(original,{type:'startTask',taskId:original.tasks[0].id},t0),before=structuredClone(running);
+ const next=apply(running,{type:'createAndStartTask',values:{title:'Новая',day:'2026-10-01'}},t1);
+ assert.equal(next.tasks.length,2);assert.equal(next.tasks[0].sessions[0].ended_at,t1);assert.equal(next.tasks[0].status,'paused');
+ assert.equal(next.tasks[1].status,'running');assert.equal(next.tasks[1].sessions.length,1);assert.equal(next.tasks[1].sessions[0].started_at,t1);assert.equal(next.tasks[1].sessions[0].ended_at,null);assert.ok(next.tasks[1].planned_days.includes('2026-09-30'));
+ assert.deepEqual(running,before);assert.deepEqual(validateBackup(next),next);
+ const focused=apply(running,{type:'startFocus',values:{minutes:5}},t1);const switched=apply(focused,{type:'createAndStartTask',values:{title:'After focus'}},t2);assert.equal(switched.focus,null);assert.equal(switched.focusResumeTaskId,null);assert.equal(switched.tasks[1].status,'completed');assert.equal(switched.tasks[2].status,'running');assert.equal(switched.tasks[1].sessions[0].ended_at,t2);
+ for(const values of [{title:'  '},{title:'Invalid',priority:9}])assert.throws(()=>apply(running,{type:'createAndStartTask',values},t1));
+ const future=apply(original,{type:'startTask',taskId:original.tasks[0].id},t2),futureBefore=structuredClone(future);
+ assert.throws(()=>apply(future,{type:'createAndStartTask',values:{title:'Clock backwards'}},t1),/раньше/);assert.deepEqual(future,futureBefore);
+});
