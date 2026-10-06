@@ -16,7 +16,8 @@ test('removing a kept-priority plan moves it one calendar day without changing s
  const command={type:'removeFromPlan',taskId:id,values:{day}};
  const moved=apply(state,command,now);
  assert.deepEqual(moved.tasks[0].planned_days,[next],`${day} -> ${next}`);
- assert.equal(priorityFor(moved.tasks[0],day),4);
+ assert.equal(priorityFor(moved.tasks[0],day),priority);
+ assert.equal(moved.tasks[0].priority,priority);
  assert.equal(moved.tasks[0].daily_priorities[next],priority);
  assert.deepEqual(moved.tasks[0].sessions,sessions);assert.equal(moved.tasks[0].status,'running');
  assert.deepEqual(apply(moved,command,now),moved,'duplicate removal is a no-op');
@@ -39,6 +40,8 @@ test('plan removal respects disabled preservation, completed tasks, and explicit
  if(completed)s=apply(s,{type:'completeTask',taskId:id},now);
  s=apply(s,{type:'removeFromPlan',taskId:id,values:{day:'2026-10-06'}},now);
  assert.ok(!s.tasks[0].planned_days.includes('2026-10-06'));
+ assert.equal(priorityFor(s.tasks[0],'2026-10-06'),keep_priority&&!completed?1:4);
+ assert.equal(s.tasks[0].priority,keep_priority&&!completed?1:4);
  assert.equal(s.tasks[0].daily_priorities['2026-10-04'],3);
  assert.ok(s.tasks[0].planned_days.includes('2026-10-04'));
  assert.equal(s.tasks[0].daily_priorities['2026-10-07'],nextPriority??(keep_priority&&!completed?1:undefined));

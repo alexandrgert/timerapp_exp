@@ -17,7 +17,7 @@ test('day boundary closes prior session, carries only yesterday plan and preserv
  s=apply(s,{type:'reconcile'},'2026-10-05T09:00:00');
  assert.equal(totalSeconds(s.tasks[0]),119);assert.equal(s.tasks[0].status,'paused');
  assert.ok(s.tasks[0].planned_days.includes('2026-10-05'));assert.equal(s.tasks[0].daily_priorities['2026-10-05'],4);
- s=apply(s,{type:'removeFromPlan',taskId:id,values:{day:'2026-10-05'}},'2026-10-05T10:00:00');assert.equal(s.tasks[0].daily_priorities['2026-10-05'],undefined);
+ s=apply(s,{type:'removeFromPlan',taskId:id,values:{day:'2026-10-05'}},'2026-10-05T10:00:00');assert.equal(s.tasks[0].daily_priorities['2026-10-05'],4);
  s=apply(s,{type:'assignPriority',taskIds:[id],values:{day:'2026-10-05',priority:2}},'2026-10-05T10:00:00');assert.ok(s.tasks[0].planned_days.includes('2026-10-05'));assert.equal(s.tasks[0].daily_priorities['2026-10-05'],2);
  // Removal with keep_priority has already scheduled October 6; skip beyond that day too.
  const later=apply(s,{type:'reconcile'},'2026-10-08T09:00:00');assert.ok(!later.tasks[0].planned_days.includes('2026-10-08'));
