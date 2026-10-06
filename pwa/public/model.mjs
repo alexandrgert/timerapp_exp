@@ -3,7 +3,7 @@ const clone = value => structuredClone(value);
 const fail = message => { throw new Error(message); };
 const id = () => globalThis.crypto.randomUUID();
 const active = task => task.sessions.find(s => s.ended_at === null);
-export const initialState = () => ({schemaVersion: 1, tasks: [], focus: null});
+export const initialState = () => ({schemaVersion: 1, tasks: [], focus: null, reminder:{enabled:true,minutes:40,pending:null}});
 function calendar(value) {
  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) fail('Укажите корректную дату');
  const [y,m,d]=value.split('-').map(Number);
@@ -71,20 +71,64 @@ function reconcileCalendar(s, now) {
  }
  for(const task of s.tasks)task.priority=priorityFor(task,task.day);
 }
-export function apply(state, command, now=new Date().toISOString(), {reconcile=true}={}) {
+// Local reminders are intentionally outside the cross-platform task schema.
+function reminderTarget(s) {
+ const opened=s.tasks.flatMap(t=>t.sessions.filter(x=>x.ended_at===null).map(session=>({task:t,session})));
+ return opened.length===1&&s.focus?.taskId!==opened[0].task.id?opened[0]:null;
+}
+function reminderMatches(p,target){return !!p&&!!target&&p.taskId===target.task.id&&p.sessionId===target.session.id&&p.started_at===target.session.started_at;}
+function reconcileReminder(s,now,{expire=true}={}) {
+ s.reminder??={enabled:true,minutes:40,pending:null};
+ const r=s.reminder,target=reminderTarget(s);
+ if(!r.enabled||!target){r.pending=null;return;}
+ if(!reminderMatches(r.pending,target))r.pending={taskId:target.task.id,sessionId:target.session.id,started_at:target.session.started_at,generation:id(),dueAt:new Date(timestamp(target.session.started_at)+r.minutes*60000).toISOString(),shownAt:null,deadline:null};
+ const p=r.pending;
+ if(expire&&p.deadline&&timestamp(now)>=timestamp(p.deadline)){
+   const dayEnd=new Date(target.session.started_at);dayEnd.setHours(23,59,59,0);
+   const endedAt=new Date(Math.max(timestamp(target.session.started_at),Math.min(timestamp(p.deadline),dayEnd.getTime()))).toISOString();
+   close(target.task,endedAt);r.pending=null;
+   r.lastStopped={taskId:target.task.id,title:target.task.title,at:endedAt};
+ }
+}
+function reminderCommand(s,values,now){
+ const r=s.reminder;
+ if(values.action==='settings'){
+   if(typeof values.enabled!=='boolean'||!Number.isInteger(values.minutes)||values.minutes<1||values.minutes>1440)fail('Интервал должен быть целым числом от 1 до 1440 минут');
+   const changed=r.enabled!==values.enabled||r.minutes!==values.minutes;
+   r.enabled=values.enabled;r.minutes=values.minutes;
+   if(changed){r.pending=null;reconcileReminder(s,now,{expire:false});if(r.pending)r.pending.dueAt=new Date(timestamp(now)+r.minutes*60000).toISOString();}
+   return s;
+ }
+ const p=r.pending,e=values.expected;
+ if(!p||!e||p.generation!==e.generation||p.taskId!==e.taskId||p.sessionId!==e.sessionId||p.started_at!==e.started_at||p.dueAt!==e.dueAt||p.deadline!==e.deadline)return s;
+ if(timestamp(now)<timestamp(p.dueAt))return s;
+ if(values.action==='shown'&&!p.shownAt){p.shownAt=now;p.deadline=new Date(timestamp(now)+300000).toISOString();}
+ if(values.action==='continue'&&p.shownAt){p.generation=id();p.dueAt=new Date(timestamp(now)+r.minutes*60000).toISOString();p.shownAt=null;p.deadline=null;}
+ if(values.action==='stop'&&p.shownAt){close(reminderTarget(s).task,now);r.pending=null;}
+ return s;
+}
+export function apply(state,command,now=new Date().toISOString(),options={}){
+ const s=applyInternal(state,command,now,options);
+ reconcileReminder(s,now,{expire:options.reconcile!==false});
+ return s;
+}
+function applyInternal(state, command, now=new Date().toISOString(), {reconcile=true}={}) {
  timestamp(now); const s=clone(state); const values=command.values||{};
+ reconcileReminder(s,now,{expire:reconcile});
  if(reconcile)reconcileCalendar(s,now);
  // Focus records without kind are pre-upgrade timers: finish under their original accounting contract.
  if(s.focus && timestamp(now)>=timestamp(s.focus.ends_at)) {
  finishFocus(s,s.focus.ends_at);
  }
+ reconcileReminder(s,now,{expire:reconcile});
+ if(command.type==='reminder')return reminderCommand(s,values,now);
  if(command.type==='stopFocus') {finishFocus(s,now);return s;}
  if(command.type==='dismissFocusResume'){s.focusResumeTaskId=null;return s;}
  if(command.type==='resumeFocusTask'){
  const previous=s.tasks.find(t=>t.id===s.focusResumeTaskId&&t.status!=='completed');
  if(!previous)fail('Задача для продолжения недоступна');start(s,previous,now);if(!previous.planned_days.includes(localDay(now)))previous.planned_days.push(localDay(now));s.focusResumeTaskId=null;return s;
  }
- if(command.type==='replaceState')return validateBackup(values);
+ if(command.type==='replaceState'){const restored=validateBackup(values);if(restored.reminder)restored.reminder.pending=null;reconcileReminder(restored,now,{expire:false});if(restored.reminder.pending)restored.reminder.pending.dueAt=new Date(timestamp(now)+restored.reminder.minutes*60000).toISOString();return restored;}
  if(command.type==='createAndStartTask'){
  const created=apply(s,{type:'createTask',values},now,{reconcile:false});
  return apply(created,{type:'startTask',taskId:created.tasks.at(-1).id},now,{reconcile:false});
@@ -183,6 +227,11 @@ export function focusMatchesTask(f, task) {
 export function validateBackup(value, {allowMultipleActive=false} = {}) {
  const object=v=>v!==null && typeof v==='object' && !Array.isArray(v);
  if(!object(value)||value.schemaVersion!==1||!Array.isArray(value.tasks)||!('focus' in value))fail('Неподдерживаемый формат резервной копии');
+ if(value.reminder!==undefined){
+ const r=value.reminder;
+ if(!object(r)||typeof r.enabled!=='boolean'||!Number.isInteger(r.minutes)||r.minutes<1||r.minutes>1440)fail('Некорректные настройки напоминаний');
+ if(r.pending!=null){const p=r.pending;if(!object(p)||['taskId','sessionId','generation'].some(k=>typeof p[k]!=='string'||!p[k]))fail('Некорректное напоминание');timestamp(p.started_at);timestamp(p.dueAt);if(p.shownAt!==null){timestamp(p.shownAt);timestamp(p.deadline);if(timestamp(p.deadline)!==timestamp(p.shownAt)+300000||timestamp(p.shownAt)<timestamp(p.dueAt))fail('Некорректный срок напоминания');}else if(p.deadline!==null)fail('Напоминание ещё не показано');}
+ }
  const ids=new Set();let running=0;
  for(const task of value.tasks) {
  if(!object(task)||typeof task.id!=='string'||!task.id||ids.has(task.id))fail('Некорректный или повторяющийся идентификатор задачи');ids.add(task.id);

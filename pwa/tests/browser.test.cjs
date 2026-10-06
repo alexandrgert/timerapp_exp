@@ -219,3 +219,30 @@ test('new task offers add and add-start, Enter only adds, switching persists and
  await reload(page);assert.deepEqual((await read(page)).tasks,state.tasks);
  await page.locator(`[data-action="editTask"][data-id="${state.tasks[2].id}"]`).click();assert.equal(await editor.getByRole('button',{name:'Сохранить',exact:true}).count(),1);assert.equal(await editor.getByRole('button',{name:'Добавить и начать',exact:true}).isVisible(),false);
  }finally{await context.close();}});
+test('reminder is armed only by a visible question, continues and auto-stops at persisted deadline',async()=>{
+ const {context,page}=await setup();try{
+ await page.clock.install({time:new Date('2026-10-06T09:00:00Z')});
+ await page.getByRole('button',{name:'Настройки и резервные копии'}).click();
+ await page.locator('#reminder-minutes').fill('1');await page.locator('#reminder-save').click();await page.locator('#reminder-settings-status').filter({hasText:'Сохранено'}).waitFor();
+ await page.locator('#settings-dialog .close-dialog').click();await create(page,'Продолжение');await closeDetails(page);await page.getByTestId('task-toggle').click();
+ await page.getByRole('button',{name:'Ⅱ Пауза',exact:true}).waitFor();await page.bringToFront();await page.clock.fastForward(61000);await page.locator('#reminder-dialog').waitFor({timeout:4000});
+ await page.waitForFunction(()=>document.querySelector('#reminder-continue').disabled===false);
+ let s=await read(page);assert.ok(s.reminder.pending.shownAt);assert.equal(Date.parse(s.reminder.pending.deadline)-Date.parse(s.reminder.pending.shownAt),300000);
+ await page.locator('#reminder-continue').click();await page.locator('#reminder-dialog').waitFor({state:'hidden'});s=await read(page);assert.equal(s.reminder.pending.deadline,null);
+ await page.clock.fastForward(61000);await page.locator('#reminder-dialog').waitFor();await page.waitForFunction(()=>!document.querySelector('#reminder-continue').disabled);s=await read(page);const deadline=s.reminder.pending.deadline;
+ await reload(page);await page.locator('#reminder-dialog').waitFor();assert.equal((await read(page)).reminder.pending.deadline,deadline);
+ await page.clock.fastForward(301000);await page.locator('#reminder-dialog').waitFor({state:'hidden'});s=await read(page);assert.equal(s.tasks[0].status,'paused');assert.equal(s.tasks[0].sessions[0].ended_at,deadline);
+ }finally{await context.close();}
+});
+test('hidden reminder has no deadline and two repository clients serialize stale answers',async()=>{
+ const {context,page}=await setup();try{
+ await page.clock.install({time:new Date('2026-10-06T09:00:00Z')});await create(page,'В фоне');await closeDetails(page);await page.getByTestId('task-toggle').click();await page.getByRole('button',{name:'Ⅱ Пауза',exact:true}).waitFor();
+ await page.evaluate(()=>{Object.defineProperty(document,'visibilityState',{configurable:true,get:()=> 'hidden'});document.dispatchEvent(new Event('visibilitychange'));});
+ await page.clock.fastForward(45*60000);let s=await read(page);assert.equal(s.tasks[0].status,'running');assert.equal(s.reminder.pending.deadline,null);assert.equal(await page.locator('#reminder-dialog').isVisible(),false);
+ await page.evaluate(()=>{delete document.visibilityState;document.dispatchEvent(new Event('visibilitychange'));});await page.locator('#reminder-dialog').waitFor();await page.waitForFunction(()=>!document.querySelector('#reminder-continue').disabled);
+ const result=await page.evaluate(async()=>{
+ const {openRepository}=await import('/repository.mjs');const a=await openRepository(),b=await openRepository();try{const s=await a.read(),expected=s.reminder.pending;
+ await a.dispatch({type:'reminder',values:{action:'continue',expected}});await b.dispatch({type:'reminder',values:{action:'stop',expected}});return await a.read();}finally{a.close();b.close();}});
+ assert.equal(result.tasks[0].status,'running');assert.equal(result.reminder.pending.deadline,null);await page.locator('#reminder-dialog').waitFor({state:'hidden'});
+ }finally{await context.close();}
+});
