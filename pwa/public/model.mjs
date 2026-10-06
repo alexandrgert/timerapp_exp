@@ -23,14 +23,14 @@ function taskFields(values, task, now) {
  if('title' in values) { if(typeof values.title!=='string' || !values.title.trim()) fail('Введите название задачи'); task.title=values.title.trim(); }
  if('description' in values) {if(typeof values.description!=='string') fail('Описание должно быть текстом'); task.description=values.description;}
  if('result' in values){if(typeof values.result!=='string')fail('Результат должен быть текстом');task.result=values.result.trim();}
- if('keep_priority' in values){if(typeof values.keep_priority!=='boolean')fail('Некорректное сохранение приоритета');task.keep_priority=values.keep_priority;}
+ if('keep_priority' in values){if(typeof values.keep_priority!=='boolean')fail('Некорректное сохранение приоритета');task.keep_priority=task.status!=='completed'&&values.keep_priority;}
  if('day' in values) task.day=calendar(values.day);
  if('priority' in values) {if(!Number.isInteger(values.priority)||values.priority<1||values.priority>4) fail('Приоритет должен быть от 1 до 4'); task.priority=values.priority;}
  if('priority' in values || 'day' in values){task.daily_priorities={...task.daily_priorities};task.daily_priorities[task.day]=task.priority;}
 }
 function close(task, now) { const session=active(task); if(session) {if(timestamp(now)<timestamp(session.started_at)) fail('Время окончания раньше начала сессии'); session.ended_at=now;} if(task.status==='running')task.status='paused'; }
 function start(state, task, now) {
- if(task.status==='completed'){task.status='open';task.completed_at=null;}
+ if(task.status==='completed'){task.status='open';task.completed_at=null;task.keep_priority=false;}
  if(active(task)){if(timestamp(active(task).started_at)>timestamp(now))fail('Текущее время раньше начала сессии. Проверьте часы устройства или исправьте сессию.');return;}
  for(const other of state.tasks)if(other!==task && active(other))close(other,now);
  if(state.focus && state.focus.taskId!==null && state.focus.taskId!==task.id)finishFocus(state,now);
@@ -39,7 +39,7 @@ function start(state, task, now) {
 function finishFocus(state, now) {
  const f=state.focus;if(!f)return;
  const focused=state.tasks.find(t=>t.id===f.taskId);
- if(focused){close(focused,now);if(f.kind==='desktop'){focused.status='completed';focused.completed_at=now;}}
+ if(focused){close(focused,now);if(f.kind==='desktop'){focused.status='completed';focused.completed_at=now;focused.keep_priority=false;}}
  if(f.kind==='desktop')state.focusResumeTaskId=state.tasks.some(t=>t.id===f.previousTaskId&&t.status!=='completed')?f.previousTaskId:null;
  state.focus=null;
 }
@@ -197,7 +197,7 @@ function applyInternal(state, command, now=new Date().toISOString(), {reconcile=
  case 'updateTask':taskFields(values,task,now);break;
  case 'startTask':if(s.focus?.kind==='desktop')finishFocus(s,now);start(s,task,now);s.focusResumeTaskId=null;if(!task.planned_days.includes(localDay(now)))task.planned_days.push(localDay(now));break;
  case 'pauseTask':if(s.focus?.taskId===task.id)finishFocus(s,now);else close(task,now);break;
- case 'completeTask':if('result' in values)taskFields({result:values.result},task,now);close(task,now);task.status='completed';task.completed_at=now;if(s.focus?.taskId===task.id)finishFocus(s,now);break;
+ case 'completeTask':if('result' in values)taskFields({result:values.result},task,now);close(task,now);task.status='completed';task.completed_at=now;task.keep_priority=false;if(s.focus?.taskId===task.id)finishFocus(s,now);break;
  case 'deleteTask':if(s.focus?.taskId===task.id)finishFocus(s,now);s.tasks=s.tasks.filter(t=>t.id!==task.id);if(s.focusResumeTaskId===task.id)s.focusResumeTaskId=null;break;
  default:fail('Неизвестная операция');
  }
