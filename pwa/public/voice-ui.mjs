@@ -1,6 +1,6 @@
 import {VOICE_BYTES,voiceReady,installVoice,removeVoice,VoiceDictation} from './voice.mjs';
 
-export function installVoiceInterface({confirmRemoval}) {
+export function installVoiceInterface({confirmRemoval,onChange=()=>{}}) {
  const dialog=document.querySelector('#voice-dialog');
  const el=id=>document.querySelector('#voice-'+id);
  let target=null, dictation=null, installing=null, phase='idle', generation=0, ready=false;
@@ -11,6 +11,7 @@ export function installVoiceInterface({confirmRemoval}) {
    el('stop').hidden=phase!=='recording';
    el('result').hidden=!target;el('add').hidden=!target;el('add').disabled=phase!=='idle'||!el('result').value.trim();
    el('remove').disabled=phase!=='idle';
+   onChange({phase,text:el('result').value,open:dialog.open});
  }
  function cancel(){++generation;installing?.abort();installing=null;dictation?.cancel();dictation=null;phase='idle';controls();}
  function error(error){el('error').textContent=error?.message||'Не удалось выполнить диктовку.';el('error').hidden=false;}

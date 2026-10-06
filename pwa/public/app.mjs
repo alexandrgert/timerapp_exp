@@ -14,6 +14,25 @@ const clock = value => new Date(value).toLocaleTimeString('ru-RU',{hour:'2-digit
 const dateLabel = value => new Date(value).toLocaleDateString('ru-RU',{day:'numeric',month:'short',year:'numeric'});
 let repo, state = {tasks:[],focus:null}, selected = null, filter = 'today', editorAction, confirmAction, toastTimeout, reconciling = false;
 const pendingWrites = new Set();
+let editorBaseline='', closeWarningAttached=false, voiceRisk='', voiceRevision=0;
+function editorSnapshot(){return JSON.stringify([...$('#editor-fields').querySelectorAll('input,textarea,select')].map(el=>[el.name,el.type==='checkbox'||el.type==='radio'?el.checked:el.value]));}
+function closeRisks(){
+ const editor=$('#editor-dialog').open?editorSnapshot():'';
+ const dirty=editor&&editor!==editorBaseline?editor:'';
+ const running=state.tasks.filter(t=>t.status==='running').map(t=>[t.id,t.sessions.filter(s=>!s.ended_at).map(s=>[s.id,s.started_at])]);
+ const focus=Date.parse(state.focus?.ends_at)>Date.now()?state.focus:null;
+ const voice=$('#voice-dialog').open?voiceRisk:'';
+ return dirty||running.length||focus||voice||pendingWrites.size?JSON.stringify({dirty,running,focus,voice,voiceRevision:voice?voiceRevision:0,pending:pendingWrites.size}):'';
+}
+function warnBeforeClose(event){if(!closeRisks())return;event.preventDefault();event.returnValue='';}
+function refreshCloseWarning(){
+ const needed=!!closeRisks();if(needed===closeWarningAttached)return;
+ window[needed?'addEventListener':'removeEventListener']('beforeunload',warnBeforeClose);closeWarningAttached=needed;
+}
+$('#editor-form').addEventListener('input',refreshCloseWarning);
+$('#editor-form').addEventListener('change',refreshCloseWarning);
+$('#editor-dialog').addEventListener('close',refreshCloseWarning);
+
 let viewDay=localDate(), focusMinutes=20, lastDay=localDate();
 const selectedTasks=new Set(), priorityFilters=new Set([1,2,3,4]);
 $('#view-day').value=viewDay;
@@ -27,9 +46,9 @@ function accept(next) {
     toast(previousFocus.taskId===null?'Концентрация завершена. Можно сделать перерыв.':'Концентрация завершена. Время сохранено.');
     if ('Notification' in window && Notification.permission === 'granted') navigator.serviceWorker?.ready.then(registration => registration.showNotification('Концентрация завершена', {body:previousFocus.taskId===null?'Можно сделать перерыв.':'Время сохранено. Можно сделать перерыв.',tag:'focus-complete'})).catch(error => errorAt('#global-error',error));
   }
-  render(); renderSync(); document.dispatchEvent(new CustomEvent('tasktimer:state',{detail:state}));
+  refreshCloseWarning(); render(); renderSync(); document.dispatchEvent(new CustomEvent('tasktimer:state',{detail:state}));
 }
-async function dispatch(command) { if (!repo) throw new Error('Хранилище пока недоступно. Перезагрузите страницу.'); const operation = repo.dispatch(command); pendingWrites.add(operation); let next; try { next = await operation; } finally { pendingWrites.delete(operation); } accept(next); $('#global-error').hidden = true; return next; }
+async function dispatch(command) { if (!repo) throw new Error('Хранилище пока недоступно. Перезагрузите страницу.'); const operation = repo.dispatch(command); pendingWrites.add(operation); refreshCloseWarning(); let next; try { next = await operation; } finally { pendingWrites.delete(operation); refreshCloseWarning(); } accept(next); $('#global-error').hidden = true; return next; }
 function taskById(id) { const task = state.tasks.find(t => t.id === id); if (!task) throw new Error('Задача уже удалена в другой вкладке.'); return task; }
 function render() {
   for(const id of selectedTasks)if(!state.tasks.some(t=>t.id===id))selectedTasks.delete(id);
@@ -61,6 +80,7 @@ function renderTimer() {
  $('#focus-resume-title').textContent=previous?`Вернуться к задаче «${previous.title}»?`:'';
 }
 function tick() {
+ refreshCloseWarning();
  const now=new Date(),iso=now.toISOString();
  $('#today-date').textContent=now.toLocaleDateString('ru-RU',{weekday:'long',day:'numeric',month:'long'});
  $('#day-total').textContent=`${viewDay===localDate()?'Сегодня':dateLabel(viewDay+'T12:00:00')} — ${duration(state.tasks.reduce((sum,t)=>sum+secondsOnDay(t,viewDay,iso),0))}`;
@@ -89,7 +109,7 @@ function renderReport(){
  $('#report-table').innerHTML=`<div class="report-table-scroll" tabindex="0" role="region" aria-label="Табличный отчёт за ${escape(report.label)}"><table class="day-report-table"><caption class="report-total">Итого за день <strong>${escape(report.total)}</strong></caption>${extended?'<colgroup><col class="report-date"><col class="report-date"><col class="report-duration"><col><col class="report-transfer"></colgroup><thead><tr><th scope="col">Начало</th><th scope="col">Окончание</th><th scope="col">Время</th><th scope="col">Комментарий</th><th scope="col">Передано</th></tr></thead>':'<thead><tr><th scope="col">Задача</th><th scope="col">Время</th></tr></thead>'}${report.tasks.map(t=>`<tbody class="${t.concentration?'report-focus':'report-task'}"><tr class="report-task-heading"><th scope="rowgroup" colspan="${count-1}">${escape(t.title)}</th><td class="report-time">${escape(t.elapsed)}</td></tr>${t.result?`<tr><td colspan="${count}" class="report-detail"><strong>Результат:</strong> ${escape(t.result)}</td></tr>`:''}${extended&&t.description?`<tr><td colspan="${count}" class="report-detail">${escape(t.description)}</td></tr>`:''}${extended?t.sessions.map(s=>`<tr class="report-session"><td>${escape(s.start)}</td><td>${escape(s.end)}</td><td class="report-time">${escape(s.elapsed)}</td><td class="report-comment">${escape(s.comment)||'—'}</td><td>${escape(s.transferred)||'—'}</td></tr>`).join(''):''}</tbody>`).join('')}</table></div>`;
 }
 
-function openEditor(title, fields, action, submit='Сохранить') { $('#editor-title').textContent=title; $('#editor-fields').innerHTML=fields; $('#editor-error').hidden=true; $('#editor-overwrite').hidden=true; $('#editor-form [type=submit]').textContent=submit; editorAction=action; addVoiceButtons($('#editor-form')); $('#editor-dialog').showModal(); }
+function openEditor(title, fields, action, submit='Сохранить') { $('#editor-title').textContent=title; $('#editor-fields').innerHTML=fields; $('#editor-error').hidden=true; $('#editor-overwrite').hidden=true; $('#editor-form [type=submit]').textContent=submit; editorAction=action; addVoiceButtons($('#editor-form')); editorBaseline=editorSnapshot(); $('#editor-dialog').showModal(); refreshCloseWarning(); }
 function taskEditor(id) {
   const t=id ? taskById(id) : {title:'',description:'',result:'',keep_priority:false,priority:4,day:localDate()};
   openEditor(id ? 'Изменить задачу' : 'Новая задача', `<label class="field">Название<input name="title" data-testid="task-title" required maxlength="500" value="${escape(t.title)}" autofocus autocomplete="off"></label><label class="field">Описание<textarea name="description" maxlength="20000">${escape(t.description)}</textarea></label><label class="field">Результат<textarea name="result" maxlength="20000">${escape(t.result||'')}</textarea></label><label class="check-field"><input type="checkbox" name="keep_priority" ${t.keep_priority?'checked':''}>Сохранять приоритет при переносе на следующий день</label><div class="field-grid"><label class="field">Дата<input name="day" type="date" required value="${escape(t.day)}"></label><label class="field">Приоритет<select name="priority">${[1,2,3,4].map(p=>`<option value="${p}" ${Number(t.priority)===p?'selected':''}>${p}${p===1?' — высокий':p===4?' — обычный':''}</option>`).join('')}</select></label></div>`,async (form,force=false)=>{
@@ -160,7 +180,17 @@ $('#import').addEventListener('change',async event=>{const file=event.target.fil
 $('#enable-notifications').addEventListener('click',async()=>{try{if(!('Notification'in window))throw new Error('Этот браузер не поддерживает уведомления.');const permission=await Notification.requestPermission();$('#notification-status').textContent=permission==='granted'?'Уведомления разрешены.':permission==='denied'?'Уведомления запрещены в настройках браузера.':'Разрешение не выдано.';}catch(error){$('#notification-status').textContent=error.message;}});
 function connection(){ $('#connection').textContent=navigator.onLine?'':'Офлайн'; }window.addEventListener('online',connection);window.addEventListener('offline',connection);connection();
 try{repo=await openRepository();const initial=await repo.read();if(initial.tasks.some(t=>t.status!=='completed')&&!visibleTasks(initial,{view:'today',day:viewDay}).length)filter='progress';accept(initial);repo.subscribe((next,error)=>{if(error){errorAt('#global-error',error);return;}if(next?.tasks)accept(next);else repo.read().then(accept).catch(e=>errorAt('#global-error',e));});}catch(error){errorAt('#global-error',error);$('#task-list').innerHTML='<p class="empty">Не удалось открыть локальные данные.<br>Проверьте разрешения браузера и перезагрузите страницу.</p>';}
-window.addEventListener('tasktimer:before-update', event => { event.detail.waitUntil((async () => { if (!repo) throw new Error('Хранилище недоступно. Обновление отменено.'); await Promise.all([...pendingWrites]); await repo.read(); })()); });
+window.addEventListener('tasktimer:before-update', event => {
+ const confirmedRisks=closeRisks();
+ event.detail.beforeReload?.(()=>{
+   // Only the exact accepted worker invokes this, immediately before reloading.
+   // New edits/recordings/writes retain the standard browser confirmation.
+   if(pendingWrites.size||closeRisks()!==confirmedRisks)return;
+   window.removeEventListener('beforeunload',warnBeforeClose);closeWarningAttached=false;
+   setTimeout(refreshCloseWarning,0); // Restore protection if navigation does not occur.
+ });
+ event.detail.waitUntil((async () => { if (!repo) throw new Error('Хранилище недоступно. Обновление отменено.'); await Promise.all([...pendingWrites]); await repo.read(); })());
+});
 setInterval(tick,1000);
 
 let syncAbort=null;
@@ -185,6 +215,6 @@ $('#sync-form').addEventListener('submit',async event=>{
 $('#sync-cancel').addEventListener('click',()=>syncAbort?.abort());
 $('#sync-backup').addEventListener('click',async()=>{try{const backup=await repo.migrationBackup();if(!backup)throw new Error('Копия до первого обмена отсутствует.');const url=URL.createObjectURL(new Blob([JSON.stringify(backup,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='tasktimer-before-webdav.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),10000);}catch(e){errorAt('#sync-error',e);}});
 
-installVoiceInterface({confirmRemoval:action=>confirm('Удалить голосовую модель?','Диктовка станет недоступной до повторной загрузки. Задачи и записи сохранятся.',action)});
+installVoiceInterface({onChange:({phase,text,open})=>{const risk=open&&(['starting','recording','decoding'].includes(phase)||text.trim())?JSON.stringify({phase,text}):'';if(risk!==voiceRisk){voiceRevision++;voiceRisk=risk;}refreshCloseWarning();},confirmRemoval:action=>confirm('Удалить голосовую модель?','Диктовка станет недоступной до повторной загрузки. Задачи и записи сохранятся.',action)});
 
 $('#editor-overwrite').addEventListener('click',()=>confirm('Заменить изменённые поля вашим вариантом?','Текущие значения показаны в ошибке редактора. Только изменённые вами поля будут заменены.',async()=>{await editorAction(new FormData($('#editor-form')),true);$('#editor-dialog').close();},{label:'Сохранить мой вариант'}));

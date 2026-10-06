@@ -2,7 +2,7 @@ const select = name => document.querySelector(`[data-pwa-${name}]`);
 const status = text => { const node = select('status'); if (node) node.textContent = text; };
 let registration;
 let installPrompt;
-let acceptedWorker = null;
+let acceptedWorker = null, acceptedReloadCallbacks=[];
 let noticeWorker=null, noticeRevision=null, noticeGeneration=0, applying=false;
 const postponedWorkers=new WeakSet();
 const dismissalKey='tasktimer-update-later:'+location.pathname;
@@ -59,23 +59,27 @@ document.addEventListener('click', async event => {
   if(event.target.closest('[data-pwa-later]')&&noticeWorker){postponedWorkers.add(noticeWorker);try{if(noticeRevision)sessionStorage.setItem(dismissalKey,noticeRevision);}catch{}if(select('notice'))select('notice').hidden=true;}
   if (event.target.closest('[data-pwa-update]') && registration?.waiting && !applying) {
     const waiting=registration.waiting;
-    if (!window.confirm('Обновить приложение? Сохранённый таймер продолжит работу. Несохранённые поля формы будут закрыты.')) return;
-    const pending = [];
-    window.dispatchEvent(new CustomEvent('tasktimer:before-update', {detail: {waitUntil: promise => pending.push(Promise.resolve(promise))}}));
+    if (!window.confirm('Обновить приложение? Сохранённый таймер продолжит работу. Несохранённые поля формы и текст диктовки будут потеряны, запись голоса прервётся.')) return;
+    const pending = [], beforeReload=[];
+    window.dispatchEvent(new CustomEvent('tasktimer:before-update', {detail: {waitUntil: promise => pending.push(Promise.resolve(promise)), beforeReload: callback => beforeReload.push(callback)}}));
     if (!pending.length) {updateError('Приложение ещё не готово к обновлению. Попробуйте позже.'); return;}
     try {
       applying=true;document.querySelectorAll('[data-pwa-update]').forEach(node=>node.disabled=true);
       await Promise.all(pending);
       if(registration.waiting!==waiting){await showUpdate();updateError('Ожидающая версия изменилась. Проверьте обновление и подтвердите ещё раз.');return;}
-      acceptedWorker = waiting;
+      acceptedWorker = waiting; acceptedReloadCallbacks=beforeReload;
       waiting.postMessage({type: 'TASKTIMER_APPLY_UPDATE'});
-    } catch { acceptedWorker=null;updateError('Не удалось подтвердить сохранение данных. Обновление отменено.'); }
+    } catch { acceptedWorker=null;acceptedReloadCallbacks=[];updateError('Не удалось подтвердить сохранение данных. Обновление отменено.'); }
     finally{applying=false;document.querySelectorAll('[data-pwa-update]').forEach(node=>node.disabled=false);}
   }
 });
 if ('serviceWorker' in navigator && window.isSecureContext) {
   navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (acceptedWorker && navigator.serviceWorker.controller===acceptedWorker) window.location.reload();
+    if (acceptedWorker && navigator.serviceWorker.controller===acceptedWorker) {
+      const callbacks=acceptedReloadCallbacks;acceptedWorker=null;acceptedReloadCallbacks=[];
+      for(const callback of callbacks)callback();
+      window.location.reload();
+    }
     else showUpdate();
   });
   try {
