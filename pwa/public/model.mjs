@@ -115,7 +115,18 @@ export function apply(state, command, now=new Date().toISOString(), {reconcile=t
  const task=s.tasks.find(t=>t.id===command.taskId); if(!task)fail('Задача не найдена');
  switch(command.type) {
  case 'addToPlan':{const day=calendar(values.day);if(!task.planned_days.includes(day))task.planned_days.push(day);task.daily_priorities[day]=values.priority??priorityFor(task,day);if(!Number.isInteger(task.daily_priorities[day])||task.daily_priorities[day]<1||task.daily_priorities[day]>4)fail('Приоритет должен быть от 1 до 4');task.priority=priorityFor(task,task.day);break;}
- case 'removeFromPlan':{const day=calendar(values.day);task.planned_days=task.planned_days.filter(d=>d!==day);delete task.daily_priorities[day];task.priority=priorityFor(task,task.day);break;}
+ case 'removeFromPlan':{
+ const day=calendar(values.day),wasPlanned=task.planned_days.includes(day),priority=priorityFor(task,day);
+ task.planned_days=task.planned_days.filter(d=>d!==day);delete task.daily_priorities[day];
+ if(wasPlanned&&task.keep_priority&&task.status!=='completed'){
+ // Advance a calendar date, not 24 local hours: DST must not change the target day.
+ const date=new Date(`${day}T12:00:00Z`);date.setUTCDate(date.getUTCDate()+1);
+ const next=calendar(date.toISOString().slice(0,10));
+ if(!task.planned_days.includes(next))task.planned_days.push(next);
+ if(!Object.hasOwn(task.daily_priorities,next))task.daily_priorities[next]=priority;
+ }
+ task.priority=priorityFor(task,task.day);break;
+ }
  case 'addSession': {
  const entry={id:id(),started_at:values.started_at,ended_at:values.ended_at,comment:values.comment??'',bitrix_record_id:null};
  checkSession(entry,true);task.sessions.push(entry);break;
