@@ -19,7 +19,8 @@ test('day boundary closes prior session, carries only yesterday plan and preserv
  assert.ok(s.tasks[0].planned_days.includes('2026-10-05'));assert.equal(s.tasks[0].daily_priorities['2026-10-05'],4);
  s=apply(s,{type:'removeFromPlan',taskId:id,values:{day:'2026-10-05'}},'2026-10-05T10:00:00');assert.equal(s.tasks[0].daily_priorities['2026-10-05'],undefined);
  s=apply(s,{type:'assignPriority',taskIds:[id],values:{day:'2026-10-05',priority:2}},'2026-10-05T10:00:00');assert.ok(s.tasks[0].planned_days.includes('2026-10-05'));assert.equal(s.tasks[0].daily_priorities['2026-10-05'],2);
- const later=apply(s,{type:'reconcile'},'2026-10-07T09:00:00');assert.ok(!later.tasks[0].planned_days.includes('2026-10-07'));
+ // Removal with keep_priority has already scheduled October 6; skip beyond that day too.
+ const later=apply(s,{type:'reconcile'},'2026-10-08T09:00:00');assert.ok(!later.tasks[0].planned_days.includes('2026-10-08'));
 });
 test('desktop day queries allocate whole interval to local start day and report results',async()=>{
  const domain=await import('../public/desktop-domain.mjs');
