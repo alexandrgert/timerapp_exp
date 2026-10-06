@@ -98,3 +98,15 @@ test('create and start atomically switches the timer and leaves input untouched 
  const future=apply(original,{type:'startTask',taskId:original.tasks[0].id},t2),futureBefore=structuredClone(future);
  assert.throws(()=>apply(future,{type:'createAndStartTask',values:{title:'Clock backwards'}},t1),/раньше/);assert.deepEqual(future,futureBefore);
 });
+
+test('completion clears priority retention and stale updates cannot enable it again',()=>{
+ let s=create();const taskId=s.tasks[0].id;
+ s=apply(s,{type:'updateTask',taskId,values:{keep_priority:true,priority:1}},t0);
+ s=apply(s,{type:'startTask',taskId},t0);
+ s=apply(s,{type:'completeTask',taskId},t1);
+ assert.equal(s.tasks[0].keep_priority,false);assert.equal(s.tasks[0].priority,1);
+ assert.equal(s.tasks[0].sessions[0].ended_at,t1);
+ s=apply(s,{type:'updateTask',taskId,values:{keep_priority:true}},t1);
+ assert.equal(s.tasks[0].keep_priority,false);
+ s=apply(s,{type:'startTask',taskId},t2);assert.equal(s.tasks[0].keep_priority,false);
+});

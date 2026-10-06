@@ -268,3 +268,15 @@ test('priority lock toggles from list by keyboard, persists and agrees with edit
  await row.getByRole('button',{name:'Изменить',exact:true}).click();assert.equal(await page.locator('[name=keep_priority]').isChecked(),false);
  }finally{await context.close();}
 });
+
+test('completed task has a disabled open priority lock and disabled unchecked editor option',async()=>{
+ const {context,page}=await setup();try{
+ await create(page,'Завершить с замочком');await closeDetails(page);
+ const row=page.getByTestId('task-row'),lock=row.locator('.priority-lock');
+ await lock.click();await page.waitForFunction(()=>document.querySelector('.priority-lock').getAttribute('aria-pressed')==='true');
+ await row.getByRole('button',{name:'Завершить',exact:true}).click();await page.getByTestId('save').click();await page.locator('#editor-dialog').waitFor({state:'hidden'});
+ await page.getByRole('button',{name:'Все',exact:true}).click();await lock.waitFor();assert.equal(await lock.isDisabled(),true);assert.equal(await lock.getAttribute('aria-pressed'),'false');assert.equal((await read(page)).tasks[0].keep_priority,false);
+ await row.getByRole('button',{name:'Изменить',exact:true}).click();assert.equal(await page.locator('[name=keep_priority]').isDisabled(),true);assert.equal(await page.locator('[name=keep_priority]').isChecked(),false);await page.locator('#editor-dialog .close-dialog').first().click();
+ await reload(page);await page.getByRole('button',{name:'Все',exact:true}).click();await lock.waitFor();assert.equal(await lock.isDisabled(),true);assert.equal(await lock.getAttribute('aria-pressed'),'false');
+ }finally{await context.close();}
+});
