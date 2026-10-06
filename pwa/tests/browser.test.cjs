@@ -280,3 +280,14 @@ test('completed task has a disabled open priority lock and disabled unchecked ed
  await reload(page);await page.getByRole('button',{name:'Все',exact:true}).click();await lock.waitFor();assert.equal(await lock.isDisabled(),true);assert.equal(await lock.getAttribute('aria-pressed'),'false');
  }finally{await context.close();}
 });
+
+test('removing from plan preserves visible priority only when retention is enabled',async()=>{
+ const {context,page}=await setup();try{
+ for(const keep of [true,false]){
+ await page.getByTestId('new-task').click();await page.getByTestId('task-title').fill(keep?'Сохранить один':'Сбросить один');await page.locator('[name=priority]').selectOption('1');await page.locator('[name=keep_priority]').setChecked(keep);await page.getByTestId('save').click();await page.locator('#editor-dialog').waitFor({state:'hidden'});
+ const row=page.getByTestId('task-row').filter({hasText:keep?'Сохранить один':'Сбросить один'});
+ await row.getByRole('button',{name:'Из плана',exact:true}).click();await row.waitFor({state:'detached'});await page.getByRole('button',{name:'В работе',exact:true}).click();await row.waitFor();assert.equal(await row.locator('.priority-badge').innerText(),keep?'1':'4');
+ await reload(page);await page.getByRole('button',{name:'В работе',exact:true}).click();await row.waitFor();assert.equal(await row.locator('.priority-badge').innerText(),keep?'1':'4');
+ }
+ }finally{await context.close();}
+});
