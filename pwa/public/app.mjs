@@ -14,6 +14,7 @@ const clock = value => new Date(value).toLocaleTimeString('ru-RU',{hour:'2-digit
 const dateLabel = value => new Date(value).toLocaleDateString('ru-RU',{day:'numeric',month:'short',year:'numeric'});
 let repo, state = {tasks:[],focus:null}, selected = null, filter = 'today', editorAction, confirmAction, toastTimeout, reconciling = false;
 const pendingWrites = new Set();
+let reminderSettingsBaseline='';
 let editorBaseline='', closeWarningAttached=false, voiceRisk='', voiceRevision=0;
 function editorSnapshot(){return JSON.stringify([...$('#editor-fields').querySelectorAll('input,textarea,select')].map(el=>[el.name,el.type==='checkbox'||el.type==='radio'?el.checked:el.value]));}
 function closeRisks(){
@@ -22,7 +23,8 @@ function closeRisks(){
  const running=state.tasks.filter(t=>t.status==='running').map(t=>[t.id,t.sessions.filter(s=>!s.ended_at).map(s=>[s.id,s.started_at])]);
  const focus=Date.parse(state.focus?.ends_at)>Date.now()?state.focus:null;
  const voice=$('#voice-dialog').open?voiceRisk:'';
- return dirty||running.length||focus||voice||pendingWrites.size?JSON.stringify({dirty,running,focus,voice,voiceRevision:voice?voiceRevision:0,pending:pendingWrites.size}):'';
+ const reminderSettings=reminderSettingsDirty()?reminderSettingsSnapshot():'';
+ return dirty||reminderSettings||running.length||focus||voice||pendingWrites.size?JSON.stringify({dirty,reminderSettings,running,focus,voice,voiceRevision:voice?voiceRevision:0,pending:pendingWrites.size}):'';
 }
 function warnBeforeClose(event){if(!closeRisks())return;event.preventDefault();event.returnValue='';}
 function refreshCloseWarning(){
@@ -40,12 +42,15 @@ function errorAt(selector, error) { const el = $(selector); el.textContent = err
 function toast(message) { $('#toast').textContent = message; $('#toast').hidden = false; clearTimeout(toastTimeout); toastTimeout = setTimeout(() => $('#toast').hidden = true, 4500); }
 function accept(next) {
   const previousFocus = state.focus;
+  const previousStop=state.reminder?.lastStopped;
   state = next;
+  if(state.reminder?.lastStopped&&JSON.stringify(previousStop)!==JSON.stringify(state.reminder.lastStopped)){const stopped=state.reminder.lastStopped,key=`tasktimer:reminder-stop:${location.pathname}`,identity=JSON.stringify(stopped);let alreadySeen=false;try{alreadySeen=sessionStorage.getItem(key)===identity;sessionStorage.setItem(key,identity);}catch{/* The in-memory previousStop still prevents repeated notices this visit. */}if(!alreadySeen)toast(`Таймер задачи «${stopped.title}» остановлен без ответа на напоминание (${clock(stopped.at)}).`);}
   if (selected && !state.tasks.some(t => t.id === selected)) selected = null;
   if (previousFocus && !state.focus && new Date(previousFocus.ends_at).getTime() <= Date.now()) {
     toast(previousFocus.taskId===null?'Концентрация завершена. Можно сделать перерыв.':'Концентрация завершена. Время сохранено.');
     if ('Notification' in window && Notification.permission === 'granted') navigator.serviceWorker?.ready.then(registration => registration.showNotification('Концентрация завершена', {body:previousFocus.taskId===null?'Можно сделать перерыв.':'Время сохранено. Можно сделать перерыв.',tag:'focus-complete'})).catch(error => errorAt('#global-error',error));
   }
+  if(!$('#settings-dialog').open)loadReminderSettings();
   refreshCloseWarning(); render(); renderSync(); document.dispatchEvent(new CustomEvent('tasktimer:state',{detail:state}));
 }
 async function dispatch(command) { if (!repo) throw new Error('Хранилище пока недоступно. Перезагрузите страницу.'); const operation = repo.dispatch(command); pendingWrites.add(operation); refreshCloseWarning(); let next; try { next = await operation; } finally { pendingWrites.delete(operation); refreshCloseWarning(); } accept(next); $('#global-error').hidden = true; return next; }
@@ -174,12 +179,59 @@ document.querySelectorAll('[data-focus-minutes]').forEach(b=>b.addEventListener(
 $('#panel-focus-minutes').addEventListener('input',()=>{focusMinutes=Number($('#panel-focus-minutes').value);renderTimer();tick();});
 $('#report-extended').addEventListener('change',renderReport);
 document.querySelectorAll('[data-filter]').forEach(b=>b.addEventListener('click',()=>{filter=b.dataset.filter;if(filter==='today'){viewDay=localDate();$('#view-day').value=viewDay;}render();}));
-$('#settings-button').addEventListener('click',()=>$('#settings-dialog').showModal());
+$('#settings-button').addEventListener('click',()=>{loadReminderSettings();$('#settings-dialog').showModal();});
 $('#export').addEventListener('click',()=>exportBackup().catch(e=>errorAt('#import-error',e)));
 $('#confirm-export').addEventListener('click',()=>exportBackup().catch(e=>errorAt('#confirm-error',e)));
 $('#import').addEventListener('change',async event=>{const file=event.target.files[0];if(!file)return;try{if(file.size>20*1024*1024)throw new Error('Файл слишком большой. Максимум 20 МБ.');const imported=validateBackup(JSON.parse(await file.text()));$('#import-error').hidden=true;confirm(imported.syncDocument?'Объединить журнал из копии?':'Заменить данные копией?',imported.syncDocument?'Журнал копии объединится с текущим. Удаления и конфликтующие варианты сохранятся для выбора.':`В копии задач: ${imported.tasks.length}. Все текущие задачи и сессии будут заменены. Сначала рекомендуем скачать текущую копию.`,async()=>{await dispatch({type:'replaceState',values:imported});selected=null;render();toast('Резервная копия восстановлена.');},{label:imported.syncDocument?'Объединить':'Заменить данные',backup:true});}catch(error){errorAt('#import-error',error);}finally{event.target.value='';}});
 $('#enable-notifications').addEventListener('click',async()=>{try{if(!('Notification'in window))throw new Error('Этот браузер не поддерживает уведомления.');const permission=await Notification.requestPermission();$('#notification-status').textContent=permission==='granted'?'Уведомления разрешены.':permission==='denied'?'Уведомления запрещены в настройках браузера.':'Разрешение не выдано.';}catch(error){$('#notification-status').textContent=error.message;}});
 function connection(){ $('#connection').textContent=navigator.onLine?'':'Офлайн'; }window.addEventListener('online',connection);window.addEventListener('offline',connection);connection();
+let reminderExpected=null,reminderBusy=false;
+function reminderSettingsSnapshot(){return JSON.stringify([$('#reminder-enabled').checked,$('#reminder-minutes').value]);}
+function reminderSettingsDirty(){return $('#settings-dialog').open&&reminderSettingsBaseline&&reminderSettingsSnapshot()!==reminderSettingsBaseline;}
+function loadReminderSettings(){const r=state.reminder||{enabled:true,minutes:40};$('#reminder-enabled').checked=r.enabled;$('#reminder-minutes').value=r.minutes;reminderSettingsBaseline=reminderSettingsSnapshot();$('#reminder-settings-status').textContent='';}
+$('#reminder-settings').addEventListener('input',refreshCloseWarning);
+$('#reminder-settings').addEventListener('submit',async event=>{
+ event.preventDefault();const submitted=reminderSettingsSnapshot();$('#reminder-save').disabled=true;
+ try{await dispatch({type:'reminder',values:{action:'settings',enabled:$('#reminder-enabled').checked,minutes:Number($('#reminder-minutes').value)}});reminderSettingsBaseline=submitted;$('#reminder-settings-status').textContent='Сохранено';refreshCloseWarning();}
+ catch(e){$('#reminder-settings-status').textContent=e.message;}finally{$('#reminder-save').disabled=false;}
+});
+function reminderVisible(){return document.visibilityState==='visible'&&document.hasFocus();}
+function sameReminder(a,b){return a&&b&&a.generation===b.generation&&a.taskId===b.taskId&&a.sessionId===b.sessionId&&a.started_at===b.started_at&&a.dueAt===b.dueAt;}
+function reminderButtons(disabled){$('#reminder-continue').disabled=disabled;$('#reminder-stop').disabled=disabled;}
+$('#reminder-dialog').addEventListener('cancel',event=>event.preventDefault());
+async function answerReminder(action){
+ if(reminderBusy||!reminderExpected)return;reminderBusy=true;reminderButtons(true);
+ try{await dispatch({type:'reminder',values:{action,expected:reminderExpected}});$('#reminder-dialog').close();reminderExpected=null;}
+ catch(e){errorAt('#reminder-error',e);}finally{reminderBusy=false;reminderButtons(false);}
+}
+$('#reminder-continue').addEventListener('click',()=>answerReminder('continue'));
+$('#reminder-stop').addEventListener('click',()=>answerReminder('stop'));
+async function checkReminder(){
+ if(!repo||reminderBusy)return;
+ const dialog=$('#reminder-dialog'),p=state.reminder?.pending;
+ if(dialog.open&&!sameReminder(p,reminderExpected)){dialog.close();reminderExpected=null;}
+ if(state.sync?.projectionError||state.sync?.conflicts?.length){if(dialog.open)dialog.close();return;}
+ if(!p)return;
+ if(p.deadline&&Date.now()>=Date.parse(p.deadline)){
+   reminderBusy=true;try{await dispatch({type:'reconcile'});if(dialog.open)dialog.close();reminderExpected=null;}catch(e){errorAt('#global-error',e);}finally{reminderBusy=false;}return;
+ }
+ if(dialog.open){$('#reminder-countdown').textContent=p.deadline?`Без ответа таймер остановится через ${duration((Date.parse(p.deadline)-Date.now())/1000)}.`:'Подготовка напоминания…';return;}
+ if(Date.now()<Date.parse(p.dueAt)||!reminderVisible()||document.querySelector('dialog[open]'))return;
+ reminderBusy=true;reminderExpected=structuredClone(p);reminderButtons(true);$('#reminder-error').hidden=true;
+ $('#reminder-task').textContent=state.tasks.find(t=>t.id===p.taskId)?.title||'';
+ $('#reminder-countdown').textContent='Без ответа таймер остановится через 5 минут.';
+ try{
+   dialog.showModal();
+   // Two animation frames establish that the question actually reached a visible window.
+   await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+   if(!dialog.open||!reminderVisible()){dialog.close();reminderExpected=null;return;}
+   const next=await dispatch({type:'reminder',values:{action:'shown',expected:reminderExpected}});
+   if(!sameReminder(next.reminder?.pending,reminderExpected)){dialog.close();reminderExpected=null;return;}
+   reminderExpected=structuredClone(next.reminder.pending);
+ }catch(e){dialog.close();reminderExpected=null;errorAt('#global-error',e);}finally{reminderBusy=false;reminderButtons(false);}
+}
+window.addEventListener('focus',()=>checkReminder());
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')checkReminder();});
 try{repo=await openRepository();const initial=await repo.read();if(initial.tasks.some(t=>t.status!=='completed')&&!visibleTasks(initial,{view:'today',day:viewDay}).length)filter='progress';accept(initial);repo.subscribe((next,error)=>{if(error){errorAt('#global-error',error);return;}if(next?.tasks)accept(next);else repo.read().then(accept).catch(e=>errorAt('#global-error',e));});}catch(error){errorAt('#global-error',error);$('#task-list').innerHTML='<p class="empty">Не удалось открыть локальные данные.<br>Проверьте разрешения браузера и перезагрузите страницу.</p>';}
 window.addEventListener('tasktimer:before-update', event => {
  const confirmedRisks=closeRisks();
@@ -192,7 +244,7 @@ window.addEventListener('tasktimer:before-update', event => {
  });
  event.detail.waitUntil((async () => { if (!repo) throw new Error('Хранилище недоступно. Обновление отменено.'); await Promise.all([...pendingWrites]); await repo.read(); })());
 });
-setInterval(tick,1000);
+setInterval(()=>{tick();checkReminder();},1000);
 
 let syncAbort=null;
 function renderSync(){
