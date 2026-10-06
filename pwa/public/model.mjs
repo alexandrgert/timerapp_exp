@@ -85,6 +85,10 @@ export function apply(state, command, now=new Date().toISOString(), {reconcile=t
  if(!previous)fail('Задача для продолжения недоступна');start(s,previous,now);if(!previous.planned_days.includes(localDay(now)))previous.planned_days.push(localDay(now));s.focusResumeTaskId=null;return s;
  }
  if(command.type==='replaceState')return validateBackup(values);
+ if(command.type==='createAndStartTask'){
+ const created=apply(s,{type:'createTask',values},now,{reconcile:false});
+ return apply(created,{type:'startTask',taskId:created.tasks.at(-1).id},now,{reconcile:false});
+ }
  if(command.type==='createTask') {
  const task={id:id(),title:'',description:'',day:localDay(now),priority:4,status:'open',sessions:[],created_at:now,completed_at:null,continuation_of:null,bitrix:null,planned_days:[],daily_priorities:{},keep_priority:false,result:''};
  taskFields(values,task,now); if(!task.title)fail('Введите название задачи'); task.planned_days=[task.day];s.tasks.push(task); return s;
