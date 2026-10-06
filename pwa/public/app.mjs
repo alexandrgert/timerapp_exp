@@ -14,6 +14,7 @@ const clock = value => new Date(value).toLocaleTimeString('ru-RU',{hour:'2-digit
 const dateLabel = value => new Date(value).toLocaleDateString('ru-RU',{day:'numeric',month:'short',year:'numeric'});
 let repo, state = {tasks:[],focus:null}, selected = null, filter = 'today', editorAction, confirmAction, toastTimeout, reconciling = false;
 const pendingWrites = new Set();
+const pendingPriorityLocks = new Set();
 let reminderSettingsBaseline='';
 let editorBaseline='', closeWarningAttached=false, voiceRisk='', voiceRevision=0;
 function editorSnapshot(){return JSON.stringify([...$('#editor-fields').querySelectorAll('input,textarea,select')].map(el=>[el.name,el.type==='checkbox'||el.type==='radio'?el.checked:el.value]));}
@@ -56,6 +57,7 @@ function accept(next) {
 async function dispatch(command) { if (!repo) throw new Error('Хранилище пока недоступно. Перезагрузите страницу.'); const operation = repo.dispatch(command); pendingWrites.add(operation); refreshCloseWarning(); let next; try { next = await operation; } finally { pendingWrites.delete(operation); refreshCloseWarning(); } accept(next); $('#global-error').hidden = true; return next; }
 function taskById(id) { const task = state.tasks.find(t => t.id === id); if (!task) throw new Error('Задача уже удалена в другой вкладке.'); return task; }
 function render() {
+  const focusedLock=document.activeElement?.matches('.priority-lock')?document.activeElement.dataset.id:null;
   for(const id of selectedTasks)if(!state.tasks.some(t=>t.id===id))selectedTasks.delete(id);
   document.querySelectorAll('[data-filter]').forEach(b => {b.classList.toggle('selected',b.dataset.filter === filter); b.setAttribute('aria-pressed',String(b.dataset.filter === filter));});
   document.querySelectorAll('[data-priority-filter]').forEach(b=>b.setAttribute('aria-pressed',String(priorityFilters.has(Number(b.dataset.priorityFilter)))));
@@ -65,8 +67,9 @@ function render() {
   const tasks=visibleTasks(state,{view:filter,day:viewDay,query:term,priorities:[...priorityFilters]},new Date().toISOString());
   $('#task-list').innerHTML=tasks.length?tasks.map(t=>{
     const priority=priorityFor(t,viewDay),planned=t.planned_days?.includes(viewDay);
-    return `<article class="task-row ${selected===t.id?'chosen':''} ${t.status==='completed'?'completed':''}" data-testid="task-row"><input type="checkbox" data-select-task="${escape(t.id)}" aria-label="Выбрать: ${escape(t.title)}" ${selectedTasks.has(t.id)?'checked':''}><span class="priority-badge p${priority}" title="Приоритет ${priority}">${priority}</span><button class="task-select" data-action="select" data-id="${escape(t.id)}"><span class="task-name">${escape(t.title)}</span><span class="task-meta">${t.status==='running'?'Таймер запущен':t.status==='completed'?'Завершена':planned?'В плане':''}</span></button><div class="row-times"><span>За день: <b data-task-day="${escape(t.id)}"></b></span><span>Всего: <b data-task-time="${escape(t.id)}"></b></span></div><div class="row-actions"><button class="text-button" data-action="editTask" data-id="${escape(t.id)}">Изменить</button><button class="text-button" data-action="select" data-id="${escape(t.id)}" aria-label="История: ${escape(t.title)}">История</button>${t.status!=='completed'?`<button class="text-button" data-action="completeTask" data-id="${escape(t.id)}">Завершить</button><button class="text-button" data-action="${planned?'removeFromPlan':'addToPlan'}" data-id="${escape(t.id)}">${planned?'Из плана':'В план'}</button>`:''}<button class="text-button" data-action="deleteTask" data-id="${escape(t.id)}" aria-label="Удалить: ${escape(t.title)}">Удалить</button>${t.status!=='completed'?`<button class="task-control" data-action="${state.focus?.taskId===t.id?'stopFocus':t.status==='running'?'pauseTask':'startTask'}" data-id="${escape(t.id)}" data-testid="task-toggle" aria-label="${state.focus?.taskId===t.id?'Остановить концентрацию':t.status==='running'?'Приостановить':'Запустить'}: ${escape(t.title)}">${state.focus?.taskId===t.id?'■':t.status==='running'?'Ⅱ':'▶'}</button>`:''}</div></article>`;
+    return `<article class="task-row ${selected===t.id?'chosen':''} ${t.status==='completed'?'completed':''}" data-testid="task-row"><input type="checkbox" data-select-task="${escape(t.id)}" aria-label="Выбрать: ${escape(t.title)}" ${selectedTasks.has(t.id)?'checked':''}><span class="task-priority"><span class="priority-badge p${priority}" title="Приоритет ${priority}">${priority}</span><button type="button" class="priority-lock" data-action="toggleKeepPriority" data-id="${escape(t.id)}" aria-label="Сохранять приоритет на следующий день: ${escape(t.title)}" aria-pressed="${!!t.keep_priority}" title="${t.keep_priority?'Сохранение приоритета включено. Нажмите, чтобы выключить.':'Сохранение приоритета выключено. Нажмите, чтобы включить.'}" ${pendingPriorityLocks.has(t.id)?'disabled':''}><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="${t.keep_priority?'M8 10V7a4 4 0 0 1 8 0v3':'M8 10V7a4 4 0 0 1 7.7-1.5'}"/><path d="M12 14v3"/></svg></button></span><button class="task-select" data-action="select" data-id="${escape(t.id)}"><span class="task-name">${escape(t.title)}</span><span class="task-meta">${t.status==='running'?'Таймер запущен':t.status==='completed'?'Завершена':planned?'В плане':''}</span></button><div class="row-times"><span>За день: <b data-task-day="${escape(t.id)}"></b></span><span>Всего: <b data-task-time="${escape(t.id)}"></b></span></div><div class="row-actions"><button class="text-button" data-action="editTask" data-id="${escape(t.id)}">Изменить</button><button class="text-button" data-action="select" data-id="${escape(t.id)}" aria-label="История: ${escape(t.title)}">История</button>${t.status!=='completed'?`<button class="text-button" data-action="completeTask" data-id="${escape(t.id)}">Завершить</button><button class="text-button" data-action="${planned?'removeFromPlan':'addToPlan'}" data-id="${escape(t.id)}">${planned?'Из плана':'В план'}</button>`:''}<button class="text-button" data-action="deleteTask" data-id="${escape(t.id)}" aria-label="Удалить: ${escape(t.title)}">Удалить</button>${t.status!=='completed'?`<button class="task-control" data-action="${state.focus?.taskId===t.id?'stopFocus':t.status==='running'?'pauseTask':'startTask'}" data-id="${escape(t.id)}" data-testid="task-toggle" aria-label="${state.focus?.taskId===t.id?'Остановить концентрацию':t.status==='running'?'Приостановить':'Запустить'}: ${escape(t.title)}">${state.focus?.taskId===t.id?'■':t.status==='running'?'Ⅱ':'▶'}</button>`:''}</div></article>`;
   }).join(''):`<div class="empty"><h2>${state.tasks.length?'Нет задач для выбранных условий':'С чего начнём?'}</h2>${state.tasks.length?'':'<p>Добавьте задачу и запустите таймер.</p><button class="primary" data-action="create">Создать первую задачу</button>'}</div>`;
+  if(focusedLock)document.querySelector(`.priority-lock[data-id="${CSS.escape(focusedLock)}"]:not(:disabled)`)?.focus({preventScroll:true});
   renderDetails();renderTimer();tick();
 }
 function renderDetails() {
@@ -149,6 +152,16 @@ document.addEventListener('click',async event=>{
   if(button.classList.contains('close-dialog')){if(!button.closest('dialog').dataset.busy)button.closest('dialog').close();return;}
   const action=button.dataset.action,id=button.dataset.id;if(!action)return;
   try {
+    if(action==='toggleKeepPriority'){
+      if(pendingPriorityLocks.has(id))return;
+      const old=taskById(id).keep_priority;let restoreFocus=document.activeElement===button;
+      const moved=event=>{if(event.target!==document.body&&!event.target.closest?.(`.priority-lock[data-id="${CSS.escape(id)}"]`))restoreFocus=false;};
+      document.addEventListener('focusin',moved);document.addEventListener('pointerdown',moved);
+      pendingPriorityLocks.add(id);render();
+      try{await dispatch({type:'updateTask',taskId:id,values:{keep_priority:!old},expected:{keep_priority:old}});}
+      finally{pendingPriorityLocks.delete(id);render();document.removeEventListener('focusin',moved);document.removeEventListener('pointerdown',moved);if(restoreFocus)document.querySelector(`.priority-lock[data-id="${CSS.escape(id)}"]`)?.focus({preventScroll:true});}
+      return;
+    }
     if(action==='select'){selected=id;render();if(!$('#details-dialog').open)$('#details-dialog').showModal();return;}
     if(action==='create'){taskEditor();return;}
     if(action==='editTask'){taskEditor(id);return;}

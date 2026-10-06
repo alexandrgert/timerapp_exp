@@ -246,3 +246,25 @@ test('hidden reminder has no deadline and two repository clients serialize stale
  assert.equal(result.tasks[0].status,'running');assert.equal(result.reminder.pending.deadline,null);await page.locator('#reminder-dialog').waitFor({state:'hidden'});
  }finally{await context.close();}
 });
+
+test('priority lock toggles from list by keyboard, persists and agrees with editor without changing time or priority',async()=>{
+ const {context,page}=await setup();try{
+ await create(page,'Проверка приоритета');await closeDetails(page);
+ const row=page.getByTestId('task-row'),lock=row.getByRole('button',{name:'Сохранять приоритет на следующий день: Проверка приоритета',exact:true});
+ assert.equal(await lock.count(),1);assert.equal(await lock.getAttribute('aria-pressed'),'false');
+ await row.getByRole('button',{name:'Изменить',exact:true}).click();await page.locator('[name=priority]').selectOption('1');await page.getByTestId('save').click();await page.locator('#editor-dialog').waitFor({state:'hidden'});
+ await row.getByTestId('task-toggle').click();await row.getByRole('button',{name:'Приостановить: Проверка приоритета',exact:true}).click();await row.getByRole('button',{name:'Запустить: Проверка приоритета',exact:true}).waitFor();
+ const before=(await read(page)).tasks[0];await lock.focus();await page.keyboard.press('Enter');
+ await page.waitForFunction(()=>document.querySelector('.priority-lock')?.getAttribute('aria-pressed')==='true'&&!document.querySelector('.priority-lock').disabled);
+ assert.equal(await lock.evaluate(el=>document.activeElement===el),true);
+ const after=(await read(page)).tasks[0];for(const field of ['priority','daily_priorities','planned_days','sessions','status'])assert.deepEqual(after[field],before[field]);
+ assert.equal(await page.locator('#details-dialog').isVisible(),false);
+ await row.getByRole('button',{name:'Изменить',exact:true}).click();assert.equal(await page.locator('[name=keep_priority]').isChecked(),true);await page.locator('#editor-dialog .close-dialog').first().click();
+ await reload(page);await lock.waitFor();assert.equal(await lock.getAttribute('aria-pressed'),'true');
+ const bounds=await lock.boundingBox();assert.ok(bounds.width>=32&&bounds.height>=32);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+ const output=path.resolve(__dirname,'../../../documents/pwa-priority-lock');await fs.mkdir(output,{recursive:true});await page.screenshot({path:path.join(output,'mobile.png'),fullPage:true});await page.setViewportSize({width:1440,height:900});await page.screenshot({path:path.join(output,'desktop.png'),fullPage:true});
+ await lock.focus();await page.keyboard.press('Space');await page.waitForFunction(()=>document.querySelector('.priority-lock')?.getAttribute('aria-pressed')==='false'&&!document.querySelector('.priority-lock').disabled);
+ assert.equal((await read(page)).tasks[0].keep_priority,false);assert.equal(await lock.evaluate(el=>document.activeElement===el),true);
+ await row.getByRole('button',{name:'Изменить',exact:true}).click();assert.equal(await page.locator('[name=keep_priority]').isChecked(),false);
+ }finally{await context.close();}
+});
