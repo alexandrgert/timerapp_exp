@@ -10,3 +10,32 @@ test('Later persists per revision in current tab but a different version returns
 
 test('late stale metadata cannot replace new worker notes and Later before response persists revision',async()=>{const{page,context}=await setup({delayed:true});try{await page.locator('[data-pwa-notice]').waitFor();await page.getByRole('button',{name:'Позже',exact:true}).click();await page.evaluate(()=>window.infoReplies[0]());await page.waitForFunction(()=>sessionStorage.getItem('tasktimer-update-later:/')==='revision-2');assert.equal(await page.locator('[data-pwa-notice]').isVisible(),false);await page.evaluate(()=>{window.makeWaiting('stale',['Неверное']);window.makeWaiting('fresh',['Точное']);});await page.waitForFunction(()=>window.infoReplies.length===3);await page.evaluate(()=>window.infoReplies[2]());await page.getByText('Точное',{exact:true}).waitFor();await page.evaluate(()=>window.infoReplies[1]());await page.waitForTimeout(50);assert.equal(await page.locator('[data-pwa-changes]').textContent(),'Точное');}finally{await context.close();}});
 test('another controller cannot trigger reload even after this tab accepted a different worker',async()=>{const{page,context}=await setup();try{await page.locator('[data-pwa-notice]').waitFor();page.once('dialog',d=>d.accept());await page.locator('[data-pwa-notice] [data-pwa-update]').click();await page.waitForFunction(()=>window.updateMessages.includes('TASKTIMER_APPLY_UPDATE'));await page.evaluate(()=>{window.notReloaded='kept';window.fakeServiceWorker.controller={};window.fakeRegistration.waiting=null;window.fakeServiceWorker.dispatchEvent(new Event('controllerchange'));});await page.waitForTimeout(100);assert.equal(await page.evaluate(()=>window.notReloaded),'kept');}finally{await context.close();}});
+
+test('accepted matching update reloads without a duplicate close prompt for the confirmed running timer',async()=>{
+ const{page,context}=await setup();try{
+ await page.getByTestId('new-task').click();await page.getByTestId('task-title').fill('Работа');await page.getByTestId('save').click();await page.locator('#editor-dialog').waitFor({state:'hidden'});await page.getByTestId('task-toggle').click();await page.getByRole('button',{name:'Ⅱ Пауза',exact:true}).waitFor();
+ const dialogs=[];page.on('dialog',async dialog=>{dialogs.push(dialog.type());await(dialog.type()==='confirm'?dialog.accept():dialog.dismiss());});
+ await page.locator('[data-pwa-notice] [data-pwa-update]').click();await page.waitForFunction(()=>window.updateMessages.includes('TASKTIMER_APPLY_UPDATE'));
+ await page.evaluate(()=>{window.beforeReloadMarker=true;window.fakeServiceWorker.controller=window.fakeRegistration.waiting;window.fakeServiceWorker.dispatchEvent(new Event('controllerchange'));});
+ await page.waitForTimeout(200);assert.deepEqual(dialogs,['confirm']);await page.waitForFunction(()=>!window.beforeReloadMarker);await page.getByRole('button',{name:'Ⅱ Пауза',exact:true}).waitFor();
+ assert.equal(await page.evaluate(()=>!window.dispatchEvent(new Event('beforeunload',{cancelable:true}))),true);
+ }finally{await context.close();}
+});
+
+test('new draft after update consent keeps close protection at controllerchange and cancelled reload preserves it',async()=>{
+ const{page,context}=await setup();try{
+ page.once('dialog',dialog=>dialog.accept());await page.locator('[data-pwa-notice] [data-pwa-update]').click();await page.waitForFunction(()=>window.updateMessages.includes('TASKTIMER_APPLY_UPDATE'));
+ await page.getByTestId('new-task').click();await page.getByTestId('task-title').fill('После согласия');
+ const warning=page.waitForEvent('dialog',{timeout:3000});await page.evaluate(()=>{window.fakeServiceWorker.controller=window.fakeRegistration.waiting;setTimeout(()=>window.fakeServiceWorker.dispatchEvent(new Event('controllerchange')),0);});const dialog=await warning;assert.equal(dialog.type(),'beforeunload');await dialog.dismiss();
+ assert.equal(await page.getByTestId('task-title').inputValue(),'После согласия');assert.equal(await page.evaluate(()=>!window.dispatchEvent(new Event('beforeunload',{cancelable:true}))),true);
+ }finally{await context.close();}
+});
+
+test('cancelled failed and replaced update never remove the running timer close warning',async()=>{
+ for(const mode of ['cancel','failed','replaced']){const{page,context}=await setup();try{
+ await page.getByTestId('new-task').click();await page.getByTestId('task-title').fill('Защищённая работа');await page.getByTestId('save').click();await page.locator('#editor-dialog').waitFor({state:'hidden'});await page.getByTestId('task-toggle').click();await page.getByRole('button',{name:'Ⅱ Пауза',exact:true}).waitFor();
+ if(mode!=='cancel')await page.evaluate(mode=>window.addEventListener('tasktimer:before-update',event=>event.detail.waitUntil(mode==='failed'?Promise.reject(Error('write failed')):new Promise(resolve=>{window.makeWaiting('replacement');resolve();}))),mode);
+ page.once('dialog',dialog=>mode==='cancel'?dialog.dismiss():dialog.accept());await page.locator('[data-pwa-notice] [data-pwa-update]').click();if(mode!=='cancel')await page.locator('[data-pwa-update-error]').waitFor();
+ assert.equal((await page.evaluate(()=>window.updateMessages)).includes('TASKTIMER_APPLY_UPDATE'),false);assert.equal(await page.evaluate(()=>!window.dispatchEvent(new Event('beforeunload',{cancelable:true}))),true);
+ }finally{await context.close();}}
+});

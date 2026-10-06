@@ -1,4 +1,5 @@
 'use strict';
+async function reloadWithConsent(page){const accept=dialog=>{if(dialog.type()!=='beforeunload')throw new Error('Unexpected reload dialog: '+dialog.type());return dialog.accept();};page.on('dialog',accept);try{await page.reload({waitUntil:'domcontentloaded'});}finally{page.off('dialog',accept);}}
 // Explicit CI integration check. Starts real TCP HTTP and real Service Workers.
 // Not matched by npm test. Never substitute route fulfillment for these checks.
 if (!process.env.TASKTIMER_LIVE_CHECK_CHILD) {
@@ -33,7 +34,7 @@ if (!process.env.TASKTIMER_LIVE_CHECK_CHILD) {
     await page.getByTestId('new-task').click();await page.getByTestId('task-title').fill('Offline integration');await page.getByTestId('save').click();await page.locator('#editor-dialog').waitFor({state:'hidden'});await page.getByTestId('task-toggle').click();
     await page.getByRole('button',{name:'Ⅱ Пауза',exact:true}).waitFor();
     const before=await snapshot(page);assert.equal(before.tasks[0].sessions.length,1);assert.equal(before.tasks[0].sessions[0].ended_at,null);
-    await context.setOffline(true);await page.reload({waitUntil:'domcontentloaded'});await page.getByTestId('task-row').waitFor();
+    await context.setOffline(true);await reloadWithConsent(page);await page.getByTestId('task-row').waitFor();
     const offline=await snapshot(page);assert.equal(offline.tasks[0].id,before.tasks[0].id);assert.deepEqual(offline.tasks[0].sessions,before.tasks[0].sessions);
     report.checks.push('offline reload from real shell cache preserves active timer');
     await context.setOffline(false);
@@ -59,7 +60,7 @@ if (!process.env.TASKTIMER_LIVE_CHECK_CHILD) {
     const updated=await snapshot(page);assert.equal(updated.tasks[0].id,before.tasks[0].id);assert.deepEqual(updated.tasks[0].sessions,before.tasks[0].sessions);
     report.checks.push('explicit accepted update activates new shell and preserves timer');
     assert.equal(await other.evaluate(()=>globalThis.__tasktimerLiveUpdateMarker),undefined);report.checks.push('another open tab is not forcibly reloaded');await other.close();
-    await context.setOffline(true);await page.reload({waitUntil:'domcontentloaded'});await page.waitForFunction(()=>globalThis.__tasktimerLiveUpdateMarker==='accepted-v2');await page.getByTestId('task-row').waitFor();
+    await context.setOffline(true);await reloadWithConsent(page);await page.waitForFunction(()=>globalThis.__tasktimerLiveUpdateMarker==='accepted-v2');await page.getByTestId('task-row').waitFor();
     assert.deepEqual((await snapshot(page)).tasks[0].sessions,before.tasks[0].sessions);
     report.checks.push('updated shell reloads offline with original active session');report.passed=true;
     console.log('PASS real Service Worker offline/reload/accepted-update checks');
