@@ -1,15 +1,15 @@
 # TaskTimer Experiment
 
 <!-- pwa-latest-release:start -->
-## Последний выпуск PWA — 6 октября 2026: замочек завершённых задач
+## Последний выпуск PWA — 6 октября 2026: приоритет при удалении из плана
 
-**[Открыть TaskTimer](https://alexandrgert.github.io/timerapp_exp/)** · [Полные release notes](https://github.com/alexandrgert/timerapp_exp/blob/d9f898f/pwa/docs/release-notes-2026-10-06-completed-priority.md)
+**[Открыть TaskTimer](https://alexandrgert.github.io/timerapp_exp/)** · [Полные release notes](https://github.com/alexandrgert/timerapp_exp/blob/f06d873/pwa/docs/release-notes-2026-10-06-retain-plan-priority.md)
 
-- При завершении задачи **сохранение приоритета на следующий день отключается**.
-- У завершённых задач замочек открыт и заблокирован. Соответствующий флажок в редакторе также неактивен.
+- При включённом сохранении приоритета действие **«Из плана» больше не сбрасывает текущий приоритет**. Добавление в план следующего дня с сохранённым приоритетом остаётся.
+- При выключенной опции приоритет сбрасывается до 4, как прежде.
 - Для установки нажмите **«Обновить»** в баннере приложения.
 
-Проверено: **111 тестов**, 8 проверок Service Worker, публичный HTTPS и офлайн-перезагрузка. [Успешная публикация](https://github.com/alexandrgert/timerapp_exp/actions/runs/37517613765).
+Проверено: **112 тестов**, 8 проверок Service Worker, публичный HTTPS и офлайн-перезагрузка. [Успешная публикация](https://github.com/alexandrgert/timerapp_exp/actions/runs/37521140378).
 
 Далее развиваем **только PWA**, чтобы уменьшить зависимость от операционных систем компьютеров и мобильных устройств. Android и desktop этим выпуском не обновляются.
 <!-- pwa-latest-release:end -->
