@@ -15,9 +15,14 @@ export function visibleTasks(state,{view='today',day=localDay(),query='',priorit
  if(view==='date'&&secondsOnDay(task,day,now)<=0)return false;
  return !levels.size||levels.has(priorityFor(task,day))||(view==='today'&&running(task));
  });
- if(state.taskOrder?.length){const ranks=new Map(state.taskOrder.map((id,i)=>[id,i]));return tasks.sort((a,b)=>Number(running(b))-Number(running(a))||(ranks.get(a.id)??Infinity)-(ranks.get(b.id)??Infinity)||b.created_at.localeCompare(a.created_at)||a.id.localeCompare(b.id));}
- if(view==='today')return tasks.sort((a,b)=>Number(running(b))-Number(running(a))||Number(a.status==='completed')-Number(b.status==='completed')||priorityFor(a,day)-priorityFor(b,day)||a.created_at.localeCompare(b.created_at));
- return tasks.sort((a,b)=>Number(running(b))-Number(running(a))||b.created_at.localeCompare(a.created_at));
+ const ranks=new Map((state.taskOrder||[]).map((id,i)=>[id,i]));
+ return tasks.sort((a,b)=>{
+ const pinned=Number(running(b))-Number(running(a));if(pinned)return pinned;
+ const completed=Number(a.status==='completed')-Number(b.status==='completed');if(completed)return completed;
+ if(a.status==='completed')return Date.parse(a.completed_at||a.created_at)-Date.parse(b.completed_at||b.created_at)||a.created_at.localeCompare(b.created_at)||a.id.localeCompare(b.id);
+ if(ranks.size)return (ranks.get(a.id)??Infinity)-(ranks.get(b.id)??Infinity)||b.created_at.localeCompare(a.created_at)||a.id.localeCompare(b.id);
+ return view==='today'?priorityFor(a,day)-priorityFor(b,day)||a.created_at.localeCompare(b.created_at):b.created_at.localeCompare(a.created_at);
+ });
 }
 const hm=seconds=>String(Math.floor(seconds/3600)).padStart(2,'0')+':'+String(Math.floor(seconds/60)%60).padStart(2,'0');
 const dayLabel=day=>day.split('-').reverse().join('.');

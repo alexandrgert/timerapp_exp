@@ -359,3 +359,13 @@ test('focus attention survives denied notifications and clears on user interacti
  await page.getByRole('button',{name:'Все',exact:true}).click();assert.equal(await page.title(),base);assert.equal(await page.locator('.brand-name').evaluate(el=>el.classList.contains('needs-attention')),false);
  }finally{await context.close();}
 });
+
+test('completing tasks moves them below manual order in completion chronology and survives reload',async()=>{
+ const {context,page}=await setup();try{
+ for(const title of ['Первая','Вторая','Третья']){await create(page,title);await closeDetails(page);}
+ const rows=page.getByTestId('task-row'),names=()=>rows.locator('.task-name').allTextContents();
+ await rows.filter({hasText:'Третья'}).locator('.task-drag-handle').focus();await page.keyboard.press('ArrowUp');await page.waitForFunction(()=>document.querySelectorAll('.task-name')[1]?.textContent==='Третья');
+ for(const title of ['Третья','Первая']){await rows.filter({hasText:title}).getByRole('button',{name:'Завершить',exact:true}).click();await page.getByTestId('save').click();await page.locator('#editor-dialog').waitFor({state:'hidden'});await page.waitForFunction(name=>[...document.querySelectorAll('.task-name')].at(-1)?.textContent===name,title);assert.equal(await rows.last().locator('.task-drag-handle').isDisabled(),true);}
+ assert.deepEqual(await names(),['Вторая','Третья','Первая']);await reload(page);await rows.first().waitFor();assert.deepEqual(await names(),['Вторая','Третья','Первая']);await page.getByRole('button',{name:'Все',exact:true}).click();assert.deepEqual(await names(),['Вторая','Третья','Первая']);
+ }finally{await context.close();}
+});
