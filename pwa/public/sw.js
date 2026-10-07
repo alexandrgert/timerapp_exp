@@ -34,3 +34,13 @@ self.addEventListener('fetch', event => {
   if (!ASSETS.includes(url.pathname)) return;
   event.respondWith(caches.open(CACHE).then(async cache => (await cache.match(url.pathname)) || fetch(request)));
 });
+
+self.addEventListener('notificationclick',event=>{
+ event.notification.close();
+ event.waitUntil((async()=>{
+ const scope=self.registration.scope;
+ const windows=await self.clients.matchAll({type:'window',includeUncontrolled:true});
+ const client=windows.find(client=>client.url.startsWith(scope));
+ if(client)await client.focus();else await self.clients.openWindow(scope);
+ })());
+});

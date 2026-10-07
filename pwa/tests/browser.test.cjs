@@ -338,3 +338,24 @@ test('selection clears on priority success and view switches but survives save f
  for(const view of ['В работе','Все','Сегодня']){await checks.first().check();await page.getByRole('button',{name:view,exact:true}).click();assert.equal(await page.locator('[data-select-task]:checked').count(),0);assert.equal(await page.locator('#selection-count').innerText(),'Выбрано: 0');assert.equal(await page.getByRole('button',{name:'Назначить приоритет 2',exact:true}).isDisabled(),true);}
  }finally{await context.close();}
 });
+
+test('background reminder attracts attention once without arming grace and clears after answer',async()=>{
+ const {context,page}=await setup();try{
+ const base=await page.title();await page.clock.install({time:new Date('2026-10-07T09:00:00Z')});
+ await page.evaluate(()=>{window.notices=[];window.badges=[];window.closedNotices=0;Object.defineProperty(window,'Notification',{configurable:true,value:{permission:'granted'}});navigator.serviceWorker.getRegistration=async()=>({showNotification:async(title,options)=>notices.push({title,options}),getNotifications:async()=>[{close:()=>closedNotices++}]});navigator.setAppBadge=async()=>badges.push('set');navigator.clearAppBadge=async()=>badges.push('clear');});
+ await create(page,'Фоновое напоминание');await closeDetails(page);await page.getByTestId('task-toggle').click();await page.getByRole('button',{name:'Ⅱ Пауза',exact:true}).waitFor();
+ await page.evaluate(()=>Object.defineProperty(document,'visibilityState',{configurable:true,get:()=> 'hidden'}));await page.clock.fastForward(41*60000);await page.waitForFunction(()=>window.notices.length===1);assert.match(await page.title(),/Продолжаете работать/);assert.equal((await read(page)).reminder.pending.deadline,null);assert.equal(await page.locator('#reminder-dialog').isVisible(),false);
+ await page.clock.fastForward(1600);assert.equal(await page.title(),base);await page.clock.fastForward(1600);assert.match(await page.title(),/Продолжаете работать/);assert.equal(await page.evaluate(()=>notices.length),1);assert.equal((await read(page)).tasks[0].status,'running');
+ await page.evaluate(()=>{delete document.visibilityState;document.dispatchEvent(new Event('visibilitychange'));});await page.bringToFront();await page.clock.runFor(100);await page.locator('#reminder-dialog').waitFor();await page.waitForFunction(()=>!document.querySelector('#reminder-continue').disabled);assert.ok((await read(page)).reminder.pending.deadline);
+ await page.locator('#reminder-continue').click();await page.locator('#reminder-dialog').waitFor({state:'hidden'});assert.equal(await page.title(),base);await page.waitForFunction(()=>badges.at(-1)==='clear'&&closedNotices>0);assert.equal((await read(page)).tasks[0].status,'running');
+ }finally{await context.close();}
+});
+
+test('focus attention survives denied notifications and clears on user interaction',async()=>{
+ const {context,page}=await setup();try{
+ const base=await page.title();await page.clock.install({time:new Date('2026-10-07T09:00:00Z')});await page.evaluate(()=>{Object.defineProperty(window,'Notification',{configurable:true,value:{permission:'denied'}});navigator.setAppBadge=async()=>{throw new Error('Unavailable');};navigator.clearAppBadge=async()=>{throw new Error('Unavailable');};});
+ await page.getByTestId('start-focus').click();await page.getByTestId('focus-minutes').fill('1');await page.getByTestId('save').click();await page.locator('#editor-dialog').waitFor({state:'hidden'});
+ await page.clock.fastForward(61000);await page.waitForFunction(()=>document.title.includes('Концентрация завершена'));assert.equal((await read(page)).focus,null);assert.equal(await page.locator('#global-error').isVisible(),false);
+ await page.getByRole('button',{name:'Все',exact:true}).click();assert.equal(await page.title(),base);
+ }finally{await context.close();}
+});
