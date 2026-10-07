@@ -16,6 +16,44 @@ let repo, state = {tasks:[],focus:null}, selected = null, filter = 'today', edit
 const pendingWrites = new Set();
 const pendingPriorityLocks = new Set();
 let taskDrag=null, reorderBusy=false;
+const attentionBaseTitle=document.title, attentionEvents=new Map(), attentionSeen=new Map();
+let attentionInterval=null,attentionPhase=true,attentionBadge=Promise.resolve(),attentionInitialized=false;
+const attentionTag=kind=>`tasktimer-attention:${location.pathname}:${kind}`;
+function paintAttention(){const event=attentionEvents.get('reminder')||attentionEvents.get('focus');document.title=event&&attentionPhase?`⚠ ${event.title} — TaskTimer`:attentionBaseTitle;}
+function refreshAttention(){
+ clearInterval(attentionInterval);attentionInterval=null;attentionPhase=true;paintAttention();
+ if(attentionEvents.size&&!matchMedia('(prefers-reduced-motion: reduce)').matches)attentionInterval=setInterval(()=>{attentionPhase=!attentionPhase;paintAttention();},1500);
+ attentionBadge=attentionBadge.then(async()=>{try{if(attentionEvents.size)await navigator.setAppBadge?.();else await navigator.clearAppBadge?.();}catch{/* Title remains available when OS badges are unsupported. */}});
+}
+async function attentionNotification(kind,event){
+ try{
+ if(!('Notification'in window)||Notification.permission!=='granted')return;
+ const registration=await navigator.serviceWorker?.getRegistration();
+ if(!registration||attentionEvents.get(kind)?.key!==event.key)return;
+ await registration.showNotification(event.title,{body:event.body,tag:attentionTag(kind)});
+ // An answer may arrive while the OS notification is being created.
+ if(!attentionEvents.has(kind))for(const n of await registration.getNotifications({tag:attentionTag(kind)}))if(!attentionEvents.has(kind))n.close();
+ }catch{/* Notification restrictions must not interrupt timers or answers. */}
+}
+function setAttention(kind,event){
+ if(attentionEvents.get(kind)?.key===event.key)return;
+ attentionEvents.set(kind,event);refreshAttention();
+ if(attentionSeen.get(kind)!==event.key){attentionSeen.set(kind,event.key);void attentionNotification(kind,event);}
+}
+function clearAttention(kind){
+ if(!attentionEvents.delete(kind))return;refreshAttention();
+ void(async()=>{try{const registration=await navigator.serviceWorker?.getRegistration();if(registration&&!attentionEvents.has(kind))for(const n of await registration.getNotifications({tag:attentionTag(kind)}))if(!attentionEvents.has(kind))n.close();}catch{/* Optional OS integration. */}})();
+}
+function syncReminderAttention(){
+ if(!attentionInitialized){attentionInitialized=true;refreshAttention();}
+ const p=state.reminder?.pending;
+ if(p&&Date.now()>=Date.parse(p.dueAt)&&!state.sync?.projectionError&&!state.sync?.conflicts?.length&&(!p.deadline||Date.now()<Date.parse(p.deadline)))setAttention('reminder',{key:p.generation,title:'Продолжаете работать?',body:'Откройте TaskTimer, чтобы продолжить задачу или остановить таймер.'});
+ else clearAttention('reminder');
+}
+function acknowledgeFocusAttention(){if(document.visibilityState==='visible'&&document.hasFocus())clearAttention('focus');}
+window.addEventListener('focus',acknowledgeFocusAttention);
+document.addEventListener('pointerdown',acknowledgeFocusAttention);
+document.addEventListener('keydown',acknowledgeFocusAttention);
 let reminderSettingsBaseline='';
 let editorBaseline='', closeWarningAttached=false, voiceRisk='', voiceRevision=0;
 function editorSnapshot(){return JSON.stringify([...$('#editor-fields').querySelectorAll('input,textarea,select')].map(el=>[el.name,el.type==='checkbox'||el.type==='radio'?el.checked:el.value]));}
@@ -50,10 +88,10 @@ function accept(next) {
   if (selected && !state.tasks.some(t => t.id === selected)) selected = null;
   if (previousFocus && !state.focus && new Date(previousFocus.ends_at).getTime() <= Date.now()) {
     toast(previousFocus.taskId===null?'Концентрация завершена. Можно сделать перерыв.':'Концентрация завершена. Время сохранено.');
-    if ('Notification' in window && Notification.permission === 'granted') navigator.serviceWorker?.ready.then(registration => registration.showNotification('Концентрация завершена', {body:previousFocus.taskId===null?'Можно сделать перерыв.':'Время сохранено. Можно сделать перерыв.',tag:'focus-complete'})).catch(error => errorAt('#global-error',error));
+    setAttention('focus',{key:`${previousFocus.started_at}:${previousFocus.ends_at}`,title:'Концентрация завершена',body:'Можно сделать перерыв. Откройте TaskTimer.'});
   }
   if(!$('#settings-dialog').open)loadReminderSettings();
-  refreshCloseWarning(); render(); renderSync(); document.dispatchEvent(new CustomEvent('tasktimer:state',{detail:state}));
+  syncReminderAttention();refreshCloseWarning(); render(); renderSync(); document.dispatchEvent(new CustomEvent('tasktimer:state',{detail:state}));
 }
 async function dispatch(command) { if (!repo) throw new Error('Хранилище пока недоступно. Перезагрузите страницу.'); const operation = repo.dispatch(command); pendingWrites.add(operation); refreshCloseWarning(); let next; try { next = await operation; } finally { pendingWrites.delete(operation); refreshCloseWarning(); } accept(next); $('#global-error').hidden = true; return next; }
 function taskById(id) { const task = state.tasks.find(t => t.id === id); if (!task) throw new Error('Задача уже удалена в другой вкладке.'); return task; }
@@ -266,6 +304,7 @@ async function answerReminder(action){
 $('#reminder-continue').addEventListener('click',()=>answerReminder('continue'));
 $('#reminder-stop').addEventListener('click',()=>answerReminder('stop'));
 async function checkReminder(){
+ syncReminderAttention();
  if(!repo||reminderBusy)return;
  const dialog=$('#reminder-dialog'),p=state.reminder?.pending;
  if(dialog.open&&!sameReminder(p,reminderExpected)){dialog.close();reminderExpected=null;}

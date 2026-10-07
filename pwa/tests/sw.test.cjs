@@ -92,3 +92,11 @@ test('verified voice runtime cache is available offline without precaching the m
 
 test('waiting metadata reads only own revision cache and never latest network or other cache',async()=>{const ownNotes={revision:'__TASKTIMER_REVISION__',title:'Waiting',changes:['Own']},sw=worker({ownNotes,otherNotes:{title:'Wrong'},offline:true});let response;await sw.lifecycle('message',{type:'TASKTIMER_UPDATE_INFO'},[{postMessage:data=>response=data}]);assert.equal(response.revision,'__TASKTIMER_REVISION__');assert.deepEqual(response.notes,ownNotes);assert.deepEqual(sw.calls.opened,['tasktimer-shell-__TASKTIMER_REVISION__']);assert.deepEqual(sw.calls.fetched,[]);assert.equal(sw.calls.skipWaiting,0);});
 test('mismatched or missing release metadata returns revision with generic fallback',async()=>{for(const ownNotes of [undefined,{revision:'different',title:'Wrong',changes:['Wrong']}]){const sw=worker({ownNotes,offline:true});let response;await sw.lifecycle('message',{type:'TASKTIMER_UPDATE_INFO'},[{postMessage:data=>response=data}]);assert.equal(response.notes,null);assert.equal(response.revision,'__TASKTIMER_REVISION__');await sw.lifecycle('message',{type:'TASKTIMER_APPLY_UPDATE'});assert.equal(sw.calls.skipWaiting,1);}});
+
+test('notification click focuses existing scoped PWA or opens its own scope',async()=>{
+ for(const existing of [true,false]){
+ const handlers={},calls=[],scope='https://tasktimer.test/timerapp_exp/';
+ vm.runInNewContext(source,{self:{registration:{scope},addEventListener:(name,fn)=>handlers[name]=fn,clients:{matchAll:async()=>existing?[{url:'https://elsewhere.test/',focus:async()=>calls.push('wrong')},{url:scope,focus:async()=>calls.push('focus')}]:[],openWindow:async url=>calls.push(url)}}});
+ let pending;handlers.notificationclick({notification:{close:()=>calls.push('close'),data:{url:'https://elsewhere.test/'}},waitUntil:p=>pending=p});await pending;assert.deepEqual(calls,['close',existing?'focus':scope]);
+ }
+});
