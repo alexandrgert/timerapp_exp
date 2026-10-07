@@ -15,6 +15,7 @@ const dateLabel = value => new Date(value).toLocaleDateString('ru-RU',{day:'nume
 let repo, state = {tasks:[],focus:null}, selected = null, filter = 'today', editorAction, confirmAction, toastTimeout, reconciling = false;
 const pendingWrites = new Set();
 const pendingPriorityLocks = new Set();
+let taskDrag=null, reorderBusy=false;
 let reminderSettingsBaseline='';
 let editorBaseline='', closeWarningAttached=false, voiceRisk='', voiceRevision=0;
 function editorSnapshot(){return JSON.stringify([...$('#editor-fields').querySelectorAll('input,textarea,select')].map(el=>[el.name,el.type==='checkbox'||el.type==='radio'?el.checked:el.value]));}
@@ -57,6 +58,7 @@ function accept(next) {
 async function dispatch(command) { if (!repo) throw new Error('Хранилище пока недоступно. Перезагрузите страницу.'); const operation = repo.dispatch(command); pendingWrites.add(operation); refreshCloseWarning(); let next; try { next = await operation; } finally { pendingWrites.delete(operation); refreshCloseWarning(); } accept(next); $('#global-error').hidden = true; return next; }
 function taskById(id) { const task = state.tasks.find(t => t.id === id); if (!task) throw new Error('Задача уже удалена в другой вкладке.'); return task; }
 function render() {
+  cancelTaskDrag();
   const focusedLock=document.activeElement?.matches('.priority-lock')?document.activeElement.dataset.id:null;
   for(const id of selectedTasks)if(!state.tasks.some(t=>t.id===id))selectedTasks.delete(id);
   document.querySelectorAll('[data-filter]').forEach(b => {b.classList.toggle('selected',b.dataset.filter === filter); b.setAttribute('aria-pressed',String(b.dataset.filter === filter));});
@@ -67,11 +69,55 @@ function render() {
   const tasks=visibleTasks(state,{view:filter,day:viewDay,query:term,priorities:[...priorityFilters]},new Date().toISOString());
   $('#task-list').innerHTML=tasks.length?tasks.map(t=>{
     const priority=priorityFor(t,viewDay),planned=t.planned_days?.includes(viewDay),keepPriority=t.status!=='completed'&&!!t.keep_priority;
-    return `<article class="task-row ${selected===t.id?'chosen':''} ${t.status==='completed'?'completed':''}" data-testid="task-row"><input type="checkbox" data-select-task="${escape(t.id)}" aria-label="Выбрать: ${escape(t.title)}" ${selectedTasks.has(t.id)?'checked':''}><span class="task-priority"><span class="priority-badge p${priority}" title="Приоритет ${priority}">${priority}</span><button type="button" class="priority-lock" data-action="toggleKeepPriority" data-id="${escape(t.id)}" aria-label="Сохранять приоритет на следующий день: ${escape(t.title)}" aria-pressed="${keepPriority}" title="${t.status==='completed'?'Задача завершена. Сохранение приоритета отключено.':keepPriority?'Сохранение приоритета включено. Нажмите, чтобы выключить.':'Сохранение приоритета выключено. Нажмите, чтобы включить.'}" ${t.status==='completed'||pendingPriorityLocks.has(t.id)?'disabled':''}><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="${keepPriority?'M8 10V7a4 4 0 0 1 8 0v3':'M8 10V7a4 4 0 0 1 7.7-1.5'}"/><path d="M12 14v3"/></svg></button></span><button class="task-select" data-action="select" data-id="${escape(t.id)}"><span class="task-name">${escape(t.title)}</span><span class="task-meta">${t.status==='running'?'Таймер запущен':t.status==='completed'?'Завершена':planned?'В плане':''}</span></button><div class="row-times"><span>За день: <b data-task-day="${escape(t.id)}"></b></span><span>Всего: <b data-task-time="${escape(t.id)}"></b></span></div><div class="row-actions"><button class="text-button" data-action="editTask" data-id="${escape(t.id)}">Изменить</button><button class="text-button" data-action="select" data-id="${escape(t.id)}" aria-label="История: ${escape(t.title)}">История</button>${t.status!=='completed'?`<button class="text-button" data-action="completeTask" data-id="${escape(t.id)}">Завершить</button><button class="text-button" data-action="${planned?'removeFromPlan':'addToPlan'}" data-id="${escape(t.id)}">${planned?'Из плана':'В план'}</button>`:''}<button class="text-button" data-action="deleteTask" data-id="${escape(t.id)}" aria-label="Удалить: ${escape(t.title)}">Удалить</button>${t.status!=='completed'?`<button class="task-control" data-action="${state.focus?.taskId===t.id?'stopFocus':t.status==='running'?'pauseTask':'startTask'}" data-id="${escape(t.id)}" data-testid="task-toggle" aria-label="${state.focus?.taskId===t.id?'Остановить концентрацию':t.status==='running'?'Приостановить':'Запустить'}: ${escape(t.title)}">${state.focus?.taskId===t.id?'■':t.status==='running'?'Ⅱ':'▶'}</button>`:''}</div></article>`;
+    return `<article class="task-row ${selected===t.id?'chosen':''} ${t.status==='completed'?'completed':''}" data-testid="task-row" data-task-id="${escape(t.id)}"><button type="button" class="task-drag-handle" data-drag-id="${escape(t.id)}" aria-label="Переместить: ${escape(t.title)}" title="Перетащите для изменения порядка. Клавиатура: стрелки вверх и вниз." ${reorderBusy||t.status==='running'?'disabled':''}>⠿</button><input type="checkbox" data-select-task="${escape(t.id)}" aria-label="Выбрать: ${escape(t.title)}" ${selectedTasks.has(t.id)?'checked':''}><span class="task-priority"><span class="priority-badge p${priority}" title="Приоритет ${priority}">${priority}</span><button type="button" class="priority-lock" data-action="toggleKeepPriority" data-id="${escape(t.id)}" aria-label="Сохранять приоритет на следующий день: ${escape(t.title)}" aria-pressed="${keepPriority}" title="${t.status==='completed'?'Задача завершена. Сохранение приоритета отключено.':keepPriority?'Сохранение приоритета включено. Нажмите, чтобы выключить.':'Сохранение приоритета выключено. Нажмите, чтобы включить.'}" ${t.status==='completed'||pendingPriorityLocks.has(t.id)?'disabled':''}><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="${keepPriority?'M8 10V7a4 4 0 0 1 8 0v3':'M8 10V7a4 4 0 0 1 7.7-1.5'}"/><path d="M12 14v3"/></svg></button></span><button class="task-select" data-action="select" data-id="${escape(t.id)}"><span class="task-name">${escape(t.title)}</span><span class="task-meta">${t.status==='running'?'Таймер запущен':t.status==='completed'?'Завершена':planned?'В плане':''}</span></button><div class="row-times"><span>За день: <b data-task-day="${escape(t.id)}"></b></span><span>Всего: <b data-task-time="${escape(t.id)}"></b></span></div><div class="row-actions"><button class="text-button" data-action="editTask" data-id="${escape(t.id)}">Изменить</button><button class="text-button" data-action="select" data-id="${escape(t.id)}" aria-label="История: ${escape(t.title)}">История</button>${t.status!=='completed'?`<button class="text-button" data-action="completeTask" data-id="${escape(t.id)}">Завершить</button><button class="text-button" data-action="${planned?'removeFromPlan':'addToPlan'}" data-id="${escape(t.id)}">${planned?'Из плана':'В план'}</button>`:''}<button class="text-button" data-action="deleteTask" data-id="${escape(t.id)}" aria-label="Удалить: ${escape(t.title)}">Удалить</button>${t.status!=='completed'?`<button class="task-control" data-action="${state.focus?.taskId===t.id?'stopFocus':t.status==='running'?'pauseTask':'startTask'}" data-id="${escape(t.id)}" data-testid="task-toggle" aria-label="${state.focus?.taskId===t.id?'Остановить концентрацию':t.status==='running'?'Приостановить':'Запустить'}: ${escape(t.title)}">${state.focus?.taskId===t.id?'■':t.status==='running'?'Ⅱ':'▶'}</button>`:''}</div></article>`;
   }).join(''):`<div class="empty"><h2>${state.tasks.length?'Нет задач для выбранных условий':'С чего начнём?'}</h2>${state.tasks.length?'':'<p>Добавьте задачу и запустите таймер.</p><button class="primary" data-action="create">Создать первую задачу</button>'}</div>`;
   if(focusedLock)document.querySelector(`.priority-lock[data-id="${CSS.escape(focusedLock)}"]:not(:disabled)`)?.focus({preventScroll:true});
   renderDetails();renderTimer();tick();
 }
+function cancelTaskDrag(){
+ const drag=taskDrag;taskDrag=null;
+ if(drag){cancelAnimationFrame(drag.frame);if(drag.handle.hasPointerCapture?.(drag.pointerId))drag.handle.releasePointerCapture(drag.pointerId);}
+ document.querySelectorAll('.dragging,.drop-before,.drop-after').forEach(el=>el.classList.remove('dragging','drop-before','drop-after'));
+}
+function dragTarget(){
+ if(!taskDrag)return;
+ const d=taskDrag;document.querySelectorAll('.drop-before,.drop-after').forEach(el=>el.classList.remove('drop-before','drop-after'));d.target=null;
+ const row=document.elementFromPoint(d.x,d.y)?.closest('[data-task-id]');
+ if(!row||row.dataset.taskId===d.id||taskById(row.dataset.taskId).status==='running')return;
+ const box=row.getBoundingClientRect();d.target=row.dataset.taskId;d.position=d.y<box.top+box.height/2?'before':'after';row.classList.add('drop-'+d.position);
+}
+function scrollTaskDrag(){
+ if(!taskDrag?.active)return;const d=taskDrag;
+ if(d.y<65)window.scrollBy(0,-12);else if(d.y>innerHeight-65)window.scrollBy(0,12);
+ dragTarget();d.frame=requestAnimationFrame(scrollTaskDrag);
+}
+async function moveTask(id,targetId,position,restoreFocus=false){
+ if(reorderBusy)return;reorderBusy=true;
+ try{await dispatch({type:'reorderTask',taskId:id,values:{targetId,position,view:filter,day:viewDay}});toast('Порядок сохранён');}
+ catch(e){toast(e.message);}
+ finally{reorderBusy=false;render();if(restoreFocus)document.querySelector(`[data-drag-id="${CSS.escape(id)}"]`)?.focus({preventScroll:true});}
+}
+document.addEventListener('pointerdown',event=>{
+ const handle=event.target.closest('.task-drag-handle');if(!handle||handle.disabled||event.button!==0||reorderBusy)return;
+ cancelTaskDrag();taskDrag={handle,id:handle.dataset.dragId,pointerId:event.pointerId,startX:event.clientX,startY:event.clientY,x:event.clientX,y:event.clientY,active:false};handle.setPointerCapture(event.pointerId);
+});
+document.addEventListener('pointermove',event=>{
+ const d=taskDrag;if(!d||event.pointerId!==d.pointerId)return;d.x=event.clientX;d.y=event.clientY;
+ if(!d.active&&Math.hypot(d.x-d.startX,d.y-d.startY)>5){d.active=true;d.handle.closest('[data-task-id]').classList.add('dragging');scrollTaskDrag();}
+ if(d.active){event.preventDefault();dragTarget();}
+},{passive:false});
+document.addEventListener('pointerup',event=>{
+ const d=taskDrag;if(!d||event.pointerId!==d.pointerId)return;const {id,target,position,active}=d;cancelTaskDrag();if(active&&target)void moveTask(id,target,position);
+});
+document.addEventListener('pointercancel',cancelTaskDrag);
+document.addEventListener('lostpointercapture',event=>{if(taskDrag?.pointerId===event.pointerId)cancelTaskDrag();});
+document.addEventListener('keydown',event=>{
+ if(event.key==='Escape'&&taskDrag){cancelTaskDrag();return;}
+ const handle=event.target.closest('.task-drag-handle');if(!handle||handle.disabled||!['ArrowUp','ArrowDown'].includes(event.key))return;
+ event.preventDefault();if(reorderBusy)return;
+ const handles=[...document.querySelectorAll('.task-drag-handle:not(:disabled)')],index=handles.indexOf(handle),target=handles[index+(event.key==='ArrowUp'?-1:1)];
+ if(target)void moveTask(handle.dataset.dragId,target.dataset.dragId,event.key==='ArrowUp'?'before':'after',true);
+});
 function renderDetails() {
   const t = state.tasks.find(t => t.id === selected);
   if (!t) { if($('#details-dialog').open)$('#details-dialog').close(); $('#task-details').innerHTML = '<div class="details-empty"><span class="empty-symbol" aria-hidden="true">◷</span><h2>Время в деталях</h2><p>Выберите задачу, чтобы увидеть сессии и изменить записи.</p></div>'; return; }

@@ -1,4 +1,4 @@
-import {localDay, priorityFor} from './desktop-domain.mjs';
+import {localDay, priorityFor, visibleTasks} from './desktop-domain.mjs';
 const clone = value => structuredClone(value);
 const fail = message => { throw new Error(message); };
 const id = () => globalThis.crypto.randomUUID();
@@ -122,6 +122,18 @@ function applyInternal(state, command, now=new Date().toISOString(), {reconcile=
  }
  reconcileReminder(s,now,{expire:reconcile});
  if(command.type==='reminder')return reminderCommand(s,values,now);
+ if(command.type==='reorderTask'){
+ const moving=s.tasks.find(t=>t.id===command.taskId),target=s.tasks.find(t=>t.id===values.targetId);
+ if(!moving||!target)fail('Запись уже удалена. Повторите перемещение.');
+ if(active(moving)||active(target))fail('Работающая задача закреплена сверху.');
+ if(!['before','after'].includes(values.position))fail('Некорректное перемещение');
+ if(moving.id===target.id)return s;
+ // Rebase the single move on the latest transaction; never replace a stale whole list.
+ const known=new Set(s.tasks.map(t=>t.id));
+ const baseline=s.taskOrder?.length?s.taskOrder.filter(id=>known.has(id)):visibleTasks(s,{view:values.view||'today',day:calendar(values.day||localDay(now))},now).map(t=>t.id);
+ const order=[...new Set([...baseline,...visibleTasks(s,{view:'all'},now).map(t=>t.id)])].filter(id=>id!==moving.id);
+ order.splice(order.indexOf(target.id)+(values.position==='after'?1:0),0,moving.id);s.taskOrder=order;return s;
+ }
  if(command.type==='stopFocus') {finishFocus(s,now);return s;}
  if(command.type==='dismissFocusResume'){s.focusResumeTaskId=null;return s;}
  if(command.type==='resumeFocusTask'){
@@ -199,7 +211,7 @@ function applyInternal(state, command, now=new Date().toISOString(), {reconcile=
  case 'startTask':if(s.focus?.kind==='desktop')finishFocus(s,now);start(s,task,now);s.focusResumeTaskId=null;if(!task.planned_days.includes(localDay(now)))task.planned_days.push(localDay(now));break;
  case 'pauseTask':if(s.focus?.taskId===task.id)finishFocus(s,now);else close(task,now);break;
  case 'completeTask':if('result' in values)taskFields({result:values.result},task,now);close(task,now);task.status='completed';task.completed_at=now;task.keep_priority=false;if(s.focus?.taskId===task.id)finishFocus(s,now);break;
- case 'deleteTask':if(s.focus?.taskId===task.id)finishFocus(s,now);s.tasks=s.tasks.filter(t=>t.id!==task.id);if(s.focusResumeTaskId===task.id)s.focusResumeTaskId=null;break;
+ case 'deleteTask':if(s.taskOrder)s.taskOrder=s.taskOrder.filter(id=>id!==task.id);if(s.focus?.taskId===task.id)finishFocus(s,now);s.tasks=s.tasks.filter(t=>t.id!==task.id);if(s.focusResumeTaskId===task.id)s.focusResumeTaskId=null;break;
  default:fail('Неизвестная операция');
  }
  return s;
@@ -228,6 +240,7 @@ export function focusMatchesTask(f, task) {
 export function validateBackup(value, {allowMultipleActive=false} = {}) {
  const object=v=>v!==null && typeof v==='object' && !Array.isArray(v);
  if(!object(value)||value.schemaVersion!==1||!Array.isArray(value.tasks)||!('focus' in value))fail('Неподдерживаемый формат резервной копии');
+ if(value.taskOrder!==undefined&&(!Array.isArray(value.taskOrder)||value.taskOrder.some(id=>typeof id!=='string'||!id)||new Set(value.taskOrder).size!==value.taskOrder.length))fail('Некорректный порядок задач');
  if(value.reminder!==undefined){
  const r=value.reminder;
  if(!object(r)||typeof r.enabled!=='boolean'||!Number.isInteger(r.minutes)||r.minutes<1||r.minutes>1440)fail('Некорректные настройки напоминаний');

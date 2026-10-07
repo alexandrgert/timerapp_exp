@@ -291,3 +291,39 @@ test('removing from plan preserves visible priority only when retention is enabl
  }
  }finally{await context.close();}
 });
+
+test('manual task order supports pointer and keyboard, reload, filters and running task pin',async()=>{
+ const {context,page}=await setup();try{
+ await page.setViewportSize({width:1280,height:1000});
+ for(const title of ['Первый','Второй','Третий']){await create(page,title);await closeDetails(page);}
+ const rows=page.getByTestId('task-row'),names=()=>rows.locator('.task-name').allTextContents();
+ const before=await names();const from=rows.last().locator('.task-drag-handle'),to=rows.first();
+ const a=await from.boundingBox(),b=await to.boundingBox();await page.mouse.move(a.x+a.width/2,a.y+a.height/2);await page.mouse.down();await page.mouse.move(b.x+100,b.y+5,{steps:8});await page.mouse.up();
+ await page.waitForFunction(name=>document.querySelector('.task-name')?.textContent===name,before[2]);assert.deepEqual(await names(),[before[2],before[0],before[1]]);
+ await reload(page);await rows.first().waitFor();assert.deepEqual(await names(),[before[2],before[0],before[1]]);
+ await rows.first().locator('.task-drag-handle').focus();await page.keyboard.press('ArrowDown');await page.waitForFunction(name=>document.querySelector('.task-name')?.textContent===name,before[0]);assert.deepEqual(await names(),[before[0],before[2],before[1]]);
+ const last=rows.filter({hasText:before[1]});await last.getByTestId('task-toggle').click();await page.waitForFunction(name=>document.querySelector('.task-name')?.textContent===name,before[1]);assert.equal(await rows.first().locator('.task-drag-handle').isDisabled(),true);
+ await rows.first().getByTestId('task-toggle').click();await page.waitForFunction(name=>document.querySelector('.task-name')?.textContent===name,before[0]);assert.deepEqual(await names(),[before[0],before[2],before[1]]);
+ await page.getByRole('button',{name:'Все',exact:true}).click();assert.deepEqual(await names(),[before[0],before[2],before[1]]);
+ const sync=await page.evaluate(async()=>{const{openRepository}=await import('/repository.mjs');const r=await openRepository();try{const before=(await r.read()).taskOrder;await r.enableSync();const backup=await r.exportBackup();await r.mergeSync(backup.syncDocument);return {before,after:(await r.read()).taskOrder,backup:backup.taskOrder};}finally{r.close();}});assert.deepEqual(sync.after,sync.before);assert.deepEqual(sync.backup,sync.before);
+
+ }finally{await context.close();}
+});
+
+test('touch drag reorders on mobile and pointer cancellation leaves order unchanged',async()=>{
+ const {context,page}=await setup();try{
+ for(const title of ['Мобильная первая','Мобильная вторая']){await create(page,title);await closeDetails(page);}
+ const rows=page.getByTestId('task-row');await rows.first().evaluate(el=>el.scrollIntoView({block:'start'}));
+ const before=await rows.locator('.task-name').allTextContents();const a=await rows.last().locator('.task-drag-handle').boundingBox(),b=await rows.first().boundingBox();
+ const cdp=await context.newCDPSession(page);await cdp.send('Emulation.setTouchEmulationEnabled',{enabled:true});
+ await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:a.x+a.width/2,y:a.y+a.height/2}]});
+ await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:b.x+100,y:b.y+10}]});
+ await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+ await page.waitForFunction(name=>document.querySelector('.task-name')?.textContent===name,before[1]);assert.deepEqual(await rows.locator('.task-name').allTextContents(),[before[1],before[0]]);
+ await rows.first().evaluate(el=>el.scrollIntoView({block:'start'}));const x=await rows.last().locator('.task-drag-handle').boundingBox(),y=await rows.first().boundingBox();
+ await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:x.x+10,y:x.y+15}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:y.x+100,y:y.y+10}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchCancel',touchPoints:[]});
+ assert.deepEqual(await rows.locator('.task-name').allTextContents(),[before[1],before[0]]);assert.equal(await page.locator('.drop-before,.drop-after,.dragging').count(),0);
+ assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+ const output=path.resolve(__dirname,'../../../documents/pwa-task-order');await fs.mkdir(output,{recursive:true});await page.screenshot({path:path.join(output,'mobile.png'),fullPage:true});
+ }finally{await context.close();}
+});
