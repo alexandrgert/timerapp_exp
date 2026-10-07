@@ -23,3 +23,18 @@ test('successive relative moves preserve other ordering and append new tasks det
  s=apply(s,{type:'createTask',values:{title:'E',day}},now);assert.deepEqual(names(s),['B','C','D','A','E']);
  assert.throws(()=>validateBackup({...s,taskOrder:[s.tasks[0].id,s.tasks[0].id]}));
 });
+
+test('completed tasks follow active tasks chronologically regardless of priority and manual order',()=>{
+ for(const manual of [false,true]){
+ let s=fixture();if(manual)s=move(s,'C','A');const id=name=>s.tasks.find(t=>t.title===name).id;
+ s=apply(s,{type:'completeTask',taskId:id('C')},'2026-10-07T10:01:00');
+ s=apply(s,{type:'completeTask',taskId:id('A')},'2026-10-07T10:02:00');
+ for(const view of ['today','all'])assert.deepEqual(names(s,{view}).slice(-2),['C','A']);
+ assert.equal(names(s,{view:'progress'}).length,2);
+ s=apply(s,{type:'startTask',taskId:id('D')},'2026-10-07T10:03:00');assert.deepEqual(names(s),['D','B','C','A']);
+ assert.throws(()=>move(s,'C','B'));assert.throws(()=>move(s,'B','C'));
+ // Compare actual instants, even when timestamp offsets differ.
+ s.tasks.find(t=>t.title==='C').completed_at='2026-10-07T13:01:00+03:00';
+ s.tasks.find(t=>t.title==='A').completed_at='2026-10-07T10:02:00Z';assert.deepEqual(names(s).slice(-2),['C','A']);
+ }
+});

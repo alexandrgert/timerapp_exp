@@ -126,6 +126,7 @@ function applyInternal(state, command, now=new Date().toISOString(), {reconcile=
  const moving=s.tasks.find(t=>t.id===command.taskId),target=s.tasks.find(t=>t.id===values.targetId);
  if(!moving||!target)fail('Запись уже удалена. Повторите перемещение.');
  if(active(moving)||active(target))fail('Работающая задача закреплена сверху.');
+ if(moving.status==='completed'||target.status==='completed')fail('Завершённые задачи расположены по времени завершения.');
  if(!['before','after'].includes(values.position))fail('Некорректное перемещение');
  if(moving.id===target.id)return s;
  // Rebase the single move on the latest transaction; never replace a stale whole list.
