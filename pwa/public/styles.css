@@ -18,3 +18,7 @@
 .task-row.completed .priority-lock:disabled{cursor:default}
 
 .task-drag-handle{width:28px;min-width:28px;height:36px;padding:0;border:0;background:transparent;color:var(--muted);font-size:22px;cursor:grab;touch-action:none;user-select:none}.task-drag-handle:disabled{cursor:default;opacity:.25}.task-drag-handle:focus-visible{outline:2px solid var(--green);outline-offset:1px}.task-row.dragging{opacity:.55}.task-row.drop-before{box-shadow:inset 0 3px var(--green)}.task-row.drop-after{box-shadow:inset 0 -3px var(--green)}
+
+@keyframes brand-attention{0%,100%{color:#245b45;text-shadow:0 0 0 transparent}50%{color:#a9620b;text-shadow:0 0 12px #c18b2528}}
+.brand-name.needs-attention{animation:brand-attention 3.6s ease-in-out infinite}
+@media(prefers-reduced-motion:reduce){.brand-name.needs-attention{animation:none;color:#a9620b;text-shadow:none}}

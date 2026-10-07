@@ -21,6 +21,7 @@ let attentionInterval=null,attentionPhase=true,attentionBadge=Promise.resolve(),
 const attentionTag=kind=>`tasktimer-attention:${location.pathname}:${kind}`;
 function paintAttention(){const event=attentionEvents.get('reminder')||attentionEvents.get('focus');document.title=event&&attentionPhase?`⚠ ${event.title} — TaskTimer`:attentionBaseTitle;}
 function refreshAttention(){
+ $('.brand-name').classList.toggle('needs-attention',attentionEvents.size>0);
  clearInterval(attentionInterval);attentionInterval=null;attentionPhase=true;paintAttention();
  if(attentionEvents.size&&!matchMedia('(prefers-reduced-motion: reduce)').matches)attentionInterval=setInterval(()=>{attentionPhase=!attentionPhase;paintAttention();},1500);
  attentionBadge=attentionBadge.then(async()=>{try{if(attentionEvents.size)await navigator.setAppBadge?.();else await navigator.clearAppBadge?.();}catch{/* Title remains available when OS badges are unsupported. */}});
