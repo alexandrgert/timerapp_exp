@@ -327,3 +327,14 @@ test('touch drag reorders on mobile and pointer cancellation leaves order unchan
  const output=path.resolve(__dirname,'../../../documents/pwa-task-order');await fs.mkdir(output,{recursive:true});await page.screenshot({path:path.join(output,'mobile.png'),fullPage:true});
  }finally{await context.close();}
 });
+
+test('selection clears on priority success and view switches but survives save failure',async()=>{
+ const {context,page}=await setup();try{
+ for(const title of ['Выбранная первая','Выбранная вторая']){await create(page,title);await closeDetails(page);}
+ const checks=page.locator('[data-select-task]');await checks.nth(0).check();await checks.nth(1).check();
+ await page.evaluate(()=>{const original=IDBObjectStore.prototype.put;IDBObjectStore.prototype.put=function(...args){IDBObjectStore.prototype.put=original;throw new DOMException('Нет места','QuotaExceededError');};});
+ await page.getByRole('button',{name:'Назначить приоритет 1',exact:true}).click();await page.locator('#global-error').waitFor({state:'visible'});assert.equal(await page.locator('[data-select-task]:checked').count(),2);
+ await page.getByRole('button',{name:'Назначить приоритет 1',exact:true}).click();await page.waitForFunction(()=>document.querySelector('#selection-count').textContent==='Выбрано: 0');assert.equal(await page.locator('[data-select-task]:checked').count(),0);assert.equal(await page.getByRole('button',{name:'Назначить приоритет 2',exact:true}).isDisabled(),true);assert.deepEqual((await read(page)).tasks.map(t=>t.priority),[1,1]);
+ for(const view of ['В работе','Все','Сегодня']){await checks.first().check();await page.getByRole('button',{name:view,exact:true}).click();assert.equal(await page.locator('[data-select-task]:checked').count(),0);assert.equal(await page.locator('#selection-count').innerText(),'Выбрано: 0');assert.equal(await page.getByRole('button',{name:'Назначить приоритет 2',exact:true}).isDisabled(),true);}
+ }finally{await context.close();}
+});
