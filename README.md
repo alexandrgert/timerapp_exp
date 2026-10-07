@@ -1,15 +1,15 @@
 # TaskTimer Experiment
 
 <!-- pwa-latest-release:start -->
-## Последний выпуск PWA — 7 октября 2026: цветовой сигнал внимания
+## Последний выпуск PWA — 7 октября 2026: завершённые записи внизу
 
-**[Открыть TaskTimer](https://alexandrgert.github.io/timerapp_exp/)** · [Полные release notes](https://github.com/alexandrgert/timerapp_exp/blob/45908fa/pwa/docs/release-notes-2026-10-07-attention-color.md)
+**[Открыть TaskTimer](https://alexandrgert.github.io/timerapp_exp/)** · [Полные release notes](https://github.com/alexandrgert/timerapp_exp/blob/d4681aa/pwa/docs/release-notes-2026-10-07-completed-order.md)
 
-- Название **TaskTimer** внутри приложения плавно переливается зелёным и янтарным при вопросе о продолжении работы или окончании концентрации.
-- После реакции обычный цвет восстанавливается. При уменьшении анимации используется статичная янтарная подсветка.
+- После **«Завершить»** запись перемещается ниже незавершённых задач. Завершённые расположены по времени завершения: самая недавняя — последняя.
+- Работающая задача остаётся сверху, ручной порядок незавершённых сохраняется. Завершённые упорядочиваются автоматически.
 - Для установки нажмите **«Обновить»** в баннере приложения.
 
-Проверено: **121 тест**, 8 проверок Service Worker, публичный HTTPS и офлайн-перезагрузка. [Успешная публикация](https://github.com/alexandrgert/timerapp_exp/actions/runs/37597976005).
+Проверено: **123 теста**, 8 проверок Service Worker, публичный HTTPS и офлайн-перезагрузка. [Успешная публикация](https://github.com/alexandrgert/timerapp_exp/actions/runs/37601008776).
 
 Далее развиваем **только PWA**, чтобы уменьшить зависимость от операционных систем компьютеров и мобильных устройств. Android и desktop этим выпуском не обновляются.
 <!-- pwa-latest-release:end -->
