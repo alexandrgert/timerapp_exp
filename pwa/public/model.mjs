@@ -83,6 +83,8 @@ function reconcileReminder(s,now,{expire=true}={}) {
  if(!r.enabled||!target){r.pending=null;return;}
  if(!reminderMatches(r.pending,target))r.pending={taskId:target.task.id,sessionId:target.session.id,started_at:target.session.started_at,generation:id(),dueAt:new Date(timestamp(target.session.started_at)+r.minutes*60000).toISOString(),shownAt:null,deadline:null};
  const p=r.pending;
+ // Deadline follows the scheduled question, even if the browser suspended the UI.
+ p.deadline=new Date(timestamp(p.dueAt)+300000).toISOString();
  if(expire&&p.deadline&&timestamp(now)>=timestamp(p.deadline)){
    const dayEnd=new Date(target.session.started_at);dayEnd.setHours(23,59,59,0);
    const endedAt=new Date(Math.max(timestamp(target.session.started_at),Math.min(timestamp(p.deadline),dayEnd.getTime()))).toISOString();
@@ -102,7 +104,7 @@ function reminderCommand(s,values,now){
  const p=r.pending,e=values.expected;
  if(!p||!e||p.generation!==e.generation||p.taskId!==e.taskId||p.sessionId!==e.sessionId||p.started_at!==e.started_at||p.dueAt!==e.dueAt||p.deadline!==e.deadline)return s;
  if(timestamp(now)<timestamp(p.dueAt))return s;
- if(values.action==='shown'&&!p.shownAt){p.shownAt=now;p.deadline=new Date(timestamp(now)+300000).toISOString();}
+ if(values.action==='shown'&&!p.shownAt){p.shownAt=now;}
  if(values.action==='continue'&&p.shownAt){p.generation=id();p.dueAt=new Date(timestamp(now)+r.minutes*60000).toISOString();p.shownAt=null;p.deadline=null;}
  if(values.action==='stop'&&p.shownAt){close(reminderTarget(s).task,now);r.pending=null;}
  return s;
@@ -258,7 +260,7 @@ export function validateBackup(value, {allowMultipleActive=false} = {}) {
  if(value.reminder!==undefined){
  const r=value.reminder;
  if(!object(r)||typeof r.enabled!=='boolean'||!Number.isInteger(r.minutes)||r.minutes<1||r.minutes>1440)fail('Некорректные настройки напоминаний');
- if(r.pending!=null){const p=r.pending;if(!object(p)||['taskId','sessionId','generation'].some(k=>typeof p[k]!=='string'||!p[k]))fail('Некорректное напоминание');timestamp(p.started_at);timestamp(p.dueAt);if(p.shownAt!==null){timestamp(p.shownAt);timestamp(p.deadline);if(timestamp(p.deadline)!==timestamp(p.shownAt)+300000||timestamp(p.shownAt)<timestamp(p.dueAt))fail('Некорректный срок напоминания');}else if(p.deadline!==null)fail('Напоминание ещё не показано');}
+ if(r.pending!=null){const p=r.pending;if(!object(p)||['taskId','sessionId','generation'].some(k=>typeof p[k]!=='string'||!p[k]))fail('Некорректное напоминание');timestamp(p.started_at);timestamp(p.dueAt);if(p.shownAt!==null){timestamp(p.shownAt);if(timestamp(p.shownAt)<timestamp(p.dueAt))fail('Некорректный показ напоминания');}if(p.deadline!==null){timestamp(p.deadline);const scheduled=timestamp(p.dueAt)+300000;const legacy=p.shownAt!==null?timestamp(p.shownAt)+300000:null;if(timestamp(p.deadline)!==scheduled&&timestamp(p.deadline)!==legacy)fail('Некорректный срок напоминания');}}
  }
  const ids=new Set();let running=0;
  for(const task of value.tasks) {
