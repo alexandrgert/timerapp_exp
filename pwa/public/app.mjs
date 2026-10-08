@@ -1,7 +1,6 @@
 import {installVoiceInterface,addVoiceButtons} from './voice-ui.mjs';
-import { createWebDavClient } from './webdav-client.mjs';
+import { createWebDavClient, resolveWebDavUrls } from './webdav-client.mjs';
 import { synchronize } from './sync-controller.mjs';
-import { remoteV2Path } from './sync-protocol.mjs';
 import { openRepository } from './repository.mjs';
 import { localDay, priorityFor, secondsOnDay, visibleTasks, dayReportData, formatDayReport } from './desktop-domain.mjs';
 import { validateBackup, totalSeconds, sessionSeconds } from './model.mjs';
@@ -360,9 +359,17 @@ function renderSync(){
  if(active.length){const p=document.createElement('p');p.textContent='Одновременно запущено несколько сессий. Выберите одну: остальные завершатся текущим временем, их записи сохранятся.';$('#sync-conflicts').append(p);for(const item of active){const b=document.createElement('button');b.className='secondary';b.textContent=`Оставить: ${item.taskTitle} (${item.started_at})`;b.addEventListener('click',()=>confirm('Оставить одну активную сессию?','Остальные активные сессии завершатся текущим временем; история сохранится.',async()=>accept(await repo.keepActive(item.taskId,item.sessionId,active)),{label:'Завершить остальные'}));$('#sync-conflicts').append(b);}}
 }
 $('#sync-attention').addEventListener('click',()=>$('#settings-dialog').showModal());
+function showSyncTarget(){
+ const form=new FormData($('#sync-form'));const output=$('#sync-target');
+ if(!String(form.get('url')||'').trim()){output.textContent='';return;}
+ try{const addresses=resolveWebDavUrls(form.get('url'),form.get('filePath'));output.textContent='Файл синхронизации: '+addresses.url;}
+ catch(e){output.textContent=e.message;}
+}
+$('#sync-form [name=url]').addEventListener('input',showSyncTarget);
+$('#sync-form [name=filePath]').addEventListener('input',showSyncTarget);
 $('#sync-form').addEventListener('submit',async event=>{
  event.preventDefault();if(syncAbort)return;const form=new FormData(event.currentTarget);syncAbort=new AbortController();$('#sync-submit').disabled=true;$('#sync-cancel').hidden=false;$('#sync-error').hidden=true;$('#sync-status').textContent='Синхронизация…';
- try{const url=new URL(form.get('url'));const options={username:form.get('username'),password:form.get('password')};const legacyClient=createWebDavClient({url:url.href,...options});url.pathname=remoteV2Path(url.pathname);const client=createWebDavClient({url:url.href,...options});const targetKey=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(url.href+'\n'+options.username))),b=>b.toString(16).padStart(2,'0')).join('');accept(await synchronize(repo,client,{signal:syncAbort.signal,legacyClient,targetKey}));$('#sync-status').textContent=state.sync?.conflicts.length||state.sync?.projectionError?'Обмен завершён; разрешите конфликты ниже.':'Синхронизация завершена.';}catch(e){if(syncAbort.signal.aborted)$('#sync-status').textContent='Обмен отменён. Уже сохранённые данные остаются на устройстве.';else{errorAt('#sync-error',e);$('#sync-status').textContent='Синхронизация не завершена.';}}finally{syncAbort=null;$('#sync-submit').disabled=false;$('#sync-cancel').hidden=true;}
+ try{const addresses=resolveWebDavUrls(form.get('url'),form.get('filePath'));const url=new URL(addresses.url);const options={username:form.get('username'),password:form.get('password')};const legacyClient=createWebDavClient({url:addresses.legacyUrl,...options});const client=createWebDavClient({url:url.href,...options});const targetKey=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(url.href+'\n'+options.username))),b=>b.toString(16).padStart(2,'0')).join('');accept(await synchronize(repo,client,{signal:syncAbort.signal,legacyClient,targetKey}));$('#sync-status').textContent=state.sync?.conflicts.length||state.sync?.projectionError?'Обмен завершён; разрешите конфликты ниже.':'Синхронизация завершена.';}catch(e){if(syncAbort.signal.aborted)$('#sync-status').textContent='Обмен отменён. Уже сохранённые данные остаются на устройстве.';else{errorAt('#sync-error',e);$('#sync-status').textContent='Синхронизация не завершена.';}}finally{syncAbort=null;$('#sync-submit').disabled=false;$('#sync-cancel').hidden=true;}
 });
 $('#sync-cancel').addEventListener('click',()=>syncAbort?.abort());
 $('#sync-backup').addEventListener('click',async()=>{try{const backup=await repo.migrationBackup();if(!backup)throw new Error('Копия до первого обмена отсутствует.');const url=URL.createObjectURL(new Blob([JSON.stringify(backup,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='tasktimer-before-webdav.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),10000);}catch(e){errorAt('#sync-error',e);}});

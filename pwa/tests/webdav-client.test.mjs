@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createWebDavClient } from '../public/webdav-client.mjs';
+import { createWebDavClient, resolveWebDavUrls } from '../public/webdav-client.mjs';
 
 test('HTTPS read uses bounded direct CORS request and exposes strong ETag', async () => {
   let request;
@@ -68,4 +68,23 @@ test('legacy migration read does not demand ETag while v2 read still does',async
  const client=createWebDavClient({url:'https://dav.example/tasks.json',fetchImpl:async()=>new Response('{"tasks":[]}')});
  assert.deepEqual(await client.readLegacy(),{body:'{"tasks":[]}',etag:null});
  await assert.rejects(client.read(),{code:'ETAG'});
+});
+
+
+test('server and path resolve to the same original and v2 resources as full URL',()=>{
+ const expected={legacyUrl:'https://webdav.cloudbeeline.ru/tasktimer/data.json',url:'https://webdav.cloudbeeline.ru/tasktimer/data.json.v2.json'};
+ for(const server of ['https://webdav.cloudbeeline.ru','https://webdav.cloudbeeline.ru/'])assert.deepEqual(resolveWebDavUrls(server,'tasktimer/data.json'),expected);
+ assert.deepEqual(resolveWebDavUrls(expected.legacyUrl),expected);
+ assert.deepEqual(resolveWebDavUrls('https://webdav.cloudbeeline.ru','/tasktimer/data.json'),expected);
+ assert.equal(resolveWebDavUrls('https://dav.example/dav/user','folder/data.json').legacyUrl,'https://dav.example/dav/user/folder/data.json');
+ assert.equal(resolveWebDavUrls('https://dav.example','мои задачи/data.json').legacyUrl,new URL('https://dav.example/мои задачи/data.json').href);
+});
+test('invalid, ambiguous and service file addresses fail before network access',()=>{
+ for(const [server,path] of [
+ ['https://webdav.cloudbeeline.ru',''],['https://cloudbeeline.ru/drive/123','tasktimer/data.json'],
+ ['https://dav.example/data.json','tasktimer/data.json'],['http://dav.example','data.json'],
+ ['https://user:private@dav.example/data.json',''],['https://dav.example/data.json?token=private',''],
+ ['https://dav.example/data.json.v2.json',''],['https://dav.example/data.sync-meta.json',''],
+ ...['../data.json','%2e%2e/data.json','folder/%2fdata.json','folder//data.json','data.json#part','https://other.example/data.json','//other.example/data.json','%zz/data.json'].map(path=>['https://dav.example',path])
+ ])assert.throws(()=>resolveWebDavUrls(server,path),error=>error.code==='URL'&&!error.message.includes('private'));
 });

@@ -6,7 +6,26 @@ export class WebDavError extends Error {
 const strongETag = value => typeof value === 'string' && /^"[\x21\x23-\x7e\x80-\xff]*"$/.test(value);
 const fail = (code, message, status) => new WebDavError(code, message, status);
 
-/** url is the exact v2 resource URL; caller derives it with remoteV2Path. */
+/** Resolve the original data file; v2 remains a separate resource beside it. */
+export function resolveWebDavUrls(server, filePath='') {
+ let base;try{base=new URL(String(server).trim());}catch{throw fail('URL','Укажите полный HTTPS-адрес сервера или файла WebDAV.');}
+ if(base.protocol!=='https:'||base.username||base.password||base.search||base.hash)throw fail('URL','Нужен HTTPS-адрес без логина, пароля, параметров и фрагмента #.');
+ if(base.hostname==='cloudbeeline.ru')throw fail('URL','Это веб-интерфейс облака. Для WebDAV Билайна используйте https://webdav.cloudbeeline.ru и путь tasktimer/data.json.');
+ const path=String(filePath).trim();
+ if(path){
+ if(/\.json$/i.test(base.pathname))throw fail('URL','Указан полный адрес файла. Очистите отдельное поле пути или оставьте в адресе только сервер.');
+ if(/[?#\\]/.test(path)||/^[a-z][a-z0-9+.-]*:/i.test(path)||path.startsWith('//'))throw fail('URL','Путь должен быть относительным, например tasktimer/data.json.');
+ const relative=path.replace(/^\//,'');
+ const segments=relative.split('/');
+ try{if(segments.some(part=>{const decoded=decodeURIComponent(part);return !decoded||decoded==='.'||decoded==='..'||/[\/\\?#]/.test(decoded);}))throw new Error();}catch{throw fail('URL','Некорректный путь к файлу WebDAV.');}
+ base.pathname=base.pathname.replace(/\/?$/,'/')+relative;
+ }
+ if(!/\.json$/i.test(base.pathname))throw fail('URL','Укажите путь к файлу JSON, например tasktimer/data.json, либо полный адрес этого файла.');
+ if(/(?:\.v2|\.sync-meta)\.json$/i.test(base.pathname))throw fail('URL','Укажите исходный файл data.json, а не data.json.v2.json или data.sync-meta.json. Файл v2 выбирается автоматически.');
+ const legacyUrl=base.href;base.pathname+='.v2.json';return {legacyUrl,url:base.href};
+}
+
+/** url is the exact v2 resource URL; caller derives it with resolveWebDavUrls. */
 export function createWebDavClient({ url, username = '', password = '', fetchImpl = globalThis.fetch }) {
   let endpoint;
   try { endpoint = new URL(url); } catch { throw fail('URL', 'Укажите полный HTTPS-адрес файла WebDAV.'); }
@@ -27,7 +46,7 @@ export function createWebDavClient({ url, username = '', password = '', fetchImp
       response = await fetchImpl(endpoint.href, { method, mode: 'cors', credentials: 'omit', redirect: 'error', cache: 'no-store', ...options });
     } catch (error) {
       if (options.signal?.aborted || error?.name === 'AbortError') throw error;
-      throw fail('NETWORK_CORS', 'Не удалось связаться с WebDAV. Проверьте сеть и CORS: сервер должен разрешать адрес приложения, GET/PUT и заголовки Authorization, Content-Type, If-Match, If-None-Match; ETag должен быть доступен через Access-Control-Expose-Headers. Перенаправления запрещены.');
+      throw fail('NETWORK_CORS', 'Браузер не смог выполнить запрос WebDAV. Возможны недоступность сети, перенаправление или запрет CORS; это не подтверждает ошибку пароля. Сервер должен отвечать на предварительный OPTIONS без авторизации, разрешать адрес приложения, GET/PUT и заголовки Authorization, Content-Type, If-Match, If-None-Match, а также открывать ETag через Access-Control-Expose-Headers. Успешное подключение desktop не проверяет CORS.');
     }
     if (response.redirected || response.type === 'opaque' || response.type === 'opaqueredirect') throw fail('REDIRECT', 'WebDAV должен отвечать напрямую без перенаправления.');
     return response;

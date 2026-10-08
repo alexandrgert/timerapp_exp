@@ -369,3 +369,25 @@ test('completing tasks moves them below manual order in completion chronology an
  assert.deepEqual(await names(),['Вторая','Третья','Первая']);await reload(page);await rows.first().waitFor();assert.deepEqual(await names(),['Вторая','Третья','Первая']);await page.getByRole('button',{name:'Все',exact:true}).click();assert.deepEqual(await names(),['Вторая','Третья','Первая']);
  }finally{await context.close();}
 });
+
+
+test('WebDAV form previews desktop-compatible path and validates before requests',async()=>{
+ const {context,page}=await setup();try{
+ await page.getByRole('button',{name:'Настройки и резервные копии'}).click();
+ await page.evaluate(()=>{window.davRequests=[];const original=window.fetch;window.fetch=(url,options)=>{if(String(url).startsWith('https://webdav.cloudbeeline.ru')){window.davRequests.push({url:String(url),method:options.method});return Promise.reject(new TypeError('test network failure'));}return original(url,options);};});
+ const server=page.locator('#sync-form [name=url]'),path=page.locator('#sync-form [name=filePath]');
+ await server.fill('https://webdav.cloudbeeline.ru');await page.locator('#sync-submit').click();
+ await page.locator('#sync-error').waitFor({state:'visible'});assert.deepEqual(await page.evaluate(()=>window.davRequests),[]);
+ await path.fill('tasktimer/data.json');
+ const target='https://webdav.cloudbeeline.ru/tasktimer/data.json.v2.json';
+ assert.equal(await page.locator('#sync-target').textContent(),'Файл синхронизации: '+target);
+ await page.locator('#sync-submit').click();await page.getByText('Синхронизация не завершена.',{exact:true}).waitFor();
+ await page.waitForFunction(()=>window.davRequests.length===1);
+ assert.match(await page.locator('#sync-error').textContent(),/OPTIONS без авторизации/);
+ await path.fill('');await server.fill('https://webdav.cloudbeeline.ru/tasktimer/data.json');
+ assert.equal(await page.locator('#sync-target').textContent(),'Файл синхронизации: '+target);
+ await page.locator('#sync-submit').click();await page.waitForFunction(()=>window.davRequests.length===2);
+ assert.deepEqual(await page.evaluate(()=>window.davRequests),[{url:target,method:'GET'},{url:target,method:'GET'}]);
+ assert.equal((await read(page)).tasks.length,0);
+ }finally{await context.close();}
+});
