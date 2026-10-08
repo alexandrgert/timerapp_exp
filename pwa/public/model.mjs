@@ -208,7 +208,20 @@ function applyInternal(state, command, now=new Date().toISOString(), {reconcile=
  task.sessions=task.sessions.filter(e=>e.id!==command.sessionId);
  if(entry.ended_at===null){task.status='paused';if(s.focus?.taskId===task.id)finishFocus(s,now);}break;
  }
- case 'updateTask':taskFields(values,task,now);break;
+ case 'updateTask':{
+ // The editor may address a displayed day different from the task's original day.
+ if(command.priorityDay!==undefined){
+ const day=calendar(command.priorityDay),priority=values.priority??priorityFor(task,day);
+ const fields={...values};delete fields.priority;
+ if(!Number.isInteger(priority)||priority<1||priority>4)fail('Приоритет должен быть от 1 до 4');
+ // Avoid taskFields copying an unrelated original-day priority into the target date.
+ delete fields.day;taskFields(fields,task,now);
+ if('day' in values)task.day=calendar(values.day);
+ if('priority' in values || 'day' in values)task.daily_priorities={...task.daily_priorities,[day]:priority};
+ task.priority=priorityFor(task,task.day);
+ }else taskFields(values,task,now);
+ break;
+ }
  case 'startTask':if(s.focus?.kind==='desktop')finishFocus(s,now);start(s,task,now);s.focusResumeTaskId=null;if(!task.planned_days.includes(localDay(now)))task.planned_days.push(localDay(now));break;
  case 'pauseTask':if(s.focus?.taskId===task.id)finishFocus(s,now);else close(task,now);break;
  case 'completeTask':if('result' in values)taskFields({result:values.result},task,now);close(task,now);task.status='completed';task.completed_at=now;task.keep_priority=false;if(s.focus?.taskId===task.id)finishFocus(s,now);break;

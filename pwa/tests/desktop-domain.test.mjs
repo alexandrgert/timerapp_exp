@@ -86,3 +86,15 @@ test('editing another task session with the same ID does not cancel midnight foc
  const edited=apply(s,{type:'updateSession',taskId:otherId,sessionId:collision,values:{ended_at:'2026-10-05T22:02:00'}},'2026-10-06T00:01:00');assert.deepEqual(edited.focus,s.focus);
  const deleted=apply(s,{type:'deleteSession',taskId:otherId,sessionId:collision},'2026-10-06T00:01:00');assert.deepEqual(deleted.focus,s.focus);validateBackup(deleted);
 });
+
+
+test('editor priority targets displayed day and preserves original and other days',()=>{
+ let s=apply(initialState(),{type:'createTask',values:{title:'Запись',day:'2026-10-06',priority:2}},'2026-10-06T10:00:00');
+ const id=s.tasks[0].id;
+ s=apply(s,{type:'reconcile'},'2026-10-07T10:00:00');
+ s=apply(s,{type:'updateTask',taskId:id,values:{priority:1},priorityDay:'2026-10-07'},'2026-10-07T10:00:00');
+ assert.equal(s.tasks[0].day,'2026-10-06');assert.equal(s.tasks[0].priority,2);
+ assert.equal(s.tasks[0].daily_priorities['2026-10-06'],2);assert.equal(s.tasks[0].daily_priorities['2026-10-07'],1);
+ s=apply(s,{type:'updateTask',taskId:id,values:{title:'Новое название'},priorityDay:'2026-10-07'},'2026-10-07T10:00:00');
+ assert.equal(s.tasks[0].daily_priorities['2026-10-07'],1);assert.equal(s.tasks[0].day,'2026-10-06');validateBackup(s);
+});
