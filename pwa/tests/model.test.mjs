@@ -46,7 +46,7 @@ test('backup validates full state, preserves unknown metadata and rejects corrup
  const invalid=structuredClone(s);invalid.tasks[0].day='2026-02-29';assert.throws(()=>validateBackup(invalid));
  const running=apply(s,{type:'startTask',taskId:s.tasks[0].id},t0);assert.deepEqual(validateBackup(running),running);
  const bad=structuredClone(running);bad.tasks[0].status='completed';assert.throws(()=>validateBackup(bad));
- const imported=apply(s,{type:'replaceState',values:running},t0);assert.deepEqual(imported.tasks,running.tasks);assert.deepEqual(imported.custom,running.custom);assert.equal(imported.reminder.pending.deadline,null);
+ const imported=apply(s,{type:'replaceState',values:running},t0);assert.deepEqual(imported.tasks,running.tasks);assert.deepEqual(imported.custom,running.custom);assert.equal(imported.reminder.pending.shownAt,null);assert.equal(Date.parse(imported.reminder.pending.dueAt),Date.parse(t0)+imported.reminder.minutes*60000);assert.equal(Date.parse(imported.reminder.pending.deadline),Date.parse(imported.reminder.pending.dueAt)+300000);
 });
 test('comment-only edit remains possible for immediately stopped timer',()=>{
  let s=create();const taskId=s.tasks[0].id;s=apply(s,{type:'startTask',taskId},t0);s=apply(s,{type:'pauseTask',taskId},t0);
