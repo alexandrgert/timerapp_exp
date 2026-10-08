@@ -320,10 +320,10 @@ async function checkReminder(){
  if(Date.now()<Date.parse(p.dueAt)||!reminderVisible()||document.querySelector('dialog[open]'))return;
  reminderBusy=true;reminderExpected=structuredClone(p);reminderButtons(true);$('#reminder-error').hidden=true;
  $('#reminder-task').textContent=state.tasks.find(t=>t.id===p.taskId)?.title||'';
- $('#reminder-countdown').textContent='Без ответа таймер остановится через 5 минут.';
+ $('#reminder-countdown').textContent=`Без ответа таймер остановится через ${duration(Math.max(0,(Date.parse(p.deadline)-Date.now())/1000))}.`;
  try{
    dialog.showModal();
-   // Two animation frames establish that the question actually reached a visible window.
+   // Record actual display for answer guards; display never extends the deadline.
    await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
    if(!dialog.open||!reminderVisible()){dialog.close();reminderExpected=null;return;}
    const next=await dispatch({type:'reminder',values:{action:'shown',expected:reminderExpected}});

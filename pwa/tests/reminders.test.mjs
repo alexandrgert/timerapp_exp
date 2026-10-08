@@ -3,16 +3,17 @@ import assert from 'node:assert/strict';
 import {apply,initialState} from '../public/model.mjs';
 const at=m=>new Date(Date.UTC(2026,9,6,9,m)).toISOString();
 function running(){let s=apply(initialState(),{type:'createAndStartTask',values:{title:'Работа',day:'2026-10-06'}},at(0));return s;}
-test('overdue unseen reminder never stops timer; only shown prompt arms five-minute deadline',()=>{
- let s=running();s=apply(s,{type:'reconcile'},at(80));assert.equal(s.tasks[0].status,'running');assert.ok(s.reminder.pending);assert.equal(s.reminder.pending.deadline,null);
- const expected=structuredClone(s.reminder.pending);
- s=apply(s,{type:'reminder',values:{action:'shown',expected}},at(80));assert.equal(s.reminder.pending.deadline,at(85));
- s=apply(s,{type:'reconcile'},at(84));assert.equal(s.tasks[0].status,'running');
- s=apply(s,{type:'reconcile'},at(90));assert.equal(s.tasks[0].status,'paused');assert.equal(s.tasks[0].sessions[0].ended_at,at(85));
+test('unseen reminder stops at due plus five minutes, including delayed wake and late display',()=>{
+ for(const wake of [45,80]){let s=running();s=apply(s,{type:'reconcile'},at(wake));assert.equal(s.tasks[0].status,'paused');assert.equal(s.tasks[0].sessions[0].ended_at,at(45));}
+ let s=running();s=apply(s,{type:'reminder',values:{action:'shown',expected:s.reminder.pending}},at(43));assert.equal(s.reminder.pending.shownAt,at(43));assert.equal(s.reminder.pending.deadline,at(45));
+ s=apply(s,{type:'reconcile'},at(46));assert.equal(s.tasks[0].sessions[0].ended_at,at(45));
+});
+test('legacy unseen or late-shown pending reminders adopt scheduled deadline',()=>{
+ for(const shownAt of [null,at(43)]){let s=running();s.reminder.pending.shownAt=shownAt;s.reminder.pending.deadline=shownAt?at(48):null;s=apply(s,{type:'reconcile'},at(46));assert.equal(s.tasks[0].sessions[0].ended_at,at(45));}
 });
 test('restoring a backup starts a fresh interval and never imports an armed stop',()=>{
  let s=running();s=apply(s,{type:'reminder',values:{action:'shown',expected:s.reminder.pending}},at(40));
- const restored=apply(initialState(),{type:'replaceState',values:s},at(50));assert.equal(restored.tasks[0].status,'running');assert.equal(restored.reminder.pending.deadline,null);assert.equal(restored.reminder.pending.dueAt,at(90));
+ const restored=apply(initialState(),{type:'replaceState',values:s},at(50));assert.equal(restored.tasks[0].status,'running');assert.equal(restored.reminder.pending.deadline,at(95));assert.equal(restored.reminder.pending.dueAt,at(90));
 });
 test('stale answers and edited/replaced sessions cannot stop a different interval',()=>{
  let s=running();const old=structuredClone(s.reminder.pending);
@@ -20,7 +21,7 @@ test('stale answers and edited/replaced sessions cannot stop a different interva
  s=apply(s,{type:'reminder',values:{action:'continue',expected:shown}},at(41));assert.equal(s.reminder.pending.dueAt,at(81));
  s=apply(s,{type:'reminder',values:{action:'stop',expected:shown}},at(42));assert.equal(s.tasks[0].status,'running');
  s=apply(s,{type:'updateSession',taskId:s.tasks[0].id,sessionId:old.sessionId,values:{started_at:at(20),ended_at:null}},at(42));
- assert.notEqual(s.reminder.pending.generation,shown.generation);assert.equal(s.reminder.pending.deadline,null);
+ assert.notEqual(s.reminder.pending.generation,shown.generation);assert.equal(s.reminder.pending.deadline,at(65));
  s=apply(s,{type:'reminder',values:{action:'stop',expected:shown}},at(43));assert.equal(s.tasks[0].status,'running');
 });
 test('disable, concentration, midnight and invalid settings cancel unsafe reminders',()=>{
