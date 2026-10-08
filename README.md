@@ -1,16 +1,15 @@
 # TaskTimer Experiment
 
 <!-- pwa-latest-release:start -->
-## Последний выпуск PWA — 8 октября 2026: настройка WebDAV
+## Последний выпуск PWA — 8 октября 2026: приоритет за выбранный день
 
-**[Открыть TaskTimer](https://alexandrgert.github.io/timerapp_exp/)** · [Полные release notes](https://github.com/alexandrgert/timerapp_exp/blob/0f66400/pwa/docs/release-notes-2026-10-08-webdav.md)
+**[Открыть TaskTimer](https://alexandrgert.github.io/timerapp_exp/)** · [Полные release notes](https://github.com/alexandrgert/timerapp_exp/blob/9555646/pwa/docs/release-notes-2026-10-08-priority-day.md)
 
-- Адрес сервера и путь к исходному файлу можно вводить отдельно, как в desktop; прежний полный адрес тоже поддерживается.
-- Форма показывает адрес файла v2 и проверяет ошибочные пути. Для Билайна добавлен пример настройки.
-- **CORS на стороне Билайна всё ещё требует исправления провайдером.** Сообщение об ошибке уточнено.
+- Исправлено расхождение приоритета между редактором и списком после переноса задачи между днями.
+- Форма открывает дату и приоритет выбранного в списке дня. Приоритеты прошлых дней сохраняются.
 - Для установки нажмите **«Обновить»** в баннере приложения.
 
-Проверено: **126 тестов**, 8 проверок Service Worker, форма на публичном HTTPS и офлайн-перезагрузка. [Успешная публикация](https://github.com/alexandrgert/timerapp_exp/actions/runs/37745671880).
+Проверено: **128 тестов**, 8 проверок Service Worker, редактирование на публичном HTTPS и настоящая офлайн-перезагрузка. [Успешная публикация](https://github.com/alexandrgert/timerapp_exp/actions/runs/37785133476).
 
 Далее развиваем **только PWA**, чтобы уменьшить зависимость от операционных систем компьютеров и мобильных устройств. Android и desktop этим выпуском не обновляются.
 <!-- pwa-latest-release:end -->
