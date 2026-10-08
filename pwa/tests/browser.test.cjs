@@ -391,3 +391,19 @@ test('WebDAV form previews desktop-compatible path and validates before requests
  assert.equal((await read(page)).tasks.length,0);
  }finally{await context.close();}
 });
+
+
+test('editing carried task priority updates the displayed day and survives reload',async()=>{
+ const {context,page}=await setup();try{
+ await page.evaluate(async()=>{const {openRepository}=await import('/repository.mjs');const r=await openRepository();try{const state=await r.dispatch({type:'createTask',values:{title:'Перенесённая запись',day:'2026-10-06',priority:2}});await r.dispatch({type:'addToPlan',taskId:state.tasks[0].id,values:{day:'2026-10-07',priority:4}});}finally{r.close();}});
+ await reload(page);await page.locator('#view-day').fill('2026-10-06');await page.getByRole('button',{name:'Все',exact:true}).click();
+ const row=page.getByTestId('task-row').filter({hasText:'Перенесённая запись'});
+ await page.locator('#view-day').fill('2026-10-07');await page.getByRole('button',{name:'Все',exact:true}).click();await row.getByRole('button',{name:'Изменить',exact:true}).click();
+ assert.equal(await page.locator('#editor-form [name=day]').inputValue(),'2026-10-07');assert.equal(await page.locator('#editor-form [name=priority]').inputValue(),'4');
+ await page.locator('#editor-form [name=priority]').selectOption('1');await page.getByTestId('save').click();await page.locator('#editor-dialog').waitFor({state:'hidden'});
+ assert.equal(await row.locator('.priority-badge').textContent(),'1');
+ let task=(await read(page)).tasks[0];assert.equal(task.day,'2026-10-06');assert.equal(task.daily_priorities['2026-10-06'],2);assert.equal(task.daily_priorities['2026-10-07'],1);
+ await reload(page);await page.getByRole('button',{name:'Все',exact:true}).click();await page.locator('#view-day').fill('2026-10-07');await page.getByRole('button',{name:'Все',exact:true}).click();assert.equal(await row.locator('.priority-badge').textContent(),'1');
+ await row.getByRole('button',{name:'Изменить',exact:true}).click();await page.getByTestId('task-title').fill('Только название');await page.getByTestId('save').click();await page.locator('#editor-dialog').waitFor({state:'hidden'});task=(await read(page)).tasks[0];assert.equal(task.day,'2026-10-06');assert.equal(task.daily_priorities['2026-10-07'],1);
+ }finally{await context.close();}
+});
