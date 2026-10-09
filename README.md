@@ -1,5 +1,7 @@
 # TaskTimer Experiment
 
+[Инструкция пользователя PWA со скриншотами](docs/user-guide/README.md) · [Скачать HTML](https://github.com/alexandrgert/timerapp_exp/raw/refs/heads/main/docs/user-guide/TaskTimer-instruction.html)
+
 <!-- pwa-latest-release:start -->
 ## Последний выпуск PWA — 8 октября 2026: автоостановка без ответа в фоне
 
