@@ -55,3 +55,8 @@ export function formatDayReport(report,{extended=false}={}){
  return lines.join('\n');
 }
 export function buildDayReport(state,day,options={}){return formatDayReport(dayReportData(state,day,options),options);}
+
+// Local explicit pause order is independent of editable session timestamps.
+export function timerPanelTask(state){
+ return state.tasks.find(t=>t.status==='running')||(state.manualPauseOrder||[]).map(id=>state.tasks.find(t=>t.id===id&&t.status==='paused')).find(Boolean)||null;
+}

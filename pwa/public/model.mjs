@@ -29,11 +29,13 @@ function taskFields(values, task, now) {
  if('priority' in values || 'day' in values){task.daily_priorities={...task.daily_priorities};task.daily_priorities[task.day]=task.priority;}
 }
 function close(task, now) { const session=active(task); if(session) {if(timestamp(now)<timestamp(session.started_at)) fail('Время окончания раньше начала сессии'); session.ended_at=now;} if(task.status==='running')task.status='paused'; }
+function rememberPause(state,task){state.manualPauseOrder=[task.id,...(state.manualPauseOrder||[]).filter(id=>id!==task.id)];}
 function start(state, task, now) {
  if(task.status==='completed'){task.status='open';task.completed_at=null;task.keep_priority=false;}
  if(active(task)){if(timestamp(active(task).started_at)>timestamp(now))fail('Текущее время раньше начала сессии. Проверьте часы устройства или исправьте сессию.');return;}
  for(const other of state.tasks)if(other!==task && active(other))close(other,now);
  if(state.focus && state.focus.taskId!==null && state.focus.taskId!==task.id)finishFocus(state,now);
+ if(state.manualPauseOrder)state.manualPauseOrder=state.manualPauseOrder.filter(id=>id!==task.id);
  task.sessions.push({id:id(),started_at:now,ended_at:null,comment:'',bitrix_record_id:null}); task.status='running';
 }
 function finishFocus(state, now) {
@@ -106,7 +108,7 @@ function reminderCommand(s,values,now){
  if(timestamp(now)<timestamp(p.dueAt))return s;
  if(values.action==='shown'&&!p.shownAt){p.shownAt=now;}
  if(values.action==='continue'&&p.shownAt){p.generation=id();p.dueAt=new Date(timestamp(now)+r.minutes*60000).toISOString();p.shownAt=null;p.deadline=null;}
- if(values.action==='stop'&&p.shownAt){close(reminderTarget(s).task,now);r.pending=null;}
+ if(values.action==='stop'&&p.shownAt){const task=reminderTarget(s).task;close(task,now);rememberPause(s,task);r.pending=null;}
  return s;
 }
 export function apply(state,command,now=new Date().toISOString(),options={}){
@@ -225,9 +227,9 @@ function applyInternal(state, command, now=new Date().toISOString(), {reconcile=
  break;
  }
  case 'startTask':if(s.focus?.kind==='desktop')finishFocus(s,now);start(s,task,now);s.focusResumeTaskId=null;if(!task.planned_days.includes(localDay(now)))task.planned_days.push(localDay(now));break;
- case 'pauseTask':if(s.focus?.taskId===task.id)finishFocus(s,now);else close(task,now);break;
- case 'completeTask':if('result' in values)taskFields({result:values.result},task,now);close(task,now);task.status='completed';task.completed_at=now;task.keep_priority=false;if(s.focus?.taskId===task.id)finishFocus(s,now);break;
- case 'deleteTask':if(s.taskOrder)s.taskOrder=s.taskOrder.filter(id=>id!==task.id);if(s.focus?.taskId===task.id)finishFocus(s,now);s.tasks=s.tasks.filter(t=>t.id!==task.id);if(s.focusResumeTaskId===task.id)s.focusResumeTaskId=null;break;
+ case 'pauseTask':if(s.focus?.taskId===task.id)finishFocus(s,now);else if(active(task)){close(task,now);rememberPause(s,task);}break;
+ case 'completeTask':if(s.manualPauseOrder)s.manualPauseOrder=s.manualPauseOrder.filter(id=>id!==task.id);if('result' in values)taskFields({result:values.result},task,now);close(task,now);task.status='completed';task.completed_at=now;task.keep_priority=false;if(s.focus?.taskId===task.id)finishFocus(s,now);break;
+ case 'deleteTask':if(s.manualPauseOrder)s.manualPauseOrder=s.manualPauseOrder.filter(id=>id!==task.id);if(s.taskOrder)s.taskOrder=s.taskOrder.filter(id=>id!==task.id);if(s.focus?.taskId===task.id)finishFocus(s,now);s.tasks=s.tasks.filter(t=>t.id!==task.id);if(s.focusResumeTaskId===task.id)s.focusResumeTaskId=null;break;
  default:fail('Неизвестная операция');
  }
  return s;
@@ -256,6 +258,7 @@ export function focusMatchesTask(f, task) {
 export function validateBackup(value, {allowMultipleActive=false} = {}) {
  const object=v=>v!==null && typeof v==='object' && !Array.isArray(v);
  if(!object(value)||value.schemaVersion!==1||!Array.isArray(value.tasks)||!('focus' in value))fail('Неподдерживаемый формат резервной копии');
+ if(value.manualPauseOrder!==undefined&&(!Array.isArray(value.manualPauseOrder)||value.manualPauseOrder.some(id=>typeof id!=='string'||!id)||new Set(value.manualPauseOrder).size!==value.manualPauseOrder.length))fail('Некорректная история ручных остановок');
  if(value.taskOrder!==undefined&&(!Array.isArray(value.taskOrder)||value.taskOrder.some(id=>typeof id!=='string'||!id)||new Set(value.taskOrder).size!==value.taskOrder.length))fail('Некорректный порядок задач');
  if(value.reminder!==undefined){
  const r=value.reminder;
