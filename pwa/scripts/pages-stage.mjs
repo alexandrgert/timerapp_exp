@@ -51,6 +51,10 @@ async function stagePages() {
   const output=renderAsset(relative,input,{basePath,revision});
   const target=path.join(destination,relative);await mkdir(path.dirname(target),{recursive:true});await writeFile(target,output,{flag:'wx'});
  }
+ // Publish the self-contained manual directly from its canonical documentation source.
+ const guide=await readFile(new URL('../../docs/user-guide/TaskTimer-instruction.html',import.meta.url));
+ await mkdir(path.join(destination,'guide'),{recursive:true});
+ await writeFile(path.join(destination,'guide','index.html'),guide,{flag:'wx'});
  await writeFile(path.join(destination,'.nojekyll'),'');
  console.log(`Prepared ${PUBLIC_FILES.length} public assets for ${basePath} at commit ${revision}`);
 }
