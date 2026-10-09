@@ -22,3 +22,5 @@
 @keyframes brand-attention{0%,100%{color:#245b45;text-shadow:0 0 0 transparent}50%{color:#a9620b;text-shadow:0 0 12px #c18b2528}}
 .brand-name.needs-attention{animation:brand-attention 3.6s ease-in-out infinite}
 @media(prefers-reduced-motion:reduce){.brand-name.needs-attention{animation:none;color:#a9620b;text-shadow:none}}
+
+.guide-link{color:var(--green);font-size:14px;text-decoration:none;padding:10px 0;white-space:nowrap}.guide-link:hover{text-decoration:underline}@media(max-width:480px){.header{height:auto;min-height:80px;flex-wrap:wrap;gap:8px;padding:14px 0}.header-actions{gap:10px;flex-wrap:wrap}}
