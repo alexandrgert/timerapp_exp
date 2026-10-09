@@ -419,3 +419,13 @@ test('hidden unanswered reminder auto-stops without opening the app',async()=>{
  await page.evaluate(()=>{delete document.visibilityState;document.dispatchEvent(new Event('visibilitychange'));});await reload(page);assert.equal((await read(page)).tasks[0].sessions[0].ended_at,deadline);
  }finally{await context.close();}
 });
+
+
+test('timer panel remembers manual pause across reload and congratulates after completion',async()=>{
+ const {context,page}=await setup();try{
+ assert.match(await page.locator('#active-timer').textContent(),/Молодец, все задачи выполнены!/);
+ await create(page,'Ручная пауза');await closeDetails(page);await page.getByTestId('task-toggle').click();await page.getByRole('button',{name:'Ⅱ Пауза',exact:true}).waitFor();await page.locator('#active-timer [data-action=pauseTask]').click();await page.locator('#active-timer [data-action=startTask]').waitFor();
+ await reload(page);assert.equal(await page.locator('#active-timer .timer-title').textContent(),'Ручная пауза');
+ await page.locator('#active-timer [data-action=completeTask]').click();await page.getByTestId('save').click();await page.locator('#editor-dialog').waitFor({state:'hidden'});assert.match(await page.locator('#active-timer').textContent(),/Молодец, все задачи выполнены!/);assert.equal(await page.locator('#active-timer button').count(),0);
+ }finally{await context.close();}
+});

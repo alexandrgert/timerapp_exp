@@ -98,3 +98,18 @@ test('editor priority targets displayed day and preserves original and other day
  s=apply(s,{type:'updateTask',taskId:id,values:{title:'Новое название'},priorityDay:'2026-10-07'},'2026-10-07T10:00:00');
  assert.equal(s.tasks[0].daily_priorities['2026-10-07'],1);assert.equal(s.tasks[0].day,'2026-10-06');validateBackup(s);
 });
+
+
+test('timer panel follows explicit pauses, not edited sessions or automatic stops',async()=>{
+ const {timerPanelTask}=await import('../public/desktop-domain.mjs');
+ let s=initialState();for(const title of ['А','Б'])s=apply(s,{type:'createTask',values:{title}},at);
+ const [a,b]=s.tasks.map(t=>t.id);
+ s=apply(s,{type:'startTask',taskId:a},at);s=apply(s,{type:'pauseTask',taskId:a},'2026-10-05T10:01:00Z');
+ s=apply(s,{type:'startTask',taskId:b},'2026-10-05T10:02:00Z');assert.equal(timerPanelTask(s).id,b);
+ s=apply(s,{type:'pauseTask',taskId:b},'2026-10-05T10:03:00Z');
+ s=apply(s,{type:'addSession',taskId:a,values:{started_at:'2026-10-05T10:04:00Z',ended_at:'2026-10-05T10:05:00Z',comment:'Вручную'}},'2026-10-05T10:06:00Z');
+ assert.equal(timerPanelTask(s).id,b);assert.equal(timerPanelTask(validateBackup(JSON.parse(JSON.stringify(s)))).id,b);
+ s=apply(s,{type:'completeTask',taskId:b},'2026-10-05T10:07:00Z');assert.equal(timerPanelTask(s).id,a);
+ s=apply(s,{type:'startTask',taskId:a},'2026-10-05T10:08:00Z');s=apply(s,{type:'reconcile'},'2026-10-05T11:00:00Z');assert.equal(s.tasks[0].status,'paused');assert.equal(timerPanelTask(s),null);
+ assert.throws(()=>validateBackup({...s,manualPauseOrder:[a,a]}));
+});
