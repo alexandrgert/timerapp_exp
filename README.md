@@ -3,15 +3,15 @@
 [Читать инструкцию PWA со скриншотами](https://alexandrgert.github.io/timerapp_exp/guide/) · [Скачать HTML](https://github.com/alexandrgert/timerapp_exp/raw/refs/heads/main/docs/user-guide/TaskTimer-instruction.html)
 
 <!-- pwa-latest-release:start -->
-## Последний выпуск PWA — 8 октября 2026: автоостановка без ответа в фоне
+## Последний выпуск PWA — 9 октября 2026: инструкция в приложении
 
-**[Открыть TaskTimer](https://alexandrgert.github.io/timerapp_exp/)** · [Полные release notes](https://github.com/alexandrgert/timerapp_exp/blob/a91d719/pwa/docs/release-notes-2026-10-08-background-reminder.md)
+**[Открыть TaskTimer](https://alexandrgert.github.io/timerapp_exp/)** · [Полные release notes](https://github.com/alexandrgert/timerapp_exp/blob/dc29a92/pwa/docs/release-notes-2026-10-09-guide-link.md)
 
-- Пять минут на ответ считаются с планового момента напоминания, даже при свёрнутом приложении. Открытие окна срок не продлевает.
-- Если браузер приостановил выполнение, остановка записывается при возвращении по истёкшему сроку, без лишнего времени.
-- Для установки нажмите **«Обновить»** в баннере. Уже просроченный вопрос может остановить задачу сразу после обновления.
+- В верхней панели рядом с настройками появился пункт **«Инструкция»**. Руководство открывается в новой вкладке.
+- Инструкция обновлена и содержит 13 скриншотов.
+- Для установки нажмите **«Обновить»** в баннере приложения.
 
-Проверено: **130 тестов**, 8 проверок Service Worker, публичный HTTPS с имитацией скрытого окна/ускоренными часами и настоящая офлайн-перезагрузка. [Успешная публикация](https://github.com/alexandrgert/timerapp_exp/actions/runs/37798568048).
+Проверено: **130 тестов**, 8 проверок Service Worker, публичный HTTPS, новая вкладка и отображение на узком экране. [Успешная публикация](https://github.com/alexandrgert/timerapp_exp/actions/runs/37906426463).
 
 Далее развиваем **только PWA**, чтобы уменьшить зависимость от операционных систем компьютеров и мобильных устройств. Android и desktop этим выпуском не обновляются.
 <!-- pwa-latest-release:end -->
