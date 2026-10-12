@@ -253,7 +253,7 @@ document.addEventListener('click',async event=>{
     if(action==='select'){selected=id;render();if(!$('#details-dialog').open)$('#details-dialog').showModal();return;}
     if(action==='create'){taskEditor();return;}
     if(action==='editTask'){taskEditor(id);return;}
-    if(action==='completeTask'){const t=taskById(id);openEditor('Завершить задачу',`<label class="field">Результат (необязательно)<textarea name="result" maxlength="20000">${escape(t.result||'')}</textarea></label>`,async form=>{const changed=form.get('result')!==(t.result||'');await dispatch({type:'completeTask',taskId:id,values:changed?{result:form.get('result')}:{},expected:changed?{result:t.result}:undefined});},'Завершить');return;}
+    if(action==='completeTask'){const t=taskById(id);openEditor('Завершить задачу',`<label class="field">Результат (необязательно)<textarea name="result" maxlength="20000">${escape(t.result||'')}</textarea></label>`,async form=>{const changed=form.get('result')!==(t.result||'');await dispatch({type:'completeTask',taskId:id,values:changed?{result:form.get('result')}:{},expected:changed?{result:t.result}:undefined});if(selected===id&&$('#details-dialog').open)$('#details-dialog').close();},'Завершить');return;}
     if(action==='addSession'||action==='editSession'){sessionEditor(id,button.dataset.session);return;}
     if(action==='deleteTask'){const t=taskById(id);confirm('Удалить задачу?',`«${t.title}» и все её сессии будут удалены. Отменить это действие нельзя.`,()=>dispatch({type:'deleteTask',taskId:id}));return;}
     if(action==='deleteSession'){confirm('Удалить сессию?','Запись и её время будут удалены из истории задачи.',()=>dispatch({type:'deleteSession',taskId:id,sessionId:button.dataset.session}));return;}
