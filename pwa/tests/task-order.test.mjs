@@ -59,3 +59,29 @@ test('priority sorting preserves manual ties and pins running tasks in every dir
  s=apply(s,{type:'completeTask',taskId:id('A')},'2026-10-07T10:01:00');
  for(const sort of ['priority-asc','priority-desc'])assert.deepEqual(names(s,{sort}).slice(-2),['C','A']);
 });
+
+test('sort command saves a baseline that manual moves, backup and pauses preserve',()=>{
+ let s=move(fixture(),'C','A');const id=name=>s.tasks.find(t=>t.title===name).id;
+ const sort=(state,direction)=>apply(state,{type:'sortTasks',values:{sort:direction,day,view:'today'}},now);
+ s=apply(s,{type:'startTask',taskId:id('C')},now);
+ const before=structuredClone(s.tasks);s=sort(s,'priority-asc');assert.deepEqual(s.tasks,before);assert.deepEqual(names(s),['C','A','B','D']);
+ s=apply(s,{type:'pauseTask',taskId:id('C')},now);assert.deepEqual(names(s),['A','B','D','C']);
+ s=move(s,'C','B');assert.deepEqual(names(s),['A','C','B','D']);assert.deepEqual(names(validateBackup(JSON.parse(JSON.stringify(s)))),['A','C','B','D']);
+ s=sort(s,'priority-desc');assert.deepEqual(names(s),['C','D','B','A']);
+ s=apply(s,{type:'assignPriority',taskIds:[id('A')],values:{day,priority:4}},now);assert.deepEqual(names(s),['C','D','B','A'],'priority edits do not silently reorder saved list');
+ s=sort(s,'priority-desc');assert.deepEqual(names(s),['C','A','D','B'],'ties retain current order');
+ s=apply(s,{type:'deleteTask',taskId:id('D')},now);s=sort(s,'priority-asc');assert.equal(s.taskOrder.length,3);
+ assert.throws(()=>sort(s,'invalid'));
+});
+
+test('sort command leaves hidden slots and completed chronology intact and uses selected day',()=>{
+ let s=move(fixture(),'C','A');
+ s=apply(s,{type:'sortTasks',values:{sort:'priority-asc',view:'today',day,priorities:[1,4]}},now);
+ assert.deepEqual(names(s),['A','C','B','D']);
+ const before=[...s.taskOrder];s=apply(s,{type:'sortTasks',values:{sort:'priority-desc',view:'today',day,query:'missing'}},now);assert.deepEqual(s.taskOrder,before);
+ for(const t of s.tasks){t.daily_priorities['2026-10-06']=5-t.daily_priorities[day];t.sessions=[{id:t.id+'session',started_at:'2026-10-06T10:00:00',ended_at:'2026-10-06T10:01:00',comment:''}];}
+ s=apply(s,{type:'sortTasks',values:{sort:'priority-asc',view:'date',day:'2026-10-06'}},now);assert.deepEqual(names(s),['C','D','B','A']);
+ const id=name=>s.tasks.find(t=>t.title===name).id;
+ s=apply(s,{type:'completeTask',taskId:id('C')},now);s=apply(s,{type:'completeTask',taskId:id('A')},'2026-10-07T10:01:00');
+ s=apply(s,{type:'sortTasks',values:{sort:'priority-desc',view:'all',day}},'2026-10-07T10:02:00');assert.deepEqual(names(s),['D','B','C','A']);
+});

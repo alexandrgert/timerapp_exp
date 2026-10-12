@@ -430,31 +430,57 @@ test('timer panel remembers manual pause across reload and congratulates after c
  }finally{await context.close();}
 });
 
-test('priority sort selector preserves manual order and running pin on desktop and mobile',async()=>{
+test('priority sort saves editable order, manual switch and reload retain it on desktop and mobile',async()=>{
  const {context,page}=await setup();try{
  await page.evaluate(async()=>{const {openRepository}=await import('/repository.mjs');const {localDay}=await import('/desktop-domain.mjs');const r=await openRepository();try{
  for(const [title,priority] of [['Подготовить предложение',1],['Проверить документы',2],['Спланировать неделю',4],['Согласовать сроки',2]])await r.dispatch({type:'createTask',values:{title,priority,day:localDay()}});
  const s=await r.read();await r.dispatch({type:'reorderTask',taskId:s.tasks[2].id,values:{targetId:s.tasks[0].id,position:'before',view:'today',day:localDay()}});
  }finally{r.close();}});
  const rows=page.getByTestId('task-row'),names=()=>rows.locator('.task-name').allTextContents();
+ const sort=async value=>{await page.locator('#task-sort').selectOption(value);await page.waitForFunction(value=>{const el=document.querySelector('#task-sort');return !el.disabled&&el.value===value;},value);};
  await page.waitForFunction(()=>document.querySelectorAll('.task-row').length===4);
- const manual=await names(),order=(await read(page)).taskOrder;
  for(const width of [1440,390,320]){
  await page.setViewportSize({width,height:1050});
- await page.getByLabel('Сортировка задач',{exact:true}).selectOption('priority-asc');
+ await sort('priority-asc');
  assert.deepEqual(await names(),['Подготовить предложение','Проверить документы','Согласовать сроки','Спланировать неделю']);
- assert.equal(await rows.locator('.task-drag-handle:enabled').count(),0);
- await rows.last().getByTestId('task-toggle').click();await page.waitForFunction(()=>document.querySelector('.task-name').textContent==='Спланировать неделю');
- await page.locator('#task-sort').selectOption('priority-desc');assert.equal((await names())[0],'Спланировать неделю');
- await page.locator('#task-sort').selectOption('priority-asc');assert.equal((await names())[0],'Спланировать неделю');
+ assert.equal(await rows.locator('.task-drag-handle:enabled').count(),4);
+ await sort('manual');assert.deepEqual(await names(),['Подготовить предложение','Проверить документы','Согласовать сроки','Спланировать неделю']);
+ await sort('priority-desc');
+ // Keyboard adjustment crosses priorities directly after sorting.
+ await rows.first().locator('.task-drag-handle').focus();await page.keyboard.press('ArrowDown');
+ await page.waitForFunction(()=>document.querySelector('#task-sort').value==='manual'&&!document.querySelector('#task-sort').disabled);
+ assert.deepEqual(await names(),['Проверить документы','Спланировать неделю','Согласовать сроки','Подготовить предложение']);
+ const adjusted=await names();await reload(page);await rows.first().waitFor();assert.deepEqual(await names(),adjusted);
+ await sort('priority-asc');await rows.last().getByTestId('task-toggle').click();await page.waitForFunction(()=>document.querySelector('.task-name').textContent==='Спланировать неделю');
+ await sort('priority-desc');await sort('priority-asc');assert.equal((await names())[0],'Спланировать неделю');
  if(width===1440&&process.env.TASKTIMER_SORT_SCREENSHOT)await page.locator('.app-shell').screenshot({path:process.env.TASKTIMER_SORT_SCREENSHOT});
+ await sort('manual');assert.equal((await names())[0],'Спланировать неделю');
  await rows.first().getByTestId('task-toggle').click();await page.waitForFunction(()=>document.querySelector('.task-name').textContent==='Подготовить предложение');
- await page.locator('#task-sort').selectOption('priority-desc');assert.deepEqual(await names(),['Спланировать неделю','Проверить документы','Согласовать сроки','Подготовить предложение']);
- await page.getByRole('button',{name:'Все',exact:true}).click();assert.deepEqual(await names(),['Спланировать неделю','Проверить документы','Согласовать сроки','Подготовить предложение']);
+ assert.deepEqual(await names(),['Подготовить предложение','Проверить документы','Согласовать сроки','Спланировать неделю']);
  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
- await page.locator('#task-sort').selectOption('manual');assert.deepEqual(await names(),manual);assert.deepEqual((await read(page)).taskOrder,order);
- await page.getByRole('button',{name:'Сегодня',exact:true}).click();
  }
- await reload(page);await rows.first().waitFor();assert.deepEqual(await names(),manual);
+ // Mouse adjustment, second-tab transaction and backup retain the same saved order.
+ await page.setViewportSize({width:1440,height:1050});await sort('priority-desc');
+ const a=await rows.last().locator('.task-drag-handle').boundingBox(),b=await rows.first().boundingBox();
+ await page.mouse.move(a.x+a.width/2,a.y+a.height/2);await page.mouse.down();await page.mouse.move(b.x+100,b.y+5,{steps:8});await page.mouse.up();
+ await page.waitForFunction(()=>document.querySelector('#task-sort').value==='manual');
+ assert.deepEqual(await names(),['Подготовить предложение','Спланировать неделю','Проверить документы','Согласовать сроки']);
+ const second=await context.newPage();await second.goto(origin);await second.locator('.task-row').first().waitFor();assert.deepEqual(await second.locator('.task-name').allTextContents(),await names());
+ const sync=await page.evaluate(async()=>{const {openRepository}=await import('/repository.mjs');const r=await openRepository();try{const before=(await r.read()).taskOrder;await r.enableSync();const backup=await r.exportBackup();await r.mergeSync(backup.syncDocument);return {before,after:(await r.read()).taskOrder,backup:backup.taskOrder};}finally{r.close();}});assert.deepEqual(sync.after,sync.before);assert.deepEqual(sync.backup,sync.before);
+ }finally{await context.close();}
+});
+
+test('failed priority sort or manual move preserves saved order and selector until successful retry',async()=>{
+ const {context,page}=await setup();try{
+ for(const title of ['Первый','Второй']){await create(page,title);await closeDetails(page);}
+ const names=()=>page.locator('.task-name').allTextContents(),before=await names();
+ const failNextPut=()=>page.evaluate(()=>{const original=IDBObjectStore.prototype.put;IDBObjectStore.prototype.put=function(...args){IDBObjectStore.prototype.put=original;throw new DOMException('Нет места','QuotaExceededError');};});
+ await failNextPut();await page.locator('#task-sort').selectOption('priority-desc');await page.locator('#global-error').waitFor({state:'visible'});
+ assert.deepEqual(await names(),before);assert.equal(await page.locator('#task-sort').inputValue(),'manual');assert.equal(await page.locator('#task-sort').isEnabled(),true);
+ await page.locator('#task-sort').selectOption('priority-desc');await page.waitForFunction(()=>document.querySelector('#task-sort').value==='priority-desc'&&!document.querySelector('#task-sort').disabled);
+ const order=(await read(page)).taskOrder;
+ await failNextPut();await page.locator('.task-drag-handle').first().focus();await page.keyboard.press('ArrowDown');await page.locator('#toast').filter({hasText:'Нет места'}).waitFor();
+ assert.deepEqual((await read(page)).taskOrder,order);assert.deepEqual(await names(),before);assert.equal(await page.locator('#task-sort').inputValue(),'priority-desc');
+ await page.locator('.task-drag-handle').first().focus();await page.keyboard.press('ArrowDown');await page.waitForFunction(()=>document.querySelector('#task-sort').value==='manual');assert.deepEqual(await names(),[...before].reverse());
  }finally{await context.close();}
 });

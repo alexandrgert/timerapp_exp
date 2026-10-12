@@ -6,7 +6,7 @@ export function priorityFor(task,day) {const p=task.daily_priorities?.[day];retu
 const duration=(session,now)=>Math.max(0,Math.floor((Date.parse(session.ended_at??now)-Date.parse(session.started_at))/1000));
 export function secondsOnDay(task,day,now=new Date().toISOString()) {return task.sessions.filter(s=>localDay(s.started_at)===day).reduce((sum,s)=>sum+duration(s,now),0);}
 const running=task=>task.sessions.some(s=>s.ended_at===null);
-export function visibleTasks(state,{view='today',day=localDay(),query='',priorities=[],sort='manual'}={},now=new Date().toISOString()){
+export function visibleTasks(state,{view='today',day=localDay(),query='',priorities=[],sort='manual',pinRunning=true}={},now=new Date().toISOString()){
  const levels=new Set(priorities),needle=query.trim().toLocaleLowerCase();
  let tasks=state.tasks.filter(task=>{
  if(needle&&!task.title.toLocaleLowerCase().includes(needle))return false;
@@ -17,7 +17,7 @@ export function visibleTasks(state,{view='today',day=localDay(),query='',priorit
  });
  const ranks=new Map((state.taskOrder||[]).map((id,i)=>[id,i]));
  return tasks.sort((a,b)=>{
- const pinned=Number(running(b))-Number(running(a));if(pinned)return pinned;
+ const pinned=Number(running(b))-Number(running(a));if(pinRunning&&pinned)return pinned;
  const completed=Number(a.status==='completed')-Number(b.status==='completed');if(completed)return completed;
  if(a.status==='completed')return Date.parse(a.completed_at||a.created_at)-Date.parse(b.completed_at||b.created_at)||a.created_at.localeCompare(b.created_at)||a.id.localeCompare(b.id);
  if(sort==='priority-asc'||sort==='priority-desc'){const priority=(priorityFor(a,day)-priorityFor(b,day))*(sort==='priority-desc'?-1:1);if(priority)return priority;}
