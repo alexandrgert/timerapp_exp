@@ -3,15 +3,13 @@
 [Читать инструкцию PWA со скриншотами](https://alexandrgert.github.io/timerapp_exp/guide/) · [Скачать HTML](https://github.com/alexandrgert/timerapp_exp/raw/refs/heads/main/docs/user-guide/TaskTimer-instruction.html)
 
 <!-- pwa-latest-release:start -->
-## Последний выпуск PWA — 12 октября 2026: ручная доработка после сортировки
+## Последний выпуск PWA — 12 октября 2026: закрытие истории после завершения
 
-**[Открыть TaskTimer](https://alexandrgert.github.io/timerapp_exp/)** · [Полные release notes](https://github.com/alexandrgert/timerapp_exp/blob/73fecf6/pwa/docs/release-notes-2026-10-12-editable-sort.md)
+**[Открыть TaskTimer](https://alexandrgert.github.io/timerapp_exp/)** · [Описание выпуска](https://github.com/alexandrgert/timerapp_exp/blob/pwa/development/pwa/docs/release-notes-2026-10-12-history-close.md)
 
-- Сортировка по приоритету сохраняет новый порядок. После неё можно сразу переставлять задачи вручную.
-- Переход на **«Вручную»** и перезагрузка сохраняют выстроенный список. Работающая задача всегда сверху; после паузы возвращается на своё место.
-- Инструкция обновлена. Нажмите **«Обновить»** в баннере приложения.
+После подтверждения завершения задачи и успешного сохранения окно истории закрывается автоматически. При отмене или ошибке сохранения история остаётся открытой. Инструкция обновлена.
 
-Проверено: **137 тестов**, 8 проверок Service Worker, ручная доработка после сортировки, вторая вкладка, перезагрузка, запуск/пауза, мобильная ширина и офлайн-работа на публичном HTTPS. [Успешная публикация](https://github.com/alexandrgert/timerapp_exp/actions/runs/38237160913).
+Проверено: **137 тестов**, 8 проверок Service Worker; закрытие истории, отмена и сохранение данных офлайн на публичном HTTPS. [Успешная публикация](https://github.com/alexandrgert/timerapp_exp/actions/runs/38286891141).
 
 Далее развиваем **только PWA**, чтобы уменьшить зависимость от операционных систем компьютеров и мобильных устройств. Android и desktop этим выпуском не обновляются.
 <!-- pwa-latest-release:end -->
