@@ -3,13 +3,13 @@
 [Читать инструкцию PWA со скриншотами](https://alexandrgert.github.io/timerapp_exp/guide/) · [Скачать HTML](https://github.com/alexandrgert/timerapp_exp/raw/refs/heads/main/docs/user-guide/TaskTimer-instruction.html)
 
 <!-- pwa-latest-release:start -->
-## Последний выпуск PWA — 12 октября 2026: закрытие истории после завершения
+## Последний выпуск PWA — 12 октября 2026: возврат к оглавлению инструкции
 
-**[Открыть TaskTimer](https://alexandrgert.github.io/timerapp_exp/)** · [Описание выпуска](https://github.com/alexandrgert/timerapp_exp/blob/pwa/development/pwa/docs/release-notes-2026-10-12-history-close.md)
+**[Открыть TaskTimer](https://alexandrgert.github.io/timerapp_exp/)** · [Описание выпуска](https://github.com/alexandrgert/timerapp_exp/blob/pwa/development/pwa/docs/release-notes-2026-10-12-guide-navigation.md)
 
-После подтверждения завершения задачи и успешного сохранения окно истории закрывается автоматически. При отмене или ошибке сохранения история остаётся открытой. Инструкция обновлена.
+В конце каждого из 12 разделов инструкции добавлена ссылка **«↑ К оглавлению»**. Ссылки работают на компьютере и телефоне и скрываются при печати.
 
-Проверено: **137 тестов**, 8 проверок Service Worker; закрытие истории, отмена и сохранение данных офлайн на публичном HTTPS. [Успешная публикация](https://github.com/alexandrgert/timerapp_exp/actions/runs/38286891141).
+Проверено: **137 тестов**, 8 проверок Service Worker; все ссылки на публичном HTTPS на ширинах 1280 и 390 пикселей. [Успешная публикация](https://github.com/alexandrgert/timerapp_exp/actions/runs/38287656300).
 
 Далее развиваем **только PWA**, чтобы уменьшить зависимость от операционных систем компьютеров и мобильных устройств. Android и desktop этим выпуском не обновляются.
 <!-- pwa-latest-release:end -->
