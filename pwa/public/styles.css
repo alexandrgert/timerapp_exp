@@ -24,3 +24,5 @@
 @media(prefers-reduced-motion:reduce){.brand-name.needs-attention{animation:none;color:#a9620b;text-shadow:none}}
 
 .guide-link{color:var(--green);font-size:14px;text-decoration:none;padding:10px 0;white-space:nowrap}.guide-link:hover{text-decoration:underline}@media(max-width:480px){.header{height:auto;min-height:80px;flex-wrap:wrap;gap:8px;padding:14px 0}.header-actions{gap:10px;flex-wrap:wrap}}
+
+.task-sort{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}.task-sort select{min-width:0;max-width:100%;border:1px solid var(--line);border-radius:8px;padding:8px;background:#fff;color:#242d28}
