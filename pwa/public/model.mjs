@@ -126,6 +126,19 @@ function applyInternal(state, command, now=new Date().toISOString(), {reconcile=
  }
  reconcileReminder(s,now,{expire:reconcile});
  if(command.type==='reminder')return reminderCommand(s,values,now);
+ if(command.type==='sortTasks'){
+ if(!['priority-asc','priority-desc'].includes(values.sort))fail('Некорректная сортировка');
+ const day=calendar(values.day||localDay(now)),view=values.view||'today';
+ // Compute against the latest transaction, keeping hidden tasks in their existing slots.
+ // Pinning is only presentation: the running task gets its ordinary priority position.
+ const baseline=visibleTasks(s,{view,day,pinRunning:false},now);
+ const all=visibleTasks(s,{view:'all',day,pinRunning:false},now);
+ const known=new Set(all.map(t=>t.id));
+ const order=[...new Set([...(s.taskOrder||[]).filter(id=>known.has(id)),...baseline.map(t=>t.id),...all.map(t=>t.id)])];
+ const selected=visibleTasks({...s,taskOrder:order},{view,day,query:values.query||'',priorities:values.priorities||[],sort:values.sort,pinRunning:false},now).filter(t=>t.status!=='completed').map(t=>t.id);
+ const ids=new Set(selected);let index=0;
+ s.taskOrder=order.map(id=>ids.has(id)?selected[index++]:id);return s;
+ }
  if(command.type==='reorderTask'){
  const moving=s.tasks.find(t=>t.id===command.taskId),target=s.tasks.find(t=>t.id===values.targetId);
  if(!moving||!target)fail('Запись уже удалена. Повторите перемещение.');
@@ -135,8 +148,8 @@ function applyInternal(state, command, now=new Date().toISOString(), {reconcile=
  if(moving.id===target.id)return s;
  // Rebase the single move on the latest transaction; never replace a stale whole list.
  const known=new Set(s.tasks.map(t=>t.id));
- const baseline=s.taskOrder?.length?s.taskOrder.filter(id=>known.has(id)):visibleTasks(s,{view:values.view||'today',day:calendar(values.day||localDay(now))},now).map(t=>t.id);
- const order=[...new Set([...baseline,...visibleTasks(s,{view:'all'},now).map(t=>t.id)])].filter(id=>id!==moving.id);
+ const baseline=s.taskOrder?.length?s.taskOrder.filter(id=>known.has(id)):visibleTasks(s,{view:values.view||'today',day:calendar(values.day||localDay(now)),pinRunning:false},now).map(t=>t.id);
+ const order=[...new Set([...baseline,...visibleTasks(s,{view:'all',pinRunning:false},now).map(t=>t.id)])].filter(id=>id!==moving.id);
  order.splice(order.indexOf(target.id)+(values.position==='after'?1:0),0,moving.id);s.taskOrder=order;return s;
  }
  if(command.type==='stopFocus') {finishFocus(s,now);return s;}
