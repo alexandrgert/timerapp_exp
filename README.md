@@ -3,15 +3,15 @@
 [Читать инструкцию PWA со скриншотами](https://alexandrgert.github.io/timerapp_exp/guide/) · [Скачать HTML](https://github.com/alexandrgert/timerapp_exp/raw/refs/heads/main/docs/user-guide/TaskTimer-instruction.html)
 
 <!-- pwa-latest-release:start -->
-## Последний выпуск PWA — 9 октября 2026: последняя ручная пауза
+## Последний выпуск PWA — 12 октября 2026: сортировка по приоритету
 
-**[Открыть TaskTimer](https://alexandrgert.github.io/timerapp_exp/)** · [Полные release notes](https://github.com/alexandrgert/timerapp_exp/blob/584c5a6/pwa/docs/release-notes-2026-10-09-manual-pause.md)
+**[Открыть TaskTimer](https://alexandrgert.github.io/timerapp_exp/)** · [Полные release notes](https://github.com/alexandrgert/timerapp_exp/blob/9d363bf/pwa/docs/release-notes-2026-10-12-priority-sort.md)
 
-- Правая панель выбирает работающую задачу либо последнюю вручную остановленную из оставшихся на паузе. Правка сессий не меняет выбор.
-- Если задач на паузе нет: **«Молодец, все задачи выполнены!»**
+- Выбор порядка: **вручную**, **приоритет 1 → 4** или **4 → 1**. Ручной порядок сохраняется при переключении.
+- Работающая задача всегда сверху; после паузы возвращается на место согласно сортировке.
 - Инструкция обновлена. Нажмите **«Обновить»** в баннере приложения.
 
-Проверено: **132 теста**, 8 проверок Service Worker, порядок пауз, редактирование сессий, завершение и офлайн-перезагрузка на публичном HTTPS. [Успешная публикация](https://github.com/alexandrgert/timerapp_exp/actions/runs/37946822829).
+Проверено: **134 теста**, 8 проверок Service Worker, сортировка, запуск/пауза, мобильная ширина и офлайн-перезагрузка на публичном HTTPS. [Успешная публикация](https://github.com/alexandrgert/timerapp_exp/actions/runs/38220399951).
 
 Далее развиваем **только PWA**, чтобы уменьшить зависимость от операционных систем компьютеров и мобильных устройств. Android и desktop этим выпуском не обновляются.
 <!-- pwa-latest-release:end -->
