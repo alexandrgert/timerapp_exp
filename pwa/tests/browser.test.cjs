@@ -429,3 +429,32 @@ test('timer panel remembers manual pause across reload and congratulates after c
  await page.locator('#active-timer [data-action=completeTask]').click();await page.getByTestId('save').click();await page.locator('#editor-dialog').waitFor({state:'hidden'});assert.match(await page.locator('#active-timer').textContent(),/Молодец, все задачи выполнены!/);assert.equal(await page.locator('#active-timer button').count(),0);
  }finally{await context.close();}
 });
+
+test('priority sort selector preserves manual order and running pin on desktop and mobile',async()=>{
+ const {context,page}=await setup();try{
+ await page.evaluate(async()=>{const {openRepository}=await import('/repository.mjs');const {localDay}=await import('/desktop-domain.mjs');const r=await openRepository();try{
+ for(const [title,priority] of [['Подготовить предложение',1],['Проверить документы',2],['Спланировать неделю',4],['Согласовать сроки',2]])await r.dispatch({type:'createTask',values:{title,priority,day:localDay()}});
+ const s=await r.read();await r.dispatch({type:'reorderTask',taskId:s.tasks[2].id,values:{targetId:s.tasks[0].id,position:'before',view:'today',day:localDay()}});
+ }finally{r.close();}});
+ const rows=page.getByTestId('task-row'),names=()=>rows.locator('.task-name').allTextContents();
+ await page.waitForFunction(()=>document.querySelectorAll('.task-row').length===4);
+ const manual=await names(),order=(await read(page)).taskOrder;
+ for(const width of [1440,390,320]){
+ await page.setViewportSize({width,height:1050});
+ await page.getByLabel('Сортировка задач',{exact:true}).selectOption('priority-asc');
+ assert.deepEqual(await names(),['Подготовить предложение','Проверить документы','Согласовать сроки','Спланировать неделю']);
+ assert.equal(await rows.locator('.task-drag-handle:enabled').count(),0);
+ await rows.last().getByTestId('task-toggle').click();await page.waitForFunction(()=>document.querySelector('.task-name').textContent==='Спланировать неделю');
+ await page.locator('#task-sort').selectOption('priority-desc');assert.equal((await names())[0],'Спланировать неделю');
+ await page.locator('#task-sort').selectOption('priority-asc');assert.equal((await names())[0],'Спланировать неделю');
+ if(width===1440&&process.env.TASKTIMER_SORT_SCREENSHOT)await page.locator('.app-shell').screenshot({path:process.env.TASKTIMER_SORT_SCREENSHOT});
+ await rows.first().getByTestId('task-toggle').click();await page.waitForFunction(()=>document.querySelector('.task-name').textContent==='Подготовить предложение');
+ await page.locator('#task-sort').selectOption('priority-desc');assert.deepEqual(await names(),['Спланировать неделю','Проверить документы','Согласовать сроки','Подготовить предложение']);
+ await page.getByRole('button',{name:'Все',exact:true}).click();assert.deepEqual(await names(),['Спланировать неделю','Проверить документы','Согласовать сроки','Подготовить предложение']);
+ assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+ await page.locator('#task-sort').selectOption('manual');assert.deepEqual(await names(),manual);assert.deepEqual((await read(page)).taskOrder,order);
+ await page.getByRole('button',{name:'Сегодня',exact:true}).click();
+ }
+ await reload(page);await rows.first().waitFor();assert.deepEqual(await names(),manual);
+ }finally{await context.close();}
+});

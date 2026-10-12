@@ -38,3 +38,24 @@ test('completed tasks follow active tasks chronologically regardless of priority
  s.tasks.find(t=>t.title==='A').completed_at='2026-10-07T10:02:00Z';assert.deepEqual(names(s).slice(-2),['C','A']);
  }
 });
+
+test('priority sorting preserves manual ties and pins running tasks in every direction and view',()=>{
+ let s=move(fixture(),'C','A');const id=name=>s.tasks.find(t=>t.title===name).id;
+ s=apply(s,{type:'assignPriority',taskIds:[id('D')],values:{day,priority:2}},now);
+ const order=[...s.taskOrder];
+ for(const view of ['today','progress','all']){
+ assert.deepEqual(names(s,{view,sort:'priority-asc'}),['A','B','D','C']);
+ assert.deepEqual(names(s,{view,sort:'priority-desc'}),['C','B','D','A']);
+ let active=apply(s,{type:'startTask',taskId:id('D')},now);
+ for(const sort of ['manual','priority-asc','priority-desc'])assert.equal(names(active,{view,sort})[0],'D');
+ active=apply(active,{type:'pauseTask',taskId:id('D')},now);
+ assert.deepEqual(names(active,{view,sort:'priority-asc'}),['A','B','D','C']);
+ assert.deepEqual(names(active,{view,sort:'priority-desc'}),['C','B','D','A']);
+ }
+ assert.deepEqual(s.taskOrder,order);assert.deepEqual(names(s),['C','A','B','D']);
+ const historical=structuredClone(s);for(const t of historical.tasks){t.daily_priorities['2026-10-06']=5-t.daily_priorities[day];t.sessions=[{started_at:'2026-10-06T10:00:00',ended_at:'2026-10-06T10:01:00'}];}
+ assert.deepEqual(names(historical,{view:'date',day:'2026-10-06',sort:'priority-asc'}),['C','B','D','A']);
+ s=apply(s,{type:'completeTask',taskId:id('C')},now);
+ s=apply(s,{type:'completeTask',taskId:id('A')},'2026-10-07T10:01:00');
+ for(const sort of ['priority-asc','priority-desc'])assert.deepEqual(names(s,{sort}).slice(-2),['C','A']);
+});
