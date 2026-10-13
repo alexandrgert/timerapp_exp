@@ -1,4 +1,4 @@
-import {localDay, priorityFor, visibleTasks} from './desktop-domain.mjs';
+import {localDay, priorityFor, visibleTasks, timerPanelTask} from './desktop-domain.mjs';
 const clone = value => structuredClone(value);
 const fail = message => { throw new Error(message); };
 const id = () => globalThis.crypto.randomUUID();
@@ -42,7 +42,7 @@ function finishFocus(state, now) {
  const f=state.focus;if(!f)return;
  const focused=state.tasks.find(t=>t.id===f.taskId);
  if(focused){close(focused,now);if(f.kind==='desktop'){focused.status='completed';focused.completed_at=now;focused.keep_priority=false;}}
- if(f.kind==='desktop')state.focusResumeTaskId=state.tasks.some(t=>t.id===f.previousTaskId&&t.status!=='completed')?f.previousTaskId:null;
+ if(f.kind==='desktop')state.focusResumeTaskId=state.tasks.some(t=>t.id===f.previousTaskId&&t.status==='paused')?f.previousTaskId:null;
  state.focus=null;
 }
 function reconcileCalendar(s, now) {
@@ -177,7 +177,7 @@ function applyInternal(state, command, now=new Date().toISOString(), {reconcile=
  if(command.type==='startFocus') {
  if(s.focus)fail('Сначала остановите текущую концентрацию');
  if(!Number.isInteger(values.minutes)||values.minutes<1||values.minutes>180)fail('Длительность должна быть целым числом от 1 до 180 минут');
- const previous=s.tasks.find(t=>active(t))||s.tasks.filter(t=>t.status==='paused'&&t.sessions.length).sort((a,b)=>Date.parse(b.sessions.at(-1).ended_at||b.sessions.at(-1).started_at)-Date.parse(a.sessions.at(-1).ended_at||a.sessions.at(-1).started_at))[0];
+ const previous=timerPanelTask(s);
  if(previous)close(previous,now);
  const date=new Date(now),pad=n=>String(n).padStart(2,'0');
  const title='Концентрация · '+values.minutes+' мин · '+pad(date.getDate())+'.'+pad(date.getMonth()+1)+'.'+date.getFullYear()+' '+pad(date.getHours())+':'+pad(date.getMinutes());
