@@ -113,3 +113,38 @@ test('timer panel follows explicit pauses, not edited sessions or automatic stop
  s=apply(s,{type:'startTask',taskId:a},'2026-10-05T10:08:00Z');s=apply(s,{type:'reconcile'},'2026-10-05T11:00:00Z');assert.equal(s.tasks[0].status,'paused');assert.equal(timerPanelTask(s),null);
  assert.throws(()=>validateBackup({...s,manualPauseOrder:[a,a]}));
 });
+
+test('focus resumes latest manual pause instead of most recent session timestamp',()=>{
+ let s=initialState();
+ for(const title of ['Первая','Последняя'])s=apply(s,{type:'createTask',values:{title}},at);
+ const [a,b]=s.tasks.map(t=>t.id);
+ s=apply(s,{type:'startTask',taskId:a},at);
+ s=apply(s,{type:'pauseTask',taskId:a},'2026-10-05T10:01:00Z');
+ s=apply(s,{type:'startTask',taskId:b},'2026-10-05T10:02:00Z');
+ s=apply(s,{type:'pauseTask',taskId:b},'2026-10-05T10:03:00Z');
+ s=apply(s,{type:'addSession',taskId:a,values:{started_at:'2026-10-05T10:04:00Z',ended_at:'2026-10-05T10:05:00Z',comment:'Введена вручную'}},'2026-10-05T10:06:00Z');
+ s=apply(s,{type:'startFocus',values:{minutes:1}},'2026-10-05T10:07:00Z');
+ assert.equal(s.focus.previousTaskId,b);
+ s=apply(validateBackup(s),{type:'reconcile'},'2026-10-05T10:09:00Z');
+ assert.equal(s.focusResumeTaskId,b);
+ s=apply(s,{type:'resumeFocusTask'},'2026-10-05T10:10:00Z');
+ assert.equal(s.tasks.find(t=>t.id===b).status,'running');
+ assert.equal(s.tasks.find(t=>t.id===a).status,'paused');
+});
+
+test('focus prefers running task over manual pause and never guesses from legacy paused sessions',()=>{
+ let s=initialState();
+ for(const title of ['Пауза','Работает'])s=apply(s,{type:'createTask',values:{title}},at);
+ const [a,b]=s.tasks.map(t=>t.id);
+ s=apply(s,{type:'startTask',taskId:a},at);
+ s=apply(s,{type:'pauseTask',taskId:a},'2026-10-05T10:01:00Z');
+ const legacy=structuredClone(s);delete legacy.manualPauseOrder;
+ const withoutHistory=apply(legacy,{type:'startFocus',values:{minutes:1}},'2026-10-05T10:02:00Z');
+ assert.equal(withoutHistory.focus.previousTaskId,null);
+ assert.equal(apply(withoutHistory,{type:'stopFocus'},'2026-10-05T10:03:00Z').focusResumeTaskId,null);
+ s=apply(s,{type:'startTask',taskId:b},'2026-10-05T10:02:00Z');
+ s=apply(s,{type:'startFocus',values:{minutes:1}},'2026-10-05T10:03:00Z');
+ assert.equal(s.focus.previousTaskId,b);
+ s=apply(s,{type:'completeTask',taskId:b},'2026-10-05T10:03:30Z');
+ assert.equal(apply(s,{type:'reconcile'},'2026-10-05T10:05:00Z').focusResumeTaskId,null);
+});
