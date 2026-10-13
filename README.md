@@ -3,13 +3,13 @@
 [Читать инструкцию PWA со скриншотами](https://alexandrgert.github.io/timerapp_exp/guide/) · [Скачать HTML](https://github.com/alexandrgert/timerapp_exp/raw/refs/heads/main/docs/user-guide/TaskTimer-instruction.html)
 
 <!-- pwa-latest-release:start -->
-## Последний выпуск PWA — 12 октября 2026: возврат к оглавлению инструкции
+## Последний выпуск PWA — 13 октября 2026: правильная задача после концентрации
 
-**[Открыть TaskTimer](https://alexandrgert.github.io/timerapp_exp/)** · [Описание выпуска](https://github.com/alexandrgert/timerapp_exp/blob/pwa/development/pwa/docs/release-notes-2026-10-12-guide-navigation.md)
+**[Открыть TaskTimer](https://alexandrgert.github.io/timerapp_exp/)** · [Описание выпуска](https://github.com/alexandrgert/timerapp_exp/blob/pwa/development/pwa/docs/release-notes-2026-10-13-focus-resume.md)
 
-В конце каждого из 12 разделов инструкции добавлена ссылка **«↑ К оглавлению»**. Ссылки работают на компьютере и телефоне и скрываются при печати.
+После концентрации предлагается продолжить задачу, работавшую перед запуском, либо последнюю вручную остановленную. Правки времени сессий больше не влияют на выбор. Если подходящей задачи нет, предложение скрыто. Инструкция обновлена.
 
-Проверено: **137 тестов**, 8 проверок Service Worker; все ссылки на публичном HTTPS на ширинах 1280 и 390 пикселей. [Успешная публикация](https://github.com/alexandrgert/timerapp_exp/actions/runs/38287656300).
+Проверено: **139 тестов**, 8 проверок Service Worker; выбор задачи, окончание концентрации, офлайн-перезагрузка и продолжение на публичном HTTPS. [Успешная публикация](https://github.com/alexandrgert/timerapp_exp/actions/runs/38362884585).
 
 Далее развиваем **только PWA**, чтобы уменьшить зависимость от операционных систем компьютеров и мобильных устройств. Android и desktop этим выпуском не обновляются.
 <!-- pwa-latest-release:end -->
