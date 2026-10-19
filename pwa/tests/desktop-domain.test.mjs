@@ -148,3 +148,13 @@ test('focus prefers running task over manual pause and never guesses from legacy
  s=apply(s,{type:'completeTask',taskId:b},'2026-10-05T10:03:30Z');
  assert.equal(apply(s,{type:'reconcile'},'2026-10-05T10:05:00Z').focusResumeTaskId,null);
 });
+
+test('future task creation preserves selected priority today and on planned date for both creation actions',()=>{
+ for(const type of ['createTask','createAndStartTask'])for(const keep_priority of [false,true])for(const priority of [1,2,3,4]){
+ const now='2026-10-19T12:00:00',day='2026-10-20';
+ let s=apply(initialState(),{type,values:{title:'Будущая',day,priority,keep_priority}},now);
+ const task=s.tasks[0];assert.equal(task.day,day);assert.equal(task.priority,priority);assert.equal(task.daily_priorities[day],priority);assert.equal(task.daily_priorities['2026-10-19'],priority);assert.equal(task.keep_priority,keep_priority);
+ assert.equal(task.status,type==='createTask'?'open':'running');assert.deepEqual(task.planned_days,type==='createTask'?[day]:[day,'2026-10-19']);
+ s=apply(validateBackup(s),{type:'reconcile'},'2026-10-20T12:00:00');assert.equal(s.tasks[0].daily_priorities[day],priority);assert.equal(s.tasks[0].priority,priority);
+ }
+});
