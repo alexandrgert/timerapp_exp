@@ -484,3 +484,18 @@ test('failed priority sort or manual move preserves saved order and selector unt
  await page.locator('.task-drag-handle').first().focus();await page.keyboard.press('ArrowDown');await page.waitForFunction(()=>document.querySelector('#task-sort').value==='manual');assert.deepEqual(await names(),[...before].reverse());
  }finally{await context.close();}
 });
+
+test('future new task retains priority in list and editor after add or add-start and reload',async()=>{
+ const {context,page}=await setup();try{
+ const day=await page.evaluate(()=>{const d=new Date();d.setDate(d.getDate()+1);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;});
+ for(const startNow of [false,true]){
+ await page.getByTestId('new-task').click();await page.getByTestId('task-title').fill(startNow?'Будущая с запуском':'Будущая без запуска');
+ await page.locator('#editor-form [name=day]').fill(day);await page.locator('#editor-form [name=priority]').selectOption('1');await page.locator('#editor-form [name=keep_priority]').check();
+ await page.locator(startNow?'#editor-add-start':'[data-testid=save]').click();await page.locator('#editor-dialog').waitFor({state:'hidden'});
+ await page.getByRole('button',{name:'Все',exact:true}).click();const state=await read(page),task=state.tasks.at(-1),row=page.locator(`[data-task-id="${task.id}"]`);
+ assert.equal(await row.locator('.priority-badge').textContent(),'1');assert.equal(task.day,day);assert.equal(task.daily_priorities[day],1);assert.equal(task.status,startNow?'running':'open');
+ await row.locator('[data-action=editTask]').click();assert.equal(await page.locator('#editor-form [name=priority]').inputValue(),'1');assert.equal(await page.locator('#editor-form [name=keep_priority]').isChecked(),true);await page.locator('#editor-dialog .close-dialog').first().click();
+ await reload(page);await page.getByRole('button',{name:'Все',exact:true}).click();assert.equal(await row.locator('.priority-badge').textContent(),'1');
+ }
+ }finally{await context.close();}
+});

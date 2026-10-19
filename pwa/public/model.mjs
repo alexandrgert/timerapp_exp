@@ -165,7 +165,10 @@ function applyInternal(state, command, now=new Date().toISOString(), {reconcile=
  }
  if(command.type==='createTask') {
  const task={id:id(),title:'',description:'',day:localDay(now),priority:4,status:'open',sessions:[],created_at:now,completed_at:null,continuation_of:null,bitrix:null,planned_days:[],daily_priorities:{},keep_priority:false,result:''};
- taskFields(values,task,now); if(!task.title)fail('Введите название задачи'); task.planned_days=[task.day];s.tasks.push(task); return s;
+ taskFields(values,task,now); if(!task.title)fail('Введите название задачи');
+ // A future plan date must not make a newly chosen priority appear reset today.
+ const today=localDay(now);if(task.day>today)task.daily_priorities[today]=task.priority;
+ task.planned_days=[task.day];s.tasks.push(task); return s;
  }
  if(command.type==='assignPriority'){
  const day=calendar(values.day);if(!Number.isInteger(values.priority)||values.priority<1||values.priority>4)fail('Приоритет должен быть от 1 до 4');
