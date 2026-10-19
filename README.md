@@ -3,13 +3,13 @@
 [Читать инструкцию PWA со скриншотами](https://alexandrgert.github.io/timerapp_exp/guide/) · [Скачать HTML](https://github.com/alexandrgert/timerapp_exp/raw/refs/heads/main/docs/user-guide/TaskTimer-instruction.html)
 
 <!-- pwa-latest-release:start -->
-## Последний выпуск PWA — 13 октября 2026: правильная задача после концентрации
+## Последний выпуск PWA — 19 октября 2026: приоритет новых задач на будущую дату
 
-**[Открыть TaskTimer](https://alexandrgert.github.io/timerapp_exp/)** · [Описание выпуска](https://github.com/alexandrgert/timerapp_exp/blob/pwa/development/pwa/docs/release-notes-2026-10-13-focus-resume.md)
+**[Открыть TaskTimer](https://alexandrgert.github.io/timerapp_exp/)** · [Описание выпуска](https://github.com/alexandrgert/timerapp_exp/blob/pwa/development/pwa/docs/release-notes-2026-10-19-future-priority.md)
 
-После концентрации предлагается продолжить задачу, работавшую перед запуском, либо последнюю вручную остановленную. Правки времени сессий больше не влияют на выбор. Если подходящей задачи нет, предложение скрыто. Инструкция обновлена.
+У новых задач на будущую дату выбранный приоритет сохраняется и для даты задачи, и для сегодняшнего отображения. Исправлены оба сценария: **«Добавить»** и **«Добавить и начать»**. Будущая дата и флажок сохранения приоритета остаются выбранными. Инструкция обновлена.
 
-Проверено: **139 тестов**, 8 проверок Service Worker; выбор задачи, окончание концентрации, офлайн-перезагрузка и продолжение на публичном HTTPS. [Успешная публикация](https://github.com/alexandrgert/timerapp_exp/actions/runs/38362884585).
+Проверено: **141 тест**, 8 проверок Service Worker; обе кнопки создания, редактор и офлайн-перезагрузка на публичном HTTPS. [Успешная публикация](https://github.com/alexandrgert/timerapp_exp/actions/runs/39306406782).
 
 Далее развиваем **только PWA**, чтобы уменьшить зависимость от операционных систем компьютеров и мобильных устройств. Android и desktop этим выпуском не обновляются.
 <!-- pwa-latest-release:end -->
