@@ -499,3 +499,14 @@ test('future new task retains priority in list and editor after add or add-start
  }
  }finally{await context.close();}
 });
+
+test('deleting last session of manually paused timer closes confirmation and renders zero without errors',async()=>{
+ const {context,page}=await setup();try{
+ const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await create(page,'Удаление последней сессии');await closeDetails(page);await page.getByTestId('task-toggle').click();await page.getByRole('button',{name:'Ⅱ Пауза',exact:true}).waitFor();await page.getByRole('button',{name:'Ⅱ Пауза',exact:true}).click();await page.getByRole('button',{name:'▶ Продолжить',exact:true}).waitFor();
+ await page.locator('.task-select').click();await page.locator('[data-action=deleteSession]').click();await page.locator('#confirm-dialog').getByRole('button',{name:'Отмена',exact:true}).click();assert.equal((await read(page)).tasks[0].sessions.length,1);
+ await page.locator('[data-action=deleteSession]').click();await page.getByTestId('confirm').click();await page.locator('#confirm-dialog').waitFor({state:'hidden',timeout:3000});assert.equal((await read(page)).tasks[0].sessions.length,0);assert.equal(await page.getByTestId('live-clock').textContent(),'00:00:00');assert.equal(await page.getByTestId('session').count(),0);
+ await closeDetails(page);await reload(page);await page.getByRole('button',{name:'▶ Продолжить',exact:true}).waitFor();assert.equal(await page.getByTestId('live-clock').textContent(),'00:00:00');await page.waitForTimeout(1100);assert.deepEqual(errors,[]);
+ await page.getByRole('button',{name:'▶ Продолжить',exact:true}).click();await page.getByRole('button',{name:'Ⅱ Пауза',exact:true}).waitFor();assert.equal((await read(page)).tasks[0].sessions.length,1);
+ }finally{await context.close();}
+});

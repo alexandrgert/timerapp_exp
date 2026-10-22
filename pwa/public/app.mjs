@@ -180,7 +180,7 @@ function tick() {
  document.querySelectorAll('[data-task-time]').forEach(el=>{const t=state.tasks.find(t=>t.id===el.dataset.taskTime);if(t)el.textContent=duration(totalSeconds(t,iso));});
  document.querySelectorAll('[data-task-day]').forEach(el=>{const t=state.tasks.find(t=>t.id===el.dataset.taskDay);if(t)el.textContent=duration(secondsOnDay(t,viewDay,iso));});
  document.querySelectorAll('[data-session-time]').forEach(el=>{const s=state.tasks.find(t=>t.id===selected)?.sessions.find(s=>s.id===el.dataset.sessionTime);if(s)el.textContent=duration(sessionSeconds(s,iso));});
- const live=$('#live-clock'),timerTask=state.tasks.find(t=>t.id===live?.dataset.timerTask);if(live&&timerTask)live.textContent=duration(sessionSeconds(timerTask.sessions.find(s=>!s.ended_at)||timerTask.sessions.at(-1),iso));
+ const live=$('#live-clock'),timerTask=state.tasks.find(t=>t.id===live?.dataset.timerTask);if(live&&timerTask){const session=timerTask.sessions.find(s=>!s.ended_at)||timerTask.sessions.at(-1);live.textContent=duration(session?sessionSeconds(session,iso):0);}
  $('#focus-clock').textContent=duration(state.focus?(new Date(state.focus.ends_at)-now)/1000:focusMinutes*60);
  const dayChanged=lastDay!==localDate();
  if(repo&&!reconciling&&(dayChanged||(state.focus&&new Date(state.focus.ends_at)<=now)||state.tasks.some(t=>t.sessions.some(s=>!s.ended_at&&localDay(s.started_at)!==localDate())))){
