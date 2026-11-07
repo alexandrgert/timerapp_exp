@@ -1,6 +1,7 @@
 import {installVoiceInterface,addVoiceButtons} from './voice-ui.mjs';
 import { createGitHubClient, githubTarget } from './github-client.mjs';
-import { validateDocument } from './sync-protocol.mjs';
+import { createAutoSync } from './auto-sync.mjs';
+import { validateDocument, documentRevision } from './sync-protocol.mjs';
 import { synchronize } from './sync-controller.mjs';
 import { openRepository } from './repository.mjs';
 import { localDay, timerPanelTask, priorityFor, secondsOnDay, visibleTasks, dayReportData, formatDayReport } from './desktop-domain.mjs';
@@ -77,7 +78,7 @@ $('#editor-form').addEventListener('change',refreshCloseWarning);
 $('#editor-dialog').addEventListener('close',refreshCloseWarning);
 
 let viewDay=localDate(), focusMinutes=20, lastDay=localDate();
-let descriptionTaskId=null;
+let descriptionTaskId=null, autoSyncIssue=null;
 const selectedTasks=new Set(), priorityFilters=new Set([1,2,3,4]);
 $('#view-day').value=viewDay;
 function errorAt(selector, error) { const el = $(selector); el.textContent = error?.message || String(error || 'Не удалось выполнить действие.'); el.hidden = false; }
@@ -372,10 +373,12 @@ window.addEventListener('tasktimer:before-update', event => {
 });
 setInterval(()=>{tick();checkReminder();},1000);
 
-let syncAbort=null;
+let syncAbort=null, syncAutomatic=false;
+let autoSync=null;
 function renderSync(){
  const sync=state.sync,conflicts=sync?.conflicts||[],active=sync?.activeSessions||[];
- $('#sync-attention').hidden=!(conflicts.length||sync?.projectionError);
+ $('#sync-attention').hidden=!(conflicts.length||sync?.projectionError||autoSyncIssue);
+ $('#sync-attention').textContent=conflicts.length||sync?.projectionError?'Разрешить конфликты синхронизации':'Синхронизация требует внимания';
  $('#sync-backup').hidden=false;
  $('#sync-conflicts').replaceChildren();
  if(sync?.projectionError){const p=document.createElement('p');p.className='error';p.textContent='Новые данные сохранены в журнале, но пока не применены: '+sync.projectionError;$('#sync-conflicts').append(p);}
@@ -432,11 +435,11 @@ window.addEventListener('storage',event=>{if(tokenRepository&&(event.key===token
 showSyncTarget();
 try{const previous=JSON.parse(localStorage.getItem('tasktimer-github-last-sync:'+location.pathname)||'null');if(previous?.key===syncTargetFromForm().key&&Number.isFinite(Date.parse(previous.at)))$('#sync-status').textContent='Последний успешный обмен: '+new Date(previous.at).toLocaleString('ru-RU');}catch{}
 for(const name of ['repository','branch'])$('#sync-form [name='+name+']').addEventListener('input',showSyncTarget);
-async function githubExchange(checkOnly=false){
+async function performGithubExchange(checkOnly=false,automatic=false){
  if(syncAbort)return;
- const form=new FormData($('#sync-form'));syncAbort=new AbortController();
+ const form=new FormData($('#sync-form'));syncAbort=new AbortController();syncAutomatic=automatic;
  for(const id of ['sync-submit','sync-check','sync-backup','sync-forget-token'])$('#'+id).disabled=true;
- for(const input of $('#sync-form').querySelectorAll('input'))input.disabled=true;
+ for(const input of $('#sync-form').querySelectorAll('input'))input.disabled=input.name!=='autoSync'||!automatic;
  $('#sync-cancel').hidden=false;$('#sync-error').hidden=true;$('#sync-status').textContent=checkOnly?'Проверка подключения…':'Синхронизация…';
  try{
  const client=createGitHubClient({repository:form.get('repository'),branch:form.get('branch'),token:form.get('token')});
@@ -445,12 +448,67 @@ async function githubExchange(checkOnly=false){
  try{localStorage.setItem('tasktimer-github-target:'+location.pathname,JSON.stringify({repository:client.target.repository,branch:client.target.branch}));}catch{}
  if(checkOnly){$('#sync-status').textContent=checked.exists?'Подключение проверено: приватный репозиторий, ветка и файл доступны. Право записи проверится при синхронизации.':'Подключение проверено: приватный репозиторий и ветка доступны. Файл будет создан при первой синхронизации.';return;}
  await repo.prepareSyncTarget(client.target.key);
- accept(await synchronize(repo,client,{signal:syncAbort.signal,targetKey:client.target.key}));
+ const result=await synchronize(repo,client,{signal:syncAbort.signal,targetKey:client.target.key,details:true});
+ accept(result.state);
+ const revision=documentRevision(result.document);if(!automatic)autoSync?.acknowledge(revision);
  try{localStorage.setItem('tasktimer-github-last-sync:'+location.pathname,JSON.stringify({key:client.target.key,at:new Date().toISOString()}));}catch{}
  $('#sync-status').textContent=(state.sync?.conflicts.length||state.sync?.projectionError?'Обмен завершён; разрешите конфликты ниже.':'Синхронизация завершена.')+' '+new Date().toLocaleString('ru-RU');
- }catch(e){if(syncAbort.signal.aborted)$('#sync-status').textContent='Обмен отменён. Уже сохранённые данные остаются на устройстве.';else{errorAt('#sync-error',e);$('#sync-status').textContent=checkOnly?'Подключение не проверено.':'Синхронизация не завершена.';}}
- finally{syncAbort=null;for(const id of ['sync-submit','sync-check','sync-backup','sync-forget-token'])$('#'+id).disabled=false;for(const input of $('#sync-form').querySelectorAll('input'))input.disabled=false;$('#sync-cancel').hidden=true;}
+ return {revision,blockedReason:state.sync?.conflicts.length||state.sync?.projectionError?'Автообмен ждёт разрешения конфликтов в настройках.':null};
+ }catch(e){if(syncAbort.signal.aborted)$('#sync-status').textContent='Обмен отменён. Уже сохранённые данные остаются на устройстве.';else{errorAt('#sync-error',e);$('#sync-status').textContent=checkOnly?'Подключение не проверено.':'Синхронизация не завершена.';}throw e;}
+ finally{syncAbort=null;syncAutomatic=false;for(const id of ['sync-submit','sync-check','sync-backup','sync-forget-token'])$('#'+id).disabled=false;for(const input of $('#sync-form').querySelectorAll('input'))input.disabled=false;$('#sync-cancel').hidden=true;}
 }
+async function githubExchange(checkOnly=false,automatic=false){
+ if(syncAbort)return {busy:true};
+ try{
+ const target=syncTargetFromForm();
+ const exchange=()=>performGithubExchange(checkOnly,automatic);
+ if(navigator.locks?.request)return await navigator.locks.request('tasktimer-sync:'+location.pathname+':'+target.key,{ifAvailable:true},lock=>{
+ if(!lock){if(!automatic)$('#sync-status').textContent='Обмен уже идёт в другой вкладке. Повторите позже.';return {busy:true};}
+ return exchange();
+ });
+ if(automatic)throw new Error('Автообмен недоступен в этом браузере. Используйте ручную синхронизацию.');
+ return await exchange();
+ }catch(error){
+ if(automatic)throw error;
+ errorAt('#sync-error',error);autoSync?.failed(error);return {error};
+ }
+}
+function autoTarget(){return githubTarget($('#sync-form [name=repository]').value,$('#sync-form [name=branch]').value);}
+function autoSettingKey(){return 'tasktimer-github-auto:'+location.pathname+':'+autoTarget().key;}
+function dataRevision(value){return value.sync?.revision||JSON.stringify(value.tasks.map(t=>{const copy={...t};delete copy.priority;return copy;}).sort((a,b)=>a.id.localeCompare(b.id)));}
+autoSync=createAutoSync({
+ run:()=>githubExchange(false,true),
+ eligible:()=>{
+ if(!navigator.locks?.request)return 'Автообмен недоступен в этом браузере. Используйте ручную синхронизацию.';
+ if(document.visibilityState!=='visible')return 'Автообмен продолжится при возвращении в приложение.';
+ if(!navigator.onLine)return 'Нет сети. Изменения сохраняются на устройстве.';
+ if(!tokenInput.value)return 'Введите токен для автоматической синхронизации.';
+ if(state.sync?.conflicts.length||state.sync?.projectionError)return 'Автообмен ждёт разрешения конфликтов в настройках.';
+ return null;
+ },
+ onStatus:message=>{$('#sync-auto-status').textContent=message;autoSyncIssue=/^(Автообмен приостановлен|Введите токен|Обмен отложен)/.test(message)?message:null;renderSync();}
+});
+let autoIdentity='';
+function refreshAutoConfiguration(){
+ let enabled=false,key='';try{key=autoSettingKey();enabled=localStorage.getItem(key)==='true';}catch{}
+ $('#sync-form [name=autoSync]').checked=enabled;
+ const identity=key+'\n'+tokenInput.value;
+ if(identity!==autoIdentity){autoIdentity=identity;if(syncAutomatic)syncAbort?.abort();autoSync.reset();}
+ autoSync.setEnabled(enabled);
+}
+autoSync.observe(dataRevision(state));refreshAutoConfiguration();
+document.addEventListener('tasktimer:state',()=>autoSync.observe(dataRevision(state)));
+$('#sync-form [name=autoSync]').addEventListener('change',()=>{
+ const checkbox=$('#sync-form [name=autoSync]');
+ try{const t=autoTarget();localStorage.setItem(autoSettingKey(),String(checkbox.checked));localStorage.setItem('tasktimer-github-target:'+location.pathname,JSON.stringify({repository:t.repository,branch:t.branch}));autoSync.setEnabled(checkbox.checked);if(!checkbox.checked&&syncAutomatic)syncAbort?.abort();}
+ catch{checkbox.checked=false;autoSync.setEnabled(false);errorAt('#sync-error',new Error('Не удалось сохранить автоматический режим. Проверьте репозиторий, ветку и доступ к хранилищу браузера.'));}
+});
+for(const name of ['repository','branch','token'])$('#sync-form [name='+name+']').addEventListener('input',refreshAutoConfiguration);
+$('#sync-forget-token').addEventListener('click',refreshAutoConfiguration);
+window.addEventListener('storage',event=>{if(event.key===null||event.key.startsWith('tasktimer-github-token:')||event.key.startsWith('tasktimer-github-auto:')){refreshAutoConfiguration();if(!$('#sync-form [name=autoSync]').checked&&syncAutomatic)syncAbort?.abort();}});
+window.addEventListener('online',()=>autoSync.trigger());
+window.addEventListener('focus',()=>autoSync.trigger());
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')autoSync.trigger();});
 $('#sync-form').addEventListener('submit',event=>{event.preventDefault();githubExchange();});
 $('#sync-check').addEventListener('click',()=>githubExchange(true));
 $('#sync-cancel').addEventListener('click',()=>syncAbort?.abort());

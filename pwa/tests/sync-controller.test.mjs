@@ -11,7 +11,7 @@ test('first v2 creation reads legacy without overwriting it and preserves unknow
  assert.deepEqual(log[0],legacy);assert.equal(log[1].create,true);assert.equal(log[1].etag,undefined);
 });
 test('existing v2 never reimports legacy and bounded conflicts reread before retry',async()=>{
- let reads=0,writes=0;const doc=emptyDocument();const repo={enableSync:async()=>{},needsLegacyImport:async()=>true,markRemoteSeen:async()=>{},mergeSync:async()=>({document:doc,state:{tasks:[]}})};
+ let reads=0,writes=0;const doc=emptyDocument();const repo={enableSync:async()=>{},needsLegacyImport:async()=>true,markRemoteSeen:async()=>{},mergeSync:async()=>({document:{...doc,extension:'local'},state:{tasks:[]}})};
  await assert.rejects(synchronize(repo,{read:async()=>{reads++;return {body:JSON.stringify(doc),etag:'"v"'};},write:async()=>{writes++;throw Object.assign(new Error('precondition'),{code:412});}},{legacyClient:{readLegacy:()=>{throw Error('must not import');}}}),/precondition/);
  assert.equal(reads,3);assert.equal(writes,3);
 });
@@ -27,4 +27,9 @@ test('legacy migration rejects future schema and embedded causal format before i
   await assert.rejects(synchronize(repo,{read:async()=>null,write:async()=>{written=true;}},{legacyClient:{readLegacy:async()=>({body:JSON.stringify(snapshot)})}}),/Неподдерживаемый/);
   assert.equal(imported,false);assert.equal(written,false);
  }
+});
+
+test('unchanged remote document skips PUT and details identify the acknowledged log',async()=>{
+ let writes=0;const doc=emptyDocument(),state={tasks:[]};const repository={enableSync:async()=>{},markRemoteSeen:async()=>{},mergeSync:async()=>({document:doc,state})};
+ const result=await synchronize(repository,{read:async()=>({body:JSON.stringify(doc),etag:'version'}),write:async()=>writes++},{details:true});assert.equal(writes,0);assert.equal(result.wrote,false);assert.deepEqual(result.document,doc);assert.deepEqual(result.state,state);
 });
