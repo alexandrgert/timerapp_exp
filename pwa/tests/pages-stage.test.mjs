@@ -47,3 +47,15 @@ test('Pages voice paths and cache match SW while native model paths and vendor h
 });
 
 test('Pages release metadata is stamped with same immutable revision as its worker',async()=>{const revision='a'.repeat(40),basePath='/timerapp_exp/';const notes=JSON.parse(renderAsset('release-notes.json',Buffer.from(JSON.stringify({title:'Next',changes:['Change'],revision:'stale'})),{revision,basePath}));assert.equal(notes.revision,revision);const worker=renderAsset('sw.js',Buffer.from("const REVISION='__TASKTIMER_REVISION__';"),{revision,basePath}).toString();assert.ok(worker.includes(revision));});
+
+test('fork and root-domain Pages keep app, guide, worker, voice and storage paths within their own base',async()=>{
+ for(const basePath of ['/my.timer-app/','/','/nested/app/']){
+ const config={...options,basePath};const html=renderAsset('index.html',await source('index.html'),config).toString();
+ assert.ok(html.includes(`href="${basePath}guide/"`));assert.ok(html.includes(`src="${basePath}app.mjs"`));assert.ok(!html.includes('alexandrgert.github.io'));
+ const manifest=JSON.parse(renderAsset('manifest.webmanifest',await source('manifest.webmanifest'),config));assert.equal(manifest.start_url,basePath);assert.equal(manifest.scope,basePath);
+ const sw=renderAsset('sw.js',await source('sw.js'),config).toString();const context={self:{addEventListener(){}},URL};vm.createContext(context);vm.runInContext(sw+'\nthis.urls=ASSETS;',context);assert.ok(context.urls.includes(basePath+'github-client.mjs'));assert.ok(context.urls.every(u=>u.startsWith(basePath)));
+ const registration=renderAsset('pwa.mjs',await source('pwa.mjs'),config).toString();assert.ok(registration.includes(`register('${basePath}sw.js', {scope: '${basePath}'`));
+ const assets=renderAsset('voice-assets.mjs',await source('voice-assets.mjs'),config).toString();assert.ok(assets.includes(`url:'${basePath}voice-assets/`));
+ }
+ for(const basePath of ['//','/../','/a/./','/space name/','/a?b/','relative/','/missing-trailing'])assert.throws(()=>renderAsset('index.html',Buffer.from(''),{...options,basePath}));
+});

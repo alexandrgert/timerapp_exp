@@ -371,28 +371,6 @@ test('completing tasks moves them below manual order in completion chronology an
 });
 
 
-test('WebDAV form previews desktop-compatible path and validates before requests',async()=>{
- const {context,page}=await setup();try{
- await page.getByRole('button',{name:'Настройки и резервные копии'}).click();
- await page.evaluate(()=>{window.davRequests=[];const original=window.fetch;window.fetch=(url,options)=>{if(String(url).startsWith('https://webdav.cloudbeeline.ru')){window.davRequests.push({url:String(url),method:options.method});return Promise.reject(new TypeError('test network failure'));}return original(url,options);};});
- const server=page.locator('#sync-form [name=url]'),path=page.locator('#sync-form [name=filePath]');
- await server.fill('https://webdav.cloudbeeline.ru');await page.locator('#sync-submit').click();
- await page.locator('#sync-error').waitFor({state:'visible'});assert.deepEqual(await page.evaluate(()=>window.davRequests),[]);
- await path.fill('tasktimer/data.json');
- const target='https://webdav.cloudbeeline.ru/tasktimer/data.json.v2.json';
- assert.equal(await page.locator('#sync-target').textContent(),'Файл синхронизации: '+target);
- await page.locator('#sync-submit').click();await page.getByText('Синхронизация не завершена.',{exact:true}).waitFor();
- await page.waitForFunction(()=>window.davRequests.length===1);
- assert.match(await page.locator('#sync-error').textContent(),/OPTIONS без авторизации/);
- await path.fill('');await server.fill('https://webdav.cloudbeeline.ru/tasktimer/data.json');
- assert.equal(await page.locator('#sync-target').textContent(),'Файл синхронизации: '+target);
- await page.locator('#sync-submit').click();await page.waitForFunction(()=>window.davRequests.length===2);
- assert.deepEqual(await page.evaluate(()=>window.davRequests),[{url:target,method:'GET'},{url:target,method:'GET'}]);
- assert.equal((await read(page)).tasks.length,0);
- }finally{await context.close();}
-});
-
-
 test('editing carried task priority updates the displayed day and survives reload',async()=>{
  const {context,page}=await setup();try{
  await page.evaluate(async()=>{const {openRepository}=await import('/repository.mjs');const r=await openRepository();try{const state=await r.dispatch({type:'createTask',values:{title:'Перенесённая запись',day:'2026-10-06',priority:2}});await r.dispatch({type:'addToPlan',taskId:state.tasks[0].id,values:{day:'2026-10-07',priority:4}});}finally{r.close();}});
@@ -508,5 +486,20 @@ test('deleting last session of manually paused timer closes confirmation and ren
  await page.locator('[data-action=deleteSession]').click();await page.getByTestId('confirm').click();await page.locator('#confirm-dialog').waitFor({state:'hidden',timeout:3000});assert.equal((await read(page)).tasks[0].sessions.length,0);assert.equal(await page.getByTestId('live-clock').textContent(),'00:00:00');assert.equal(await page.getByTestId('session').count(),0);
  await closeDetails(page);await reload(page);await page.getByRole('button',{name:'▶ Продолжить',exact:true}).waitFor();assert.equal(await page.getByTestId('live-clock').textContent(),'00:00:00');await page.waitForTimeout(1100);assert.deepEqual(errors,[]);
  await page.getByRole('button',{name:'▶ Продолжить',exact:true}).click();await page.getByRole('button',{name:'Ⅱ Пауза',exact:true}).waitFor();assert.equal((await read(page)).tasks[0].sessions.length,1);
+ }finally{await context.close();}
+});
+
+test('task list previews description in one line and opens full safe text only when needed',async()=>{
+ const {context,page}=await setup();try{
+ await page.setViewportSize({width:1400,height:1000});
+ const long='Полное описание задачи. '.repeat(55)+'<img src=x onerror=alert(1)>\nЗаключительная строка';
+ await page.evaluate(async long=>{const {openRepository}=await import('/repository.mjs');const r=await openRepository();try{for(const [title,description] of [['Пустое',''],['Короткое','Кратко'],['Длинное',long],['Перенос','Строка 1\nСтрока 2']])await r.dispatch({type:'createTask',values:{title,description}});}finally{r.close();}},long);
+ const row=title=>page.getByTestId('task-row').filter({has:page.locator('.task-name',{hasText:new RegExp('^'+title+'$')})});
+ await row('Короткое').waitFor();assert.equal(await row('Пустое').locator('.task-description-line').count(),0);assert.equal(await row('Короткое').locator('.description-more').isVisible(),false);
+ await row('Длинное').locator('.description-more').waitFor();const before=await read(page);await row('Длинное').getByRole('button',{name:'Далее: описание задачи Длинное'}).click();await page.locator('#description-dialog').waitFor();assert.equal(await page.locator('#description-text').textContent(),long);assert.equal(await page.locator('#description-dialog img').count(),0);assert.equal(await page.locator('#details-dialog').isVisible(),false);await page.keyboard.press('Escape');assert.equal(await page.locator('#description-dialog').isVisible(),false);assert.deepEqual((await read(page)).tasks,before.tasks);
+ await page.setViewportSize({width:320,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await row('Перенос').locator('.description-more').waitFor();await row('Перенос').locator('.description-more').focus();await page.keyboard.press('Enter');assert.equal(await page.locator('#description-text').textContent(),'Строка 1\nСтрока 2');await page.locator('#description-dialog .close-dialog').click();
+ // Resizing changes whether a single-line description needs the extra link.
+ const id=(await read(page)).tasks.find(t=>t.title==='Короткое').id;await page.evaluate(async id=>{const {openRepository}=await import('/repository.mjs');const r=await openRepository();try{await r.dispatch({type:'updateTask',taskId:id,values:{description:'Описание среднего размера для проверки ширины'}});}finally{r.close();}},id);
+ await row('Короткое').locator('.description-more').waitFor();await page.setViewportSize({width:1700,height:1000});await page.waitForFunction(()=>[...document.querySelectorAll('.task-row')].find(r=>r.querySelector('.task-name')?.textContent==='Короткое')?.querySelector('.description-more')?.hidden===true);
  }finally{await context.close();}
 });

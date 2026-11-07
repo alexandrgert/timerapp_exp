@@ -19,7 +19,7 @@ export async function synchronize(repository, client, { signal, attempts = 3, le
     let document = null;
     if (remote) {
       try { document = validateDocument(JSON.parse(remote.body)); }
-      catch { throw new Error('Неподдерживаемый или повреждённый файл WebDAV v2. Данные сервера не изменены.'); }
+      catch { throw new Error(`Неподдерживаемый или повреждённый файл ${client.label||'WebDAV v2'}. Данные сервера не изменены.`); }
     }
     const snapshot = await repository.mergeSync(document);
     if(remote)await repository.markRemoteSeen(targetKey);
