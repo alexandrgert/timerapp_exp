@@ -44,6 +44,11 @@ export function validateDocument(doc){
  }
  return copy(doc);
 }
+// Stable identity of an immutable, causally complete log; no credentials/local UI state.
+export function documentRevision(doc){
+ const heads=Object.create(null);for(const op of doc.ops)heads[op.actor]=Math.max(heads[op.actor]||0,op.seq);
+ const header={...doc};delete header.ops;return canonical({header,heads});
+}
 export function mergeDocuments(a,b){
  a=validateDocument(a);b=validateDocument(b);
  const ops=new Map(a.ops.map(o=>[dot(o),o]));

@@ -1,8 +1,8 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=require('node:path'),{chromium}=require('playwright');
 const root=path.resolve(__dirname,'../public'),origin='https://github-sync.test';
 async function setup(){
- const browser=await chromium.launch({headless:true,args:['--no-sandbox','--single-process','--no-zygote','--disable-dev-shm-usage']});
- const server={body:null,version:0,puts:0,private:true,status:null,failAfterPut:false,onPut:null};
+ const browser=await chromium.launch({headless:true,args:['--no-sandbox','--single-process','--no-zygote','--disable-dev-shm-usage','--disable-gpu','--num-raster-threads=1']});
+ const server={body:null,version:0,puts:0,fileReads:0,private:true,status:null,failAfterPut:false,onPut:null};
  const context=await browser.newContext({serviceWorkers:'block'});let device=0;
  async function page(){const pageOrigin=origin.replace('.test','-'+(++device)+'.test');
  await context.route(pageOrigin+'/**',async route=>{const file=new URL(route.request().url()).pathname.slice(1)||'index.html';try{await route.fulfill({body:await fs.readFile(path.join(root,file)),contentType:file.endsWith('.html')?'text/html':file.endsWith('.css')?'text/css':'text/javascript'});}catch{await route.fulfill({status:404});}});
@@ -11,7 +11,7 @@ async function setup(){
  if(url.pathname.endsWith('/private-data'))return reply({private:server.private});
  if(url.pathname.includes('/branches/'))return reply({name:'main'});
  assert.equal(url.pathname,'/repos/sample-owner/private-data/contents/data/state.v2.json');
- if(request.method()==='GET'){assert.equal(url.searchParams.get('ref'),'main');if(!server.body)return reply({},404);return reply({type:'file',path:'data/state.v2.json',sha:String(server.version).padStart(40,'0'),encoding:'base64',size:Buffer.byteLength(server.body),content:Buffer.from(server.body).toString('base64')});}
+ if(request.method()==='GET'){server.fileReads++;assert.equal(url.searchParams.get('ref'),'main');if(!server.body)return reply({},404);return reply({type:'file',path:'data/state.v2.json',sha:String(server.version).padStart(40,'0'),encoding:'base64',size:Buffer.byteLength(server.body),content:Buffer.from(server.body).toString('base64')});}
  assert.equal(request.method(),'PUT');server.puts++;if(server.onPut){const hook=server.onPut;server.onPut=null;await hook();}
  const data=request.postDataJSON(),expected=server.body?String(server.version).padStart(40,'0'):undefined;
  if(data.sha!==expected)return reply({},409);
@@ -88,5 +88,43 @@ test('device token is scoped to repository and removal propagates to another ope
 
 test('device token storage failure is visible and leaves task storage usable',async()=>{
  const t=await setup();try{const p=await t.page();await form(p);await p.evaluate(()=>{const set=Storage.prototype.setItem;Storage.prototype.setItem=function(key,value){if(String(key).startsWith('tasktimer-github-token:'))throw new DOMException('Storage unavailable','QuotaExceededError');return set.call(this,key,value);};});await p.locator('#sync-form [name=rememberToken]').check();await p.getByText(/Не удалось изменить сохранённый токен/).waitFor();assert.equal(t.server.puts,0);await repo(p,{type:'createTask',values:{title:'Работает'}});assert.equal((await repo(p)).tasks[0].title,'Работает');await p.reload();await p.getByRole('button',{name:'Настройки и резервные копии'}).click();assert.equal(await p.locator('#sync-form [name=token]').inputValue(),'');
+ }finally{await t.close();}
+});
+
+async function frozenClock(page){const at=Date.now()+1000;await page.clock.install({time:at});await page.clock.pauseAt(at);}
+
+test('auto mode sends changes after ten seconds, polls without commits and resumes offline changes on reconnect',async()=>{
+ const t=await setup();try{const p=await t.page();await form(p);await frozenClock(p);await p.locator('#sync-form [name=rememberToken]').check();await p.locator('#sync-form [name=autoSync]').check();await p.clock.runFor(1);await p.getByText('Автоматический обмен выполнен.',{exact:true}).waitFor();assert.equal(t.server.puts,1);
+ const emptyReads=t.server.fileReads;await p.clock.fastForward(120000);await p.waitForFunction(()=>document.querySelector('#sync-submit').disabled===false);await p.getByText('Автоматический обмен выполнен.',{exact:true}).waitFor();assert.ok(t.server.fileReads>emptyReads);assert.equal(t.server.puts,1);
+ await repo(p,{type:'createTask',values:{title:'Автоматически'}});await p.clock.fastForward(9000);assert.equal(t.server.puts,1);await repo(p,{type:'updateTask',taskId:(await repo(p)).tasks[0].id,values:{description:'Следующее изменение'}});await p.clock.fastForward(9999);assert.equal(t.server.puts,1);await p.clock.runFor(1);await p.waitForFunction(()=>document.querySelector('#sync-submit').disabled===false);await p.getByText('Автоматический обмен выполнен.',{exact:true}).waitFor();assert.equal(t.server.puts,2);
+ await p.evaluate(()=>Object.defineProperty(navigator,'onLine',{configurable:true,value:false}));await repo(p,{type:'createTask',values:{title:'Офлайн'}});await p.clock.fastForward(10000);assert.equal(t.server.puts,2);
+ await p.evaluate(()=>{delete navigator.onLine;window.dispatchEvent(new Event('online'));});await p.clock.runFor(1);await p.getByText('Автоматический обмен выполнен.',{exact:true}).waitFor();assert.equal(t.server.puts,3);
+ const current=(await repo(p));assert.equal(current.tasks.length,2);await p.locator('#sync-form [name=autoSync]').uncheck();await repo(p,{type:'createTask',values:{title:'Только локально'}});await p.clock.fastForward(240000);assert.equal(t.server.puts,3);
+ }finally{await t.close();}
+});
+
+test('auto preference reloads, foreground wake checks server, and unauthorized token pauses requests',async()=>{
+ const t=await setup();try{const p=await t.page();await form(p);await frozenClock(p);await p.locator('#sync-form [name=rememberToken]').check();await p.locator('#sync-form [name=autoSync]').check();await p.clock.runFor(1);await p.getByText('Автоматический обмен выполнен.',{exact:true}).waitFor();
+ await p.reload();await p.clock.runFor(1);await p.getByRole('button',{name:'Настройки и резервные копии'}).click();await p.getByText('Автоматический обмен выполнен.',{exact:true}).waitFor();assert.equal(await p.locator('#sync-form [name=autoSync]').isChecked(),true);assert.equal(t.server.puts,1);
+ const before=t.server.fileReads;await p.evaluate(()=>Object.defineProperty(document,'visibilityState',{configurable:true,value:'hidden'}));await p.clock.fastForward(120000);assert.equal(t.server.fileReads,before);
+ await p.evaluate(()=>{delete document.visibilityState;document.dispatchEvent(new Event('visibilitychange'));});await p.clock.runFor(1);await p.getByText('Автоматический обмен выполнен.',{exact:true}).waitFor();assert.ok(t.server.fileReads>before);assert.equal(t.server.puts,1);
+ t.server.status=401;await p.clock.fastForward(120000);await p.getByText(/Автообмен приостановлен:/).waitFor();assert.equal(await p.locator('#sync-attention').isVisible(),true);const stopped=t.server.fileReads;await p.clock.fastForward(600000);assert.equal(t.server.fileReads,stopped);assert.equal(t.server.puts,1);
+ t.server.status=null;await p.locator('#sync-submit').click();await p.getByText(/Синхронизация завершена/).waitFor();await p.clock.fastForward(120000);await p.getByText('Автоматический обмен выполнен.',{exact:true}).waitFor();assert.equal(t.server.puts,1);
+ }finally{await t.close();}
+});
+
+test('manual and automatic exchanges in separate tabs share one Web Lock',async()=>{
+ const t=await setup();let release;try{const p=await t.page();await form(p);await frozenClock(p);await p.locator('#sync-form [name=rememberToken]').check();const held=new Promise(resolve=>{t.server.onPut=()=>{resolve();return new Promise(done=>release=done);};});
+ await p.locator('#sync-form [name=autoSync]').check();await p.clock.runFor(1);await held;const reads=t.server.fileReads;
+ const other=await p.context().newPage();await frozenClock(other);await other.goto(p.url());await other.clock.runFor(1);await other.getByRole('button',{name:'Настройки и резервные копии'}).click();await other.getByText(/Автообмен ждёт завершения/).waitFor();await other.locator('#sync-submit').click();await other.getByText(/Обмен уже идёт в другой вкладке/).waitFor();assert.equal(t.server.fileReads,reads);assert.equal(t.server.puts,1);
+ release();release=null;await p.getByText('Автоматический обмен выполнен.',{exact:true}).waitFor();await other.clock.fastForward(10000);await other.getByText('Автоматический обмен выполнен.',{exact:true}).waitFor();assert.equal(t.server.puts,1);
+ }finally{release?.();await t.close();}
+});
+
+test('automatic exchange preserves concurrent conflict and waits for explicit resolution',async()=>{
+ const t=await setup();try{const a=await t.page();const id=(await repo(a,{type:'createTask',values:{title:'Конфликт'}})).tasks[0].id;await form(a);await frozenClock(a);await a.locator('#sync-form [name=autoSync]').check();await a.clock.runFor(1);await a.getByText('Автоматический обмен выполнен.',{exact:true}).waitFor();
+ const b=await t.page();await sync(b);await repo(a,{type:'updateTask',taskId:id,values:{description:'A'}});await repo(b,{type:'updateTask',taskId:id,values:{description:'B'}});await sync(b);await a.clock.fastForward(10000);await a.getByText('Автообмен ждёт разрешения конфликтов в настройках.',{exact:true}).waitFor();assert.equal((await repo(a)).sync.conflicts.length,1);assert.equal(await a.locator('#sync-attention').isVisible(),true);
+ const stopped=t.server.fileReads;await a.clock.fastForward(600000);assert.equal(t.server.fileReads,stopped);
+ await a.evaluate(async()=>{const {openRepository}=await import('/repository.mjs');const r=await openRepository();try{const state=await r.read(),c=state.sync.conflicts.find(c=>c.field==='description');await r.resolveSync(c.entity,c.field,'B',c.candidates);}finally{r.close();}});await a.locator('#sync-attention').waitFor({state:'hidden'});await a.clock.fastForward(10000);await a.getByText('Автоматический обмен выполнен.',{exact:true}).waitFor();const state=await sync(b);assert.equal(state.tasks[0].description,'B');assert.equal(state.sync.conflicts.length,0);
  }finally{await t.close();}
 });

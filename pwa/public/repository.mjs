@@ -1,5 +1,5 @@
 import {initialState, apply, validateBackup, focusMatchesTask} from './model.mjs';
-import {importLegacy, reconcileTasks, mergeDocuments, projectTasks, resolveConflict, changeEntity, validateDocument, emptyDocument} from './sync-protocol.mjs';
+import {importLegacy, reconcileTasks, mergeDocuments, projectTasks, resolveConflict, changeEntity, validateDocument, emptyDocument, documentRevision} from './sync-protocol.mjs';
 
 function canonicalTasks(tasks){
  return tasks.map(task=>{
@@ -23,7 +23,7 @@ function projectSynced(current, sync) {
  if(active.length>1){sync.projectionError='Одновременно работают несколько сессий. Выберите одну.';return current;}
  return validateBackup({...current,tasks,focus});
 }
-const expose=(state,sync)=>sync?{...state,sync:{enabled:true,conflicts:sync.conflicts||[],activeSessions:sync.activeSessions||[],projectionError:sync.projectionError||null}}:state;
+const expose=(state,sync)=>sync?{...state,sync:{enabled:true,revision:documentRevision(sync.document),conflicts:sync.conflicts||[],activeSessions:sync.activeSessions||[],projectionError:sync.projectionError||null}}:state;
 
 
 function storageError(error) {

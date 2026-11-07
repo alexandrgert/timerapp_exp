@@ -29,7 +29,12 @@ export function createGitHubClient({repository,branch='main',token,fetchImpl=glo
  let response;try{response=await fetchImpl(url,{mode:'cors',credentials:'omit',redirect:'error',cache:'no-store',...options,headers:{...headers(),...options.headers}});}catch(e){if(options.signal?.aborted||e?.name==='AbortError')throw e;throw fail('NETWORK',options.method==='PUT'?'Ответ на запись GitHub не получен. Файл мог сохраниться. Повторите синхронизацию: она сначала прочитает сервер.':'Не удалось связаться с GitHub. Проверьте сеть и повторите.');}
  if(response.redirected||response.type==='opaque'||response.type==='opaqueredirect')throw fail('REDIRECT','GitHub перенаправил запрос. Проверьте актуальное имя репозитория.');
  if(response.status===401)throw fail('AUTH','GitHub не принял токен: проверьте его срок действия и ввод.',401);
- if(response.status===403||response.status===429)throw fail('ACCESS',response.headers.get('Retry-After')||response.headers.get('X-RateLimit-Remaining')==='0'?'GitHub временно ограничил запросы. Подождите и повторите вручную.':'GitHub запретил запрос. Проверьте доступ токена к репозиторию и разрешение Contents: Read and write.',response.status);
+ if(response.status===403||response.status===429){
+ const limited=response.status===429||response.headers.has('Retry-After')||response.headers.get('X-RateLimit-Remaining')==='0';
+ const error=fail(limited?'RATE_LIMIT':'ACCESS',limited?'GitHub временно ограничил запросы. Следующая попытка будет после паузы.':'GitHub запретил запрос. Проверьте доступ токена к репозиторию и разрешение Contents: Read and write.',response.status);
+ if(limited){const after=Number(response.headers.get('Retry-After')),reset=Number(response.headers.get('X-RateLimit-Reset'));error.retryAt=Math.max(Date.now()+60_000,after>0?Date.now()+after*1000:0,reset>0?reset*1000:0);}
+ throw error;
+ }
  return response;
  }
  async function verify({signal}={}){

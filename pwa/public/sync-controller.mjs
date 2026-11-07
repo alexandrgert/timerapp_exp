@@ -1,7 +1,7 @@
-import { validateDocument } from './sync-protocol.mjs';
+import { validateDocument, canonical } from './sync-protocol.mjs';
 
 // Retry only conditional conflicts; never retry an ambiguous failed PUT blindly.
-export async function synchronize(repository, client, { signal, attempts = 3, legacyClient, targetKey = 'default' } = {}) {
+export async function synchronize(repository, client, { signal, attempts = 3, legacyClient, targetKey = 'default', details = false } = {}) {
   await repository.enableSync();
   for (let attempt = 0; attempt < attempts; attempt++) {
     if (signal?.aborted) throw signal.reason;
@@ -23,10 +23,13 @@ export async function synchronize(repository, client, { signal, attempts = 3, le
     }
     const snapshot = await repository.mergeSync(document);
     if(remote)await repository.markRemoteSeen(targetKey);
+    const comparable=doc=>canonical({...doc,ops:[...doc.ops].sort((a,b)=>a.actor<b.actor?-1:a.actor>b.actor?1:a.seq-b.seq)});
+    if(document&&comparable(document)===comparable(snapshot.document))return details?{state:snapshot.state,document:snapshot.document,wrote:false}:snapshot.state;
     try {
       await client.write(JSON.stringify(snapshot.document), { etag: remote?.etag, create: !remote, signal });
       // Re-read current transaction state: edits during PUT are retained locally.
-      return (await repository.mergeSync(snapshot.document)).state;
+      const current=(await repository.mergeSync(snapshot.document)).state;
+      return details?{state:current,document:snapshot.document,wrote:true}:current;
     } catch (error) {
       if (error.code !== 412 || attempt === attempts - 1) throw error;
     }
