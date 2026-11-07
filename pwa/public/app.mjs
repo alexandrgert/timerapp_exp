@@ -1,5 +1,6 @@
 import {installVoiceInterface,addVoiceButtons} from './voice-ui.mjs';
-import { createWebDavClient, resolveWebDavUrls } from './webdav-client.mjs';
+import { createGitHubClient, githubTarget } from './github-client.mjs';
+import { validateDocument } from './sync-protocol.mjs';
 import { synchronize } from './sync-controller.mjs';
 import { openRepository } from './repository.mjs';
 import { localDay, timerPanelTask, priorityFor, secondsOnDay, visibleTasks, dayReportData, formatDayReport } from './desktop-domain.mjs';
@@ -76,6 +77,7 @@ $('#editor-form').addEventListener('change',refreshCloseWarning);
 $('#editor-dialog').addEventListener('close',refreshCloseWarning);
 
 let viewDay=localDate(), focusMinutes=20, lastDay=localDate();
+let descriptionTaskId=null;
 const selectedTasks=new Set(), priorityFilters=new Set([1,2,3,4]);
 $('#view-day').value=viewDay;
 function errorAt(selector, error) { const el = $(selector); el.textContent = error?.message || String(error || 'Не удалось выполнить действие.'); el.hidden = false; }
@@ -108,10 +110,23 @@ function render() {
   const tasks=visibleTasks(state,{view:filter,day:viewDay,query:term,priorities:[...priorityFilters]},new Date().toISOString());
   $('#task-list').innerHTML=tasks.length?tasks.map(t=>{
     const priority=priorityFor(t,viewDay),planned=t.planned_days?.includes(viewDay),keepPriority=t.status!=='completed'&&!!t.keep_priority;
-    return `<article class="task-row ${selected===t.id?'chosen':''} ${t.status==='completed'?'completed':''}" data-testid="task-row" data-task-id="${escape(t.id)}"><button type="button" class="task-drag-handle" data-drag-id="${escape(t.id)}" aria-label="Переместить: ${escape(t.title)}" title="${t.status==='completed'?'Завершённые задачи расположены по времени завершения.':'Перетащите для изменения порядка. Клавиатура: стрелки вверх и вниз.'}" ${reorderBusy||t.status==='running'||t.status==='completed'?'disabled':''}>⠿</button><input type="checkbox" data-select-task="${escape(t.id)}" aria-label="Выбрать: ${escape(t.title)}" ${selectedTasks.has(t.id)?'checked':''}><span class="task-priority"><span class="priority-badge p${priority}" title="Приоритет ${priority}">${priority}</span><button type="button" class="priority-lock" data-action="toggleKeepPriority" data-id="${escape(t.id)}" aria-label="Сохранять приоритет на следующий день: ${escape(t.title)}" aria-pressed="${keepPriority}" title="${t.status==='completed'?'Задача завершена. Сохранение приоритета отключено.':keepPriority?'Сохранение приоритета включено. Нажмите, чтобы выключить.':'Сохранение приоритета выключено. Нажмите, чтобы включить.'}" ${t.status==='completed'||pendingPriorityLocks.has(t.id)?'disabled':''}><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="${keepPriority?'M8 10V7a4 4 0 0 1 8 0v3':'M8 10V7a4 4 0 0 1 7.7-1.5'}"/><path d="M12 14v3"/></svg></button></span><button class="task-select" data-action="select" data-id="${escape(t.id)}"><span class="task-name">${escape(t.title)}</span><span class="task-meta">${t.status==='running'?'Таймер запущен':t.status==='completed'?'Завершена':planned?'В плане':''}</span></button><div class="row-times"><span>За день: <b data-task-day="${escape(t.id)}"></b></span><span>Всего: <b data-task-time="${escape(t.id)}"></b></span></div><div class="row-actions"><button class="text-button" data-action="editTask" data-id="${escape(t.id)}">Изменить</button><button class="text-button" data-action="select" data-id="${escape(t.id)}" aria-label="История: ${escape(t.title)}">История</button>${t.status!=='completed'?`<button class="text-button" data-action="completeTask" data-id="${escape(t.id)}">Завершить</button><button class="text-button" data-action="${planned?'removeFromPlan':'addToPlan'}" data-id="${escape(t.id)}">${planned?'Из плана':'В план'}</button>`:''}<button class="text-button" data-action="deleteTask" data-id="${escape(t.id)}" aria-label="Удалить: ${escape(t.title)}">Удалить</button>${t.status!=='completed'?`<button class="task-control" data-action="${state.focus?.taskId===t.id?'stopFocus':t.status==='running'?'pauseTask':'startTask'}" data-id="${escape(t.id)}" data-testid="task-toggle" aria-label="${state.focus?.taskId===t.id?'Остановить концентрацию':t.status==='running'?'Приостановить':'Запустить'}: ${escape(t.title)}">${state.focus?.taskId===t.id?'■':t.status==='running'?'Ⅱ':'▶'}</button>`:''}</div></article>`;
+    return `<article class="task-row ${selected===t.id?'chosen':''} ${t.status==='completed'?'completed':''}" data-testid="task-row" data-task-id="${escape(t.id)}"><button type="button" class="task-drag-handle" data-drag-id="${escape(t.id)}" aria-label="Переместить: ${escape(t.title)}" title="${t.status==='completed'?'Завершённые задачи расположены по времени завершения.':'Перетащите для изменения порядка. Клавиатура: стрелки вверх и вниз.'}" ${reorderBusy||t.status==='running'||t.status==='completed'?'disabled':''}>⠿</button><input type="checkbox" data-select-task="${escape(t.id)}" aria-label="Выбрать: ${escape(t.title)}" ${selectedTasks.has(t.id)?'checked':''}><span class="task-priority"><span class="priority-badge p${priority}" title="Приоритет ${priority}">${priority}</span><button type="button" class="priority-lock" data-action="toggleKeepPriority" data-id="${escape(t.id)}" aria-label="Сохранять приоритет на следующий день: ${escape(t.title)}" aria-pressed="${keepPriority}" title="${t.status==='completed'?'Задача завершена. Сохранение приоритета отключено.':keepPriority?'Сохранение приоритета включено. Нажмите, чтобы выключить.':'Сохранение приоритета выключено. Нажмите, чтобы включить.'}" ${t.status==='completed'||pendingPriorityLocks.has(t.id)?'disabled':''}><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="${keepPriority?'M8 10V7a4 4 0 0 1 8 0v3':'M8 10V7a4 4 0 0 1 7.7-1.5'}"/><path d="M12 14v3"/></svg></button></span><div class="task-summary"><button class="task-select" data-action="select" data-id="${escape(t.id)}"><span class="task-name">${escape(t.title)}</span><span class="task-meta">${t.status==='running'?'Таймер запущен':t.status==='completed'?'Завершена':planned?'В плане':''}</span></button>${t.description?.trim()?`<div class="task-description-line"><span class="task-description-text">${escape(t.description.replace(/\s+/g,' ').trim())}</span><button type="button" class="text-button description-more" data-action="showDescription" data-id="${escape(t.id)}" aria-label="Далее: описание задачи ${escape(t.title)}" hidden>Далее</button></div>`:''}</div><div class="row-times"><span>За день: <b data-task-day="${escape(t.id)}"></b></span><span>Всего: <b data-task-time="${escape(t.id)}"></b></span></div><div class="row-actions"><button class="text-button" data-action="editTask" data-id="${escape(t.id)}">Изменить</button><button class="text-button" data-action="select" data-id="${escape(t.id)}" aria-label="История: ${escape(t.title)}">История</button>${t.status!=='completed'?`<button class="text-button" data-action="completeTask" data-id="${escape(t.id)}">Завершить</button><button class="text-button" data-action="${planned?'removeFromPlan':'addToPlan'}" data-id="${escape(t.id)}">${planned?'Из плана':'В план'}</button>`:''}<button class="text-button" data-action="deleteTask" data-id="${escape(t.id)}" aria-label="Удалить: ${escape(t.title)}">Удалить</button>${t.status!=='completed'?`<button class="task-control" data-action="${state.focus?.taskId===t.id?'stopFocus':t.status==='running'?'pauseTask':'startTask'}" data-id="${escape(t.id)}" data-testid="task-toggle" aria-label="${state.focus?.taskId===t.id?'Остановить концентрацию':t.status==='running'?'Приостановить':'Запустить'}: ${escape(t.title)}">${state.focus?.taskId===t.id?'■':t.status==='running'?'Ⅱ':'▶'}</button>`:''}</div></article>`;
   }).join(''):`<div class="empty"><h2>${state.tasks.length?'Нет задач для выбранных условий':'С чего начнём?'}</h2>${state.tasks.length?'':'<p>Добавьте задачу и запустите таймер.</p><button class="primary" data-action="create">Создать первую задачу</button>'}</div>`;
   if(focusedLock)document.querySelector(`.priority-lock[data-id="${CSS.escape(focusedLock)}"]:not(:disabled)`)?.focus({preventScroll:true});
-  renderDetails();renderTimer();tick();
+  updateDescriptionLinks();renderDescription();renderDetails();renderTimer();tick();
+}
+function updateDescriptionLinks(){
+ for(const line of document.querySelectorAll('.task-description-line')){
+ const button=line.querySelector('.description-more'),text=line.querySelector('.task-description-text');button.hidden=true;
+ const task=state.tasks.find(t=>t.id===button.dataset.id);
+ button.hidden=!(text.scrollWidth>text.clientWidth+1||/[\r\n]/.test(task?.description||''));
+ }
+}
+new ResizeObserver(updateDescriptionLinks).observe($('#task-list'));
+function renderDescription(){
+ const dialog=$('#description-dialog');if(!dialog.open)return;
+ const task=state.tasks.find(t=>t.id===descriptionTaskId);if(!task){dialog.close();return;}
+ $('#description-task-title').textContent=task.title;$('#description-text').textContent=task.description||'';
 }
 function cancelTaskDrag(){
  const drag=taskDrag;taskDrag=null;
@@ -250,6 +265,7 @@ document.addEventListener('click',async event=>{
       finally{pendingPriorityLocks.delete(id);render();document.removeEventListener('focusin',moved);document.removeEventListener('pointerdown',moved);if(restoreFocus)document.querySelector(`.priority-lock[data-id="${CSS.escape(id)}"]`)?.focus({preventScroll:true});}
       return;
     }
+    if(action==='showDescription'){descriptionTaskId=id;taskById(id);$('#description-dialog').showModal();renderDescription();return;}
     if(action==='select'){selected=id;render();if(!$('#details-dialog').open)$('#details-dialog').showModal();return;}
     if(action==='create'){taskEditor();return;}
     if(action==='editTask'){taskEditor(id);return;}
@@ -360,7 +376,7 @@ let syncAbort=null;
 function renderSync(){
  const sync=state.sync,conflicts=sync?.conflicts||[],active=sync?.activeSessions||[];
  $('#sync-attention').hidden=!(conflicts.length||sync?.projectionError);
- $('#sync-backup').hidden=!sync?.enabled;
+ $('#sync-backup').hidden=false;
  $('#sync-conflicts').replaceChildren();
  if(sync?.projectionError){const p=document.createElement('p');p.className='error';p.textContent='Новые данные сохранены в журнале, но пока не применены: '+sync.projectionError;$('#sync-conflicts').append(p);}
  for(const conflict of conflicts){
@@ -371,20 +387,74 @@ function renderSync(){
  if(active.length){const p=document.createElement('p');p.textContent='Одновременно запущено несколько сессий. Выберите одну: остальные завершатся текущим временем, их записи сохранятся.';$('#sync-conflicts').append(p);for(const item of active){const b=document.createElement('button');b.className='secondary';b.textContent=`Оставить: ${item.taskTitle} (${item.started_at})`;b.addEventListener('click',()=>confirm('Оставить одну активную сессию?','Остальные активные сессии завершатся текущим временем; история сохранится.',async()=>accept(await repo.keepActive(item.taskId,item.sessionId,active)),{label:'Завершить остальные'}));$('#sync-conflicts').append(b);}}
 }
 $('#sync-attention').addEventListener('click',()=>$('#settings-dialog').showModal());
+function syncTargetFromForm(){const form=new FormData($('#sync-form'));return githubTarget(form.get('repository'),form.get('branch'));}
 function showSyncTarget(){
- const form=new FormData($('#sync-form'));const output=$('#sync-target');
- if(!String(form.get('url')||'').trim()){output.textContent='';return;}
- try{const addresses=resolveWebDavUrls(form.get('url'),form.get('filePath'));output.textContent='Файл синхронизации: '+addresses.url;}
- catch(e){output.textContent=e.message;}
+ const output=$('#sync-target');
+ if(!$('#sync-form [name=repository]').value.trim()){output.textContent='';return;}
+ try{const t=syncTargetFromForm();output.textContent=`${t.repository} · ${t.branch} · ${t.path}`;}catch(e){output.textContent=e.message;}
 }
-$('#sync-form [name=url]').addEventListener('input',showSyncTarget);
-$('#sync-form [name=filePath]').addEventListener('input',showSyncTarget);
-$('#sync-form').addEventListener('submit',async event=>{
- event.preventDefault();if(syncAbort)return;const form=new FormData(event.currentTarget);syncAbort=new AbortController();$('#sync-submit').disabled=true;$('#sync-cancel').hidden=false;$('#sync-error').hidden=true;$('#sync-status').textContent='Синхронизация…';
- try{const addresses=resolveWebDavUrls(form.get('url'),form.get('filePath'));const url=new URL(addresses.url);const options={username:form.get('username'),password:form.get('password')};const legacyClient=createWebDavClient({url:addresses.legacyUrl,...options});const client=createWebDavClient({url:url.href,...options});const targetKey=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(url.href+'\n'+options.username))),b=>b.toString(16).padStart(2,'0')).join('');accept(await synchronize(repo,client,{signal:syncAbort.signal,legacyClient,targetKey}));$('#sync-status').textContent=state.sync?.conflicts.length||state.sync?.projectionError?'Обмен завершён; разрешите конфликты ниже.':'Синхронизация завершена.';}catch(e){if(syncAbort.signal.aborted)$('#sync-status').textContent='Обмен отменён. Уже сохранённые данные остаются на устройстве.';else{errorAt('#sync-error',e);$('#sync-status').textContent='Синхронизация не завершена.';}}finally{syncAbort=null;$('#sync-submit').disabled=false;$('#sync-cancel').hidden=true;}
+// Connection coordinates are separate from the explicitly opted-in device token.
+try{const saved=JSON.parse(localStorage.getItem('tasktimer-github-target:'+location.pathname)||'null');if(saved){const t=githubTarget(saved.repository,saved.branch);$('#sync-form [name=repository]').value=t.repository;$('#sync-form [name=branch]').value=t.branch;}}catch{}
+const tokenInput=$('#sync-form [name=token]'),rememberToken=$('#sync-form [name=rememberToken]');
+let tokenRepository=null;
+function tokenStorageKey(repository){return 'tasktimer-github-token:'+location.pathname+':'+repository;}
+function currentTokenRepository(){try{return githubTarget($('#sync-form [name=repository]').value,'main').repository.toLowerCase();}catch{return null;}}
+function restoreDeviceToken(){
+ tokenRepository=currentTokenRepository();tokenInput.value='';rememberToken.checked=false;
+ $('#sync-token-status').textContent='Без флажка токен действует до закрытия или перезагрузки страницы.';
+ if(!tokenRepository)return;
+ try{const saved=JSON.parse(localStorage.getItem(tokenStorageKey(tokenRepository))||'null');
+ if(typeof saved?.token==='string'&&saved.token.length<=4096&&saved.token&&!/\s/.test(saved.token)){tokenInput.value=saved.token;rememberToken.checked=true;$('#sync-token-status').textContent='Токен сохранён на этом устройстве для указанного репозитория.';}
+ }catch{$('#sync-token-status').textContent='Не удалось прочитать сохранённый токен. Введите его для этой сессии.';}
+}
+function persistDeviceToken(){
+ const repository=currentTokenRepository();
+ try{
+ if(!repository){if(rememberToken.checked){rememberToken.checked=false;throw new Error();}return;}
+ if(!rememberToken.checked){localStorage.removeItem(tokenStorageKey(repository));$('#sync-token-status').textContent='Сохранённая копия токена удалена. Введённый токен действует только в этой сессии.';return;}
+ if(!tokenInput.value){localStorage.removeItem(tokenStorageKey(repository));$('#sync-token-status').textContent='Введите токен: он будет сохранён на этом устройстве.';return;}
+ if(tokenInput.value.length>4096||/\s/.test(tokenInput.value)){$('#sync-token-status').textContent='Токен не сохранён: проверьте ввод без пробелов.';return;}
+ const t=syncTargetFromForm();
+ localStorage.setItem('tasktimer-github-target:'+location.pathname,JSON.stringify({repository:t.repository,branch:t.branch}));
+ localStorage.setItem(tokenStorageKey(repository),JSON.stringify({token:tokenInput.value}));
+ $('#sync-token-status').textContent='Токен сохранён на этом устройстве для указанного репозитория.';
+ }catch{$('#sync-token-status').textContent='Не удалось изменить сохранённый токен. Проверьте имя репозитория, ветку и доступ к хранилищу браузера. Токен можно использовать в этой сессии.';}
+}
+restoreDeviceToken();
+rememberToken.addEventListener('change',persistDeviceToken);
+tokenInput.addEventListener('input',()=>{if(rememberToken.checked)persistDeviceToken();});
+$('#sync-forget-token').addEventListener('click',()=>{
+ try{const repository=currentTokenRepository();if(repository)localStorage.removeItem(tokenStorageKey(repository));tokenInput.value='';rememberToken.checked=false;$('#sync-token-status').textContent='Токен забыт на этом устройстве. Доступ на GitHub при необходимости отзывается отдельно.';}
+ catch{$('#sync-token-status').textContent='Не удалось удалить сохранённый токен. Проверьте доступ к хранилищу браузера.';}
 });
+$('#sync-form [name=repository]').addEventListener('input',()=>{if(currentTokenRepository()!==tokenRepository)restoreDeviceToken();});
+window.addEventListener('storage',event=>{if(tokenRepository&&(event.key===tokenStorageKey(tokenRepository)||event.key===null)){syncAbort?.abort();restoreDeviceToken();}});
+showSyncTarget();
+try{const previous=JSON.parse(localStorage.getItem('tasktimer-github-last-sync:'+location.pathname)||'null');if(previous?.key===syncTargetFromForm().key&&Number.isFinite(Date.parse(previous.at)))$('#sync-status').textContent='Последний успешный обмен: '+new Date(previous.at).toLocaleString('ru-RU');}catch{}
+for(const name of ['repository','branch'])$('#sync-form [name='+name+']').addEventListener('input',showSyncTarget);
+async function githubExchange(checkOnly=false){
+ if(syncAbort)return;
+ const form=new FormData($('#sync-form'));syncAbort=new AbortController();
+ for(const id of ['sync-submit','sync-check','sync-backup','sync-forget-token'])$('#'+id).disabled=true;
+ for(const input of $('#sync-form').querySelectorAll('input'))input.disabled=true;
+ $('#sync-cancel').hidden=false;$('#sync-error').hidden=true;$('#sync-status').textContent=checkOnly?'Проверка подключения…':'Синхронизация…';
+ try{
+ const client=createGitHubClient({repository:form.get('repository'),branch:form.get('branch'),token:form.get('token')});
+ const checked=await client.check({signal:syncAbort.signal});
+ if(checked.remote){try{validateDocument(JSON.parse(checked.remote.body));}catch{throw new Error('Файл GitHub имеет неподдерживаемый или повреждённый формат. Данные не отправлены.');}}
+ try{localStorage.setItem('tasktimer-github-target:'+location.pathname,JSON.stringify({repository:client.target.repository,branch:client.target.branch}));}catch{}
+ if(checkOnly){$('#sync-status').textContent=checked.exists?'Подключение проверено: приватный репозиторий, ветка и файл доступны. Право записи проверится при синхронизации.':'Подключение проверено: приватный репозиторий и ветка доступны. Файл будет создан при первой синхронизации.';return;}
+ await repo.prepareSyncTarget(client.target.key);
+ accept(await synchronize(repo,client,{signal:syncAbort.signal,targetKey:client.target.key}));
+ try{localStorage.setItem('tasktimer-github-last-sync:'+location.pathname,JSON.stringify({key:client.target.key,at:new Date().toISOString()}));}catch{}
+ $('#sync-status').textContent=(state.sync?.conflicts.length||state.sync?.projectionError?'Обмен завершён; разрешите конфликты ниже.':'Синхронизация завершена.')+' '+new Date().toLocaleString('ru-RU');
+ }catch(e){if(syncAbort.signal.aborted)$('#sync-status').textContent='Обмен отменён. Уже сохранённые данные остаются на устройстве.';else{errorAt('#sync-error',e);$('#sync-status').textContent=checkOnly?'Подключение не проверено.':'Синхронизация не завершена.';}}
+ finally{syncAbort=null;for(const id of ['sync-submit','sync-check','sync-backup','sync-forget-token'])$('#'+id).disabled=false;for(const input of $('#sync-form').querySelectorAll('input'))input.disabled=false;$('#sync-cancel').hidden=true;}
+}
+$('#sync-form').addEventListener('submit',event=>{event.preventDefault();githubExchange();});
+$('#sync-check').addEventListener('click',()=>githubExchange(true));
 $('#sync-cancel').addEventListener('click',()=>syncAbort?.abort());
-$('#sync-backup').addEventListener('click',async()=>{try{const backup=await repo.migrationBackup();if(!backup)throw new Error('Копия до первого обмена отсутствует.');const url=URL.createObjectURL(new Blob([JSON.stringify(backup,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='tasktimer-before-webdav.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),10000);}catch(e){errorAt('#sync-error',e);}});
+$('#sync-backup').addEventListener('click',async()=>{try{const backup=await repo.migrationBackup(syncTargetFromForm().key);if(!backup)throw new Error('Для этого репозитория ещё не было обмена. Сохраните текущие данные кнопкой «Скачать JSON».');const url=URL.createObjectURL(new Blob([JSON.stringify(backup,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='tasktimer-before-github-sync.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),10000);}catch(e){errorAt('#sync-error',e);}});
 
 installVoiceInterface({onChange:({phase,text,open})=>{const risk=open&&(['starting','recording','decoding'].includes(phase)||text.trim())?JSON.stringify({phase,text}):'';if(risk!==voiceRisk){voiceRevision++;voiceRisk=risk;}refreshCloseWarning();},confirmRemoval:action=>confirm('Удалить голосовую модель?','Диктовка станет недоступной до повторной загрузки. Задачи и записи сохранятся.',action)});
 

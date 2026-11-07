@@ -3,7 +3,7 @@ import {readFile,writeFile,mkdir,access} from 'node:fs/promises';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import path from 'node:path';
 export const PUBLIC_FILES = [
- 'release-notes.json','index.html','app.mjs','model.mjs','desktop-domain.mjs','repository.mjs','pwa.mjs','sw.js','sync-protocol.mjs','webdav-client.mjs','sync-controller.mjs',
+ 'release-notes.json','index.html','app.mjs','model.mjs','desktop-domain.mjs','repository.mjs','pwa.mjs','sw.js','sync-protocol.mjs','webdav-client.mjs','github-client.mjs','sync-controller.mjs',
  'voice-ui.mjs','voice.mjs','voice-assets.mjs','voice-worker.mjs','voice-worklet.mjs','styles.css','manifest.webmanifest',
  'icons/icon.svg','icons/icon-192.png','icons/icon-512.png',
  'voice-assets/sherpa-onnx-asr.js','voice-assets/sherpa-onnx-wasm-main-vad-asr.js','voice-assets/sherpa-onnx-wasm-main-vad-asr.wasm',
@@ -11,7 +11,7 @@ export const PUBLIC_FILES = [
 ];
 const CSP="default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' blob:; connect-src 'self' https:; worker-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'";
 export function renderAsset(relative, bytes, {basePath, revision}) {
- if(!/^\/(?:[A-Za-z0-9_-]+\/)+$/.test(basePath))throw new Error('Expected an absolute repository base path with trailing slash');
+ if(typeof basePath!=='string'||!/^\/(?:[A-Za-z0-9_.-]+\/)*$/.test(basePath)||basePath.split('/').some(p=>p==='.'||p==='..'))throw new Error('Expected a safe absolute base path with trailing slash');
  if(!/^[a-f0-9]{40}$/.test(revision))throw new Error('Expected full Git commit SHA');
  if(!PUBLIC_FILES.includes(relative))throw new Error('Asset not allowlisted');
  const namespace='pages-'+Buffer.from(basePath).toString('hex');

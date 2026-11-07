@@ -65,6 +65,11 @@ export async function openRepository({name='tasktimer-pwa'}={}) {
  const current=request.result===undefined?initialState():validateBackup(request.result);
  let sync=syncRequest.result;
  const before=JSON.stringify({current,sync});
+ if(operation?.type==='prepareTarget'){
+   const key='sync-target-backup:'+operation.targetKey,backup=store.get(key);
+   backup.onsuccess=()=>{try{if(backup.result===undefined)store.put(sync?{...current,syncDocument:structuredClone(sync.document)}:current,key);}catch(error){failure=storageError(error);tx.abort();}};
+ }
+
  if(operation?.type==='enable'&&!sync){
    store.put(current,'sync-migration-backup');
    sync={actor:crypto.randomUUID(),document:importLegacy(canonicalTasks(current.tasks),crypto.randomUUID())};
@@ -164,13 +169,14 @@ export async function openRepository({name='tasktimer-pwa'}={}) {
  read:()=>transaction(),
  exportBackup:()=>transaction(null,{type:'export'}),
  enableSync:()=>transaction(null,{type:'enable'}),
+ prepareSyncTarget:targetKey=>transaction(null,{type:'prepareTarget',targetKey}),
  importRemoteLegacy:(snapshot,targetKey='default')=>transaction(null,{type:'legacy',snapshot,targetKey}),
  needsLegacyImport:(targetKey='default')=>transaction(null,{type:'needsLegacy',targetKey}),
  markRemoteSeen:(targetKey='default')=>transaction(null,{type:'remoteSeen',targetKey}),
  mergeSync:document=>transaction(null,{type:'merge',document}),
  resolveSync:(entity,field,value,expectedCandidates)=>transaction(null,{type:'resolve',entity,field,value,expectedCandidates}),
  keepActive:(taskId,sessionId,expectedActive)=>transaction(null,{type:'keepActive',taskId,sessionId,expectedActive}),
- migrationBackup:()=>new Promise((resolve,reject)=>{const tx=db.transaction('state');const req=tx.objectStore('state').get('sync-migration-backup');req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(storageError(req.error));}),
+ migrationBackup:(targetKey)=>new Promise((resolve,reject)=>{const tx=db.transaction('state');const req=tx.objectStore('state').get(targetKey?'sync-target-backup:'+targetKey:'sync-migration-backup');req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(storageError(req.error));}),
  dispatch:command=>{
  // Validate external import before opening a write transaction; validation is repeated on apply.
  try{if(command.type==='replaceState'){command={...command,values:validateBackup(command.values)};if(command.values.syncDocument){validateDocument(command.values.syncDocument);return transaction(null,{type:'restore',values:command.values});}}}catch(error){return Promise.reject(error);}

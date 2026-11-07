@@ -11,7 +11,7 @@ const root = path.join(__dirname, 'public');
 const assets = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
   ['/index.html', ['index.html', 'text/html; charset=utf-8']],
-  ...['app.mjs', 'model.mjs','desktop-domain.mjs', 'repository.mjs', 'pwa.mjs', 'sw.js', 'sync-protocol.mjs', 'webdav-client.mjs', 'sync-controller.mjs', 'voice-ui.mjs', 'voice.mjs', 'voice-assets.mjs', 'voice-worker.mjs', 'voice-worklet.mjs'].map(name => ['/' + name, [name, 'text/javascript; charset=utf-8']]),
+  ...['app.mjs', 'model.mjs','desktop-domain.mjs', 'repository.mjs', 'pwa.mjs', 'sw.js', 'sync-protocol.mjs', 'webdav-client.mjs','github-client.mjs', 'sync-controller.mjs', 'voice-ui.mjs', 'voice.mjs', 'voice-assets.mjs', 'voice-worker.mjs', 'voice-worklet.mjs'].map(name => ['/' + name, [name, 'text/javascript; charset=utf-8']]),
   ...['sherpa-onnx-asr.js','sherpa-onnx-wasm-main-vad-asr.js','sherpa-onnx-wasm-main-vad-asr.wasm'].map(name=>['/voice-assets/'+name,['voice-assets/'+name,name.endsWith('.wasm')?'application/wasm':'text/javascript; charset=utf-8']]),
   ['/styles.css', ['styles.css', 'text/css; charset=utf-8']],
   ['/release-notes.json', ['release-notes.json', 'application/json; charset=utf-8']],
@@ -34,6 +34,7 @@ http.createServer(async (request, response) => {
   let pathname;
   try {pathname = new URL(request.url, 'http://localhost').pathname;} catch {return reply(400, 'bad request\n');}
   if (pathname === '/health') return reply(200, 'ok\n', {'cache-control': 'no-store'});
+  if(pathname==='/guide/'){try{const guide=await fs.readFile(path.resolve(__dirname,'../docs/user-guide/TaskTimer-instruction.html'));return reply(200,guide,{'content-type':'text/html; charset=utf-8'});}catch{return reply(503,'Guide is temporarily unavailable\n');}}
   const asset = assets.get(pathname);
   if (!asset) return reply(404, 'not found\n', {'cache-control': 'no-store'});
   try {
