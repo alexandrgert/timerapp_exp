@@ -3,13 +3,16 @@
 [Читать инструкцию PWA со скриншотами](https://alexandrgert.github.io/timerapp_exp/guide/) · [Скачать HTML](https://github.com/alexandrgert/timerapp_exp/raw/refs/heads/main/docs/user-guide/TaskTimer-instruction.html)
 
 <!-- pwa-latest-release:start -->
-## Последний выпуск PWA — 22 октября 2026: удаление последней сессии без ошибки
+## Последний выпуск PWA — 7 ноября 2026: GitHub-синхронизация и описания
 
-**[Открыть TaskTimer](https://alexandrgert.github.io/timerapp_exp/)** · [Описание выпуска](https://github.com/alexandrgert/timerapp_exp/blob/pwa/development/pwa/docs/release-notes-2026-10-22-session-delete.md)
+**[Открыть TaskTimer](https://alexandrgert.github.io/timerapp_exp/)** · [Описание выпуска](https://github.com/alexandrgert/timerapp_exp/blob/pwa/development/pwa/docs/release-notes-2026-11-07-github-sync.md) · [Развёртывание своего экземпляра](docs/pwa-self-hosting.md)
 
-Исправлена ошибка удаления последней сессии задачи на паузе. Подтверждение закрывается после сохранения, таймер показывает **00:00:00**, задачу можно продолжить с новой сессией. Инструкция обновлена.
+- Вместо WebDAV в настройках — ручной обмен через отдельный приватный репозиторий GitHub. В инструкции расписано подключение двух устройств.
+- Токен можно запомнить на личном устройстве и удалить кнопкой «Забыть токен». В задачи, экспорт и файл обмена он не попадает.
+- Под названием задачи — строка описания; «Далее» открывает полный текст.
+- Путь публикации определяется по GitHub Pages, ссылки на инструкцию относительные. Форки могут использовать другое имя репозитория или корень своего домена.
 
-Проверено: **142 теста**, 8 проверок Service Worker; удаление, отмена, нулевой таймер, офлайн-перезагрузка и повторный запуск на публичном HTTPS. [Успешная публикация](https://github.com/alexandrgert/timerapp_exp/actions/runs/39743566013).
+Проверено: **157 тестов**, 8 проверок Service Worker, публичный HTTPS, мобильная ширина и настоящая офлайн-перезагрузка. Реальный обмен с приватным репозиторием пользователь проверяет после ввода своего токена. [Успешная публикация](https://github.com/alexandrgert/timerapp_exp/actions/runs/42402292493).
 
 Далее развиваем **только PWA**, чтобы уменьшить зависимость от операционных систем компьютеров и мобильных устройств. Android и desktop этим выпуском не обновляются.
 <!-- pwa-latest-release:end -->
