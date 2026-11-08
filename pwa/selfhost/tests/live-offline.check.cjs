@@ -1,0 +1,16 @@
+// CI-only real HTTP + real SW self-host smoke. No route fulfillment.
+const {spawn}=require('node:child_process'),fs=require('node:fs/promises'),os=require('node:os'),path=require('node:path'),net=require('node:net'),assert=require('node:assert/strict'),{chromium}=require('playwright'),{openStore}=require('../store.cjs');
+(async()=>{
+ let server,browser,dir;const timer=setTimeout(()=>{server?.kill('SIGKILL');process.exitCode=1;console.error('Self-host real SW check timed out');},60000);
+ try{
+ dir=await fs.mkdtemp(path.join(os.tmpdir(),'selfhost-sw-'));const probe=net.createServer();await new Promise((r,j)=>{probe.once('error',j);probe.listen(0,'127.0.0.1',r);});const port=probe.address().port;await new Promise(r=>probe.close(r));const origin='http://127.0.0.1:'+port;
+ const store=openStore(dir),device=store.addDevice('Synthetic CI');store.close();
+ server=spawn(process.execPath,[path.resolve(__dirname,'../server.cjs')],{env:{...process.env,PORT:String(port),CLOUDCLI_DATA_DIR:dir,TASKTIMER_PUBLIC_ORIGIN:origin},stdio:['ignore','ignore','pipe']});let err='';server.stderr.on('data',b=>err+=b);
+ let ready=false,lastConnectionError;for(let i=0;i<100;i++){if(server.exitCode!==null)throw Error(err);try{if((await fetch(origin+'/health')).ok){ready=true;break;}}catch(e){lastConnectionError=e.cause?.code||e.message;}await new Promise(r=>setTimeout(r,50));}assert.ok(ready,'Real localhost unavailable: '+lastConnectionError);
+ browser=await chromium.launch({headless:true,args:['--no-sandbox','--single-process','--no-zygote','--disable-dev-shm-usage','--disable-gpu']});const c=await browser.newContext(),p=await c.newPage();p.setDefaultTimeout(15000);await p.goto(origin);await p.waitForFunction(()=>!!navigator.serviceWorker.controller);await p.evaluate(()=>navigator.serviceWorker.ready);
+ await p.getByTestId('new-task').click();await p.getByTestId('task-title').fill('Self-host offline');await p.getByTestId('save').click();await p.locator('#editor-dialog').waitFor({state:'hidden'});
+ await p.getByRole('button',{name:'Настройки и резервные копии'}).click();await p.locator('#sync-form [name=token]').fill(device.token);await p.locator('#sync-submit').click();await p.getByText(/Синхронизация завершена/).waitFor();
+ const cached=await p.evaluate(async()=>{const result=[];for(const name of await caches.keys())for(const request of await(await caches.open(name)).keys())result.push(request.url);return result;});assert.ok(!cached.some(u=>u.includes('/api/')));
+ await p.locator('#settings-dialog .close-dialog').click();await c.setOffline(true);await p.reload();await p.getByTestId('task-row').waitFor();assert.ok(await p.getByText('Self-host offline',{exact:true}).isVisible());await p.getByRole('button',{name:'Настройки и резервные копии'}).click();assert.ok(await p.getByText('Синхронизация со своим сервером',{exact:true}).isVisible());assert.equal(await p.locator('#sync-form [name=token]').inputValue(),'');console.log('PASS self-host real Service Worker install, real API, API cache exclusion and offline reload');
+ }finally{clearTimeout(timer);await browser?.close();if(server){server.kill();await new Promise(r=>server.exitCode!==null?r():server.once('exit',r));}if(dir)await fs.rm(dir,{recursive:true,force:true});}
+})().catch(e=>{console.error(e.message);process.exitCode=1;});

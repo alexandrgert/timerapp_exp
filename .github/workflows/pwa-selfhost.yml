@@ -1,0 +1,63 @@
+name: Self-hosted PWA verification and package
+
+# Each invocation needs explicit approval. No push, PR, native build or deployment.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: pwa/package-lock.json
+      - name: Install browser test dependencies
+        working-directory: pwa
+        run: |
+          npm ci --ignore-scripts
+          npx playwright install --with-deps chromium
+      - name: Existing PWA regression tests
+        working-directory: pwa
+        run: |
+          set -o pipefail
+          timeout --kill-after=10s 300s npm test 2>&1 | tee regression-tests.log
+      - name: Self-hosted API, storage and browser tests
+        working-directory: pwa
+        run: |
+          set -o pipefail
+          timeout --kill-after=10s 180s node --test --test-concurrency=1 selfhost/tests/*.test.cjs 2>&1 | tee selfhost-tests.log
+      - name: Real Service Worker regression
+        working-directory: pwa
+        run: |
+          set -o pipefail
+          timeout --kill-after=10s 120s node tests/live-offline.check.cjs 2>&1 | tee selfhost-sw.log
+          timeout --kill-after=10s 90s node selfhost/tests/live-offline.check.cjs 2>&1 | tee selfhost-live.log
+      - name: Create source runtime package in GitHub only
+        run: |
+          set -euo pipefail
+          mkdir -p selfhost-package
+          git archive --format=tar HEAD pwa/public pwa/server.cjs pwa/selfhost docs/user-guide | gzip > selfhost-package/tasktimer-selfhost.tar.gz
+          git rev-parse HEAD > selfhost-package/REVISION
+          cd selfhost-package
+          sha256sum tasktimer-selfhost.tar.gz > SHA256SUMS
+      - uses: actions/upload-artifact@v5
+        with:
+          name: tasktimer-selfhost
+          path: selfhost-package/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: selfhost-verification-reports
+          path: |
+            pwa/regression-tests.log
+            pwa/selfhost-tests.log
+            pwa/selfhost-sw.log
+            pwa/selfhost-live.log

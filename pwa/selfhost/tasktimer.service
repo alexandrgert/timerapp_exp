@@ -1,0 +1,24 @@
+[Unit]
+Description=TaskTimer self-hosted PWA
+After=network.target
+
+[Service]
+Type=simple
+User=tasktimer
+Group=tasktimer
+WorkingDirectory=/opt/tasktimer/current
+ExecStart=/usr/bin/node /opt/tasktimer/current/pwa/selfhost/server.cjs
+Environment=PORT=18081
+Environment=CLOUDCLI_DATA_DIR=/var/lib/tasktimer
+Environment=TASKTIMER_PUBLIC_ORIGIN=https://timer.example.org
+StateDirectory=tasktimer
+StateDirectoryMode=0700
+UMask=0077
+Restart=on-failure
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
