@@ -17,6 +17,10 @@ let repo, state = {tasks:[],focus:null}, selected = null, filter = 'today', edit
 const pendingWrites = new Set();
 const pendingPriorityLocks = new Set();
 let taskDrag=null, reorderBusy=false, sortMode='manual';
+const sortStorageKey='tasktimer-sort-mode:'+location.pathname;
+const validSort=value=>['manual','priority-asc','priority-desc'].includes(value);
+try{const saved=localStorage.getItem(sortStorageKey);if(validSort(saved))sortMode=saved;}catch{}
+function setSortMode(value){sortMode=value;try{localStorage.setItem(sortStorageKey,value);}catch{}}
 const attentionBaseTitle=document.title, attentionEvents=new Map(), attentionSeen=new Map();
 let attentionInterval=null,attentionPhase=true,attentionBadge=Promise.resolve(),attentionInitialized=false;
 const attentionTag=kind=>`tasktimer-attention:${location.pathname}:${kind}`;
@@ -108,7 +112,7 @@ function render() {
   $('#selection-count').textContent=`Выбрано: ${selectedTasks.size}`;
   document.querySelectorAll('[data-priority-assign]').forEach(b=>b.disabled=!selectedTasks.size);
   const term=$('#search').value;
-  const now=new Date().toISOString(), options={day:viewDay,query:term,priorities:[...priorityFilters]};
+  const now=new Date().toISOString(), options={day:viewDay,query:term,priorities:[...priorityFilters],sort:sortMode};
   const lists=Object.fromEntries(['today','progress','all'].map(view=>[view,visibleTasks(state,{...options,view,day:view==='today'?localDate(now):viewDay},now)]));
   for(const view of ['today','progress','all'])$('#tab-count-'+view).textContent=`(${lists[view].length})`;
   const completed=lists.all.filter(task=>task.status==='completed').length;
@@ -154,7 +158,7 @@ function scrollTaskDrag(){
 }
 async function moveTask(id,targetId,position,restoreFocus=false){
  if(reorderBusy)return;reorderBusy=true;render();
- try{await dispatch({type:'reorderTask',taskId:id,values:{targetId,position,view:filter,day:viewDay}});sortMode='manual';toast('Порядок сохранён');}
+ try{await dispatch({type:'reorderTask',taskId:id,values:{targetId,position,view:filter,day:viewDay,sort:sortMode,query:$('#search').value,priorities:[...priorityFilters]}});setSortMode('manual');toast('Порядок сохранён');}
  catch(e){toast(e.message);}
  finally{reorderBusy=false;render();if(restoreFocus)document.querySelector(`[data-drag-id="${CSS.escape(id)}"]`)?.focus({preventScroll:true});}
 }
@@ -297,12 +301,14 @@ $('#new-task').addEventListener('click',()=>taskEditor());
 $('#search').addEventListener('input',render);
 $('#task-sort').addEventListener('change',async event=>{
  const sort=event.target.value;if(reorderBusy){render();return;}
- if(sort==='manual'){sortMode='manual';render();return;}
+ if(sort===sortMode){render();return;}
+ const previousSort=sortMode;
  reorderBusy=true;render();
- try{await dispatch({type:'sortTasks',values:{sort,view:filter,day:viewDay,query:$('#search').value,priorities:[...priorityFilters]}});sortMode=sort;toast('Порядок сохранён');}
+ try{await dispatch({type:'sortTasks',values:{sort:sort==='manual'?previousSort:sort,view:filter,day:viewDay,query:$('#search').value,priorities:[...priorityFilters]}});setSortMode(sort);toast(sort==='manual'?'Порядок сохранён':'Автоматическая сортировка включена');}
  catch(error){errorAt('#global-error',error);}
  finally{reorderBusy=false;render();}
 });
+window.addEventListener('storage',event=>{if(event.key===sortStorageKey||event.key===null){const value=event.newValue;sortMode=validSort(value)?value:'manual';render();}});
 $('#view-day').addEventListener('change',()=>{if(!$('#view-day').value)return;viewDay=$('#view-day').value;filter='date';render();});
 $('#task-list').addEventListener('change',event=>{const id=event.target.dataset.selectTask;if(id){if(event.target.checked)selectedTasks.add(id);else selectedTasks.delete(id);render();}});
 $('#priority-filters').addEventListener('click',event=>{const b=event.target.closest('[data-priority-filter]');if(!b)return;const p=Number(b.dataset.priorityFilter);if(priorityFilters.has(p)){if(priorityFilters.size>1)priorityFilters.delete(p);}else priorityFilters.add(p);render();});
