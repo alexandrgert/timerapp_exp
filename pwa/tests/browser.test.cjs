@@ -517,3 +517,25 @@ test('view counters match filtered lists and all-view status totals update after
  await page.setViewportSize({width:320,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.getByRole('button',{name:'В работе',exact:true}).click();assert.equal(await page.locator('#all-task-counts').isVisible(),false);assert.equal(await page.getByTestId('task-row').count(),0);
  }finally{await context.close();}
 });
+
+test('automatic priority sorting follows new tasks and edits, survives reload and freezes current order on drag',async()=>{
+ const {context,page}=await setup();try{
+ const command=cmd=>page.evaluate(async cmd=>{const {openRepository}=await import('/repository.mjs');const r=await openRepository();try{return await r.dispatch(cmd);}finally{r.close();}},cmd);
+ for(const [title,priority] of [['Два',2],['Один',1],['Завершена',4]])await command({type:'createTask',values:{title,priority}});
+ let state=await read(page);await command({type:'completeTask',taskId:state.tasks.find(t=>t.title==='Завершена').id});
+ await page.waitForFunction(()=>document.querySelectorAll('.task-row').length===3);
+ await page.locator('#task-sort').selectOption('priority-desc');await page.waitForFunction(()=>document.querySelector('#task-sort').value==='priority-desc'&&!document.querySelector('#task-sort').disabled);
+ const names=()=>page.locator('.task-name').allTextContents();assert.deepEqual(await names(),['Два','Один','Завершена']);
+ await command({type:'createTask',values:{title:'Три',priority:3}});await page.waitForFunction(()=>document.querySelector('.task-name').textContent==='Три');assert.deepEqual(await names(),['Три','Два','Один','Завершена']);
+ state=await read(page);const one=state.tasks.find(t=>t.title==='Один').id,two=state.tasks.find(t=>t.title==='Два').id;
+ await command({type:'updateTask',taskId:one,values:{priority:4}});await page.waitForFunction(()=>document.querySelector('.task-name').textContent==='Один');assert.deepEqual(await names(),['Один','Три','Два','Завершена']);
+ await command({type:'startTask',taskId:two});await page.waitForFunction(()=>document.querySelector('.task-name').textContent==='Два');await command({type:'pauseTask',taskId:two});await page.waitForFunction(()=>document.querySelector('.task-name').textContent==='Один');
+ await reload(page);await page.getByTestId('task-row').first().waitFor();assert.equal(await page.locator('#task-sort').inputValue(),'priority-desc');assert.deepEqual(await names(),['Один','Три','Два','Завершена']);
+ await page.getByRole('button',{name:'В работе',exact:true}).click();assert.deepEqual(await names(),['Один','Три','Два']);await page.getByRole('button',{name:'Все',exact:true}).click();assert.deepEqual(await names(),['Один','Три','Два','Завершена']);
+ await page.locator('#task-sort').selectOption('manual');await page.waitForFunction(()=>!document.querySelector('#task-sort').disabled&&document.querySelector('#task-sort').value==='manual');assert.deepEqual(await names(),['Один','Три','Два','Завершена']);
+ await page.locator('#task-sort').selectOption('priority-desc');await page.waitForFunction(()=>!document.querySelector('#task-sort').disabled&&document.querySelector('#task-sort').value==='priority-desc');
+ await command({type:'createTask',values:{title:'Ещё три',priority:3}});await page.waitForFunction(()=>document.querySelectorAll('.task-row').length===5);assert.deepEqual(await names(),['Один','Три','Ещё три','Два','Завершена']);
+ await page.locator('.task-drag-handle').first().focus();await page.keyboard.press('ArrowDown');await page.waitForFunction(()=>document.querySelector('#task-sort').value==='manual'&&!document.querySelector('#task-sort').disabled);assert.deepEqual(await names(),['Три','Один','Ещё три','Два','Завершена']);
+ await reload(page);await page.getByTestId('task-row').first().waitFor();assert.equal(await page.locator('#task-sort').inputValue(),'manual');assert.deepEqual(await names(),['Три','Один','Ещё три','Два','Завершена']);
+ }finally{await context.close();}
+});
