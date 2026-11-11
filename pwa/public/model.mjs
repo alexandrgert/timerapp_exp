@@ -124,13 +124,16 @@ function savePriorityOrder(s,values,now){
  const ids=new Set(selected);let index=0;
  s.taskOrder=order.map(id=>ids.has(id)?selected[index++]:id);
 }
+export const isOrderCommand=command=>['sortTasks','reorderTask'].includes(command?.type);
 export function apply(state,command,now=new Date().toISOString(),options={}){
  const s=applyInternal(state,command,now,options);
- reconcileReminder(s,now,{expire:options.reconcile!==false});
+ if(!isOrderCommand(command))reconcileReminder(s,now,{expire:options.reconcile!==false});
  return s;
 }
 function applyInternal(state, command, now=new Date().toISOString(), {reconcile=true}={}) {
  timestamp(now); const s=clone(state); const values=command.values||{};
+ // Ordering must never reconcile timers, reminders or calendar state.
+ if(!isOrderCommand(command)){
  reconcileReminder(s,now,{expire:reconcile});
  if(reconcile)reconcileCalendar(s,now);
  // Focus records without kind are pre-upgrade timers: finish under their original accounting contract.
@@ -138,6 +141,7 @@ function applyInternal(state, command, now=new Date().toISOString(), {reconcile=
  finishFocus(s,s.focus.ends_at);
  }
  reconcileReminder(s,now,{expire:reconcile});
+ }
  if(command.type==='reminder')return reminderCommand(s,values,now);
  if(command.type==='sortTasks'){savePriorityOrder(s,values,now);return s;}
  if(command.type==='reorderTask'){
