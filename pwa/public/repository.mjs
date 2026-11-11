@@ -1,4 +1,4 @@
-import {initialState, apply, validateBackup, focusMatchesTask} from './model.mjs';
+import {initialState, apply, validateBackup, focusMatchesTask, isOrderCommand} from './model.mjs';
 import {importLegacy, reconcileTasks, mergeDocuments, projectTasks, resolveConflict, changeEntity, validateDocument, emptyDocument, documentRevision} from './sync-protocol.mjs';
 
 function canonicalTasks(tasks){
@@ -54,7 +54,7 @@ export async function openRepository({name='tasktimer-pwa'}={}) {
  tx.onabort=()=>reject(failure||storageError(tx.error));
  tx.onerror=()=>{}; // The abort event carries the final transaction outcome.
  tx.oncomplete=()=>{
- if(changed){notify(result);try{channel?.postMessage({type:'changed'});}catch{/* A closing tab must not turn a committed write into a failure. */}}
+ if(changed){notify(result);try{channel?.postMessage({type:isOrderCommand(command)||operation?.type==='orderRefresh'?'order-changed':'changed'});}catch{/* A closing tab must not turn a committed write into a failure. */}}
  resolve(returned??result);
  };
  const store=tx.objectStore('state');const request=store.get('current');
@@ -116,7 +116,7 @@ export async function openRepository({name='tasktimer-pwa'}={}) {
  } else {
  if(sync?.projectionError&&command&&command.type!=='reconcile')throw new Error('Сначала разрешите конфликт синхронизации в настройках. '+sync.projectionError);
  if(!sync?.projectionError){
-   const reconciled=sync?.conflicts?.length?next:apply(next,{type:'reconcile'});
+   const reconciled=sync?.conflicts?.length||isOrderCommand(command)||operation?.type==='orderRefresh'?next:apply(next,{type:'reconcile'});
    if(command?.expected){
      const task=reconciled.tasks.find(t=>t.id===command.taskId);
      const entity=command.sessionId?task?.sessions.find(s=>s.id===command.sessionId):task;
@@ -154,7 +154,7 @@ export async function openRepository({name='tasktimer-pwa'}={}) {
  };
  });
  }
- const refresh=()=>{if(!closed)transaction().then(s=>notify(s)).catch(e=>notify(undefined,e));};
+ const refresh=event=>{if(!closed)transaction(null,event?.data?.type==='order-changed'?{type:'orderRefresh'}:null).then(s=>notify(s)).catch(e=>notify(undefined,e));};
  const onVisibility=()=>{if(globalThis.document?.visibilityState==='visible')refresh();};
  if(channel)channel.onmessage=refresh;
  globalThis.addEventListener?.('focus',refresh);
