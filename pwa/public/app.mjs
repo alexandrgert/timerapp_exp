@@ -24,7 +24,7 @@ function setSortMode(value){sortMode=value;try{localStorage.setItem(sortStorageK
 const attentionBaseTitle=document.title, attentionEvents=new Map(), attentionSeen=new Map();
 let attentionInterval=null,attentionPhase=true,attentionBadge=Promise.resolve(),attentionInitialized=false;
 const attentionTag=kind=>`tasktimer-attention:${location.pathname}:${kind}`;
-function paintAttention(){const event=attentionEvents.get('reminder')||attentionEvents.get('focus');document.title=event&&attentionPhase?`⚠ ${event.title} — TaskTimer`:attentionBaseTitle;}
+function paintAttention(){const event=attentionEvents.get('reminder')||attentionEvents.get('focus');document.title=event&&attentionPhase?`⚠ ${event.title} — TaskTimer PWA`:attentionBaseTitle;}
 function refreshAttention(){
  $('.brand-name').classList.toggle('needs-attention',attentionEvents.size>0);
  clearInterval(attentionInterval);attentionInterval=null;attentionPhase=true;paintAttention();
@@ -53,7 +53,7 @@ function clearAttention(kind){
 function syncReminderAttention(){
  if(!attentionInitialized){attentionInitialized=true;refreshAttention();}
  const p=state.reminder?.pending;
- if(p&&Date.now()>=Date.parse(p.dueAt)&&!state.sync?.projectionError&&!state.sync?.conflicts?.length&&(!p.deadline||Date.now()<Date.parse(p.deadline)))setAttention('reminder',{key:p.generation,title:'Продолжаете работать?',body:'Откройте TaskTimer, чтобы продолжить задачу или остановить таймер.'});
+ if(p&&Date.now()>=Date.parse(p.dueAt)&&!state.sync?.projectionError&&!state.sync?.conflicts?.length&&(!p.deadline||Date.now()<Date.parse(p.deadline)))setAttention('reminder',{key:p.generation,title:'Продолжаете работать?',body:'Откройте TaskTimer PWA, чтобы продолжить задачу или остановить таймер.'});
  else clearAttention('reminder');
 }
 function acknowledgeFocusAttention(){if(document.visibilityState==='visible'&&document.hasFocus())clearAttention('focus');}
@@ -95,7 +95,7 @@ function accept(next) {
   if (selected && !state.tasks.some(t => t.id === selected)) selected = null;
   if (previousFocus && !state.focus && new Date(previousFocus.ends_at).getTime() <= Date.now()) {
     toast(previousFocus.taskId===null?'Концентрация завершена. Можно сделать перерыв.':'Концентрация завершена. Время сохранено.');
-    setAttention('focus',{key:`${previousFocus.started_at}:${previousFocus.ends_at}`,title:'Концентрация завершена',body:'Можно сделать перерыв. Откройте TaskTimer.'});
+    setAttention('focus',{key:`${previousFocus.started_at}:${previousFocus.ends_at}`,title:'Концентрация завершена',body:'Можно сделать перерыв. Откройте TaskTimer PWA.'});
   }
   if(!$('#settings-dialog').open)loadReminderSettings();
   syncReminderAttention();refreshCloseWarning(); render(); renderSync(); document.dispatchEvent(new CustomEvent('tasktimer:state',{detail:state}));
@@ -383,6 +383,31 @@ setInterval(()=>{tick();checkReminder();},1000);
 
 let syncAbort=null, syncAutomatic=false;
 let autoSync=null;
+const conflictFields={title:'Название',description:'Описание',result:'Результат',priority:'Приоритет',daily_priorities:'Приоритет по дням',keep_priority:'Сохранение приоритета',planned_days:'Дни в плане',status:'Состояние задачи',day:'Дата задачи',created_at:'Дата создания',completed_at:'Дата завершения',comment:'Комментарий сессии',interval:'Время сессии',bitrix_record_id:'Передача в Битрикс24',concentration:'Режим концентрации',$alive:'Удаление или сохранение'};
+const priorityLabel=value=>({1:'1 — высокий',2:'2',3:'3',4:'4 — обычный'}[value]||'Не задан');
+function conflictDate(value){if(!value)return 'Не указано';if(/^\d{4}-\d{2}-\d{2}$/.test(value))return value.split('-').reverse().join('.');const d=new Date(value);return Number.isNaN(d.getTime())?'Дата не указана':d.toLocaleString('ru-RU');}
+function conflictValue(conflict,value){
+ if(conflict.field==='$alive')return value?'Сохранить запись':'Удалить запись';
+ if(conflict.field==='daily_priorities'){
+  const dates=[...new Set(conflict.candidates.flatMap(c=>Object.keys(c.value||{})))].sort();
+  const changed=dates.filter(day=>new Set(conflict.candidates.map(c=>c.value?.[day]??null)).size>1);
+  return (changed.length?changed:dates).map(day=>`${conflictDate(day)}: ${priorityLabel(value?.[day])}`).join('\n')||'Приоритеты по дням не заданы';
+ }
+ if(conflict.field==='priority')return priorityLabel(value);
+ if(conflict.field==='planned_days')return value?.length?value.map(conflictDate).join(', '):'Нет дней в плане';
+ if(conflict.field==='interval')return value?`Начало: ${conflictDate(value.started_at)}\nОкончание: ${value.ended_at?conflictDate(value.ended_at):'Таймер работает'}`:'Время не указано';
+ if(conflict.field==='status')return ({running:'Таймер запущен',paused:'Приостановлена',completed:'Завершена'}[value]||'Не указано');
+ if(['day','created_at','completed_at'].includes(conflict.field))return conflictDate(value);
+ if(typeof value==='boolean')return value?'Включено':'Выключено';
+ if(value===null||value==='')return 'Не заполнено';
+ if(typeof value==='object')return 'Сохранить этот вариант дополнительных данных';
+ return String(value);
+}
+function conflictTitle(conflict){
+ const task=state.tasks.find(t=>t.id===conflict.entity[1]);
+ const name=task?.title||state.sync?.conflicts?.find(c=>c.entity[1]===conflict.entity[1]&&c.field==='title')?.candidates.find(c=>typeof c.value==='string')?.value;
+ return `${conflict.entity[0]==='session'?'Сессия задачи':'Задача'} «${name||'Без названия'}»: ${conflictFields[conflict.field]||'Дополнительные данные'}. На устройствах сохранены разные варианты. Выберите, какой оставить.${conflict.field==='daily_priorities'?' Показаны только различающиеся даты; остальные дни сохраняются.':''}`;
+}
 function renderSync(){
  const sync=state.sync,conflicts=sync?.conflicts||[],active=sync?.activeSessions||[];
  $('#sync-attention').hidden=!(conflicts.length||sync?.projectionError||autoSyncIssue);
@@ -391,8 +416,8 @@ function renderSync(){
  $('#sync-conflicts').replaceChildren();
  if(sync?.projectionError){const p=document.createElement('p');p.className='error';p.textContent='Новые данные сохранены в журнале, но пока не применены: '+sync.projectionError;$('#sync-conflicts').append(p);}
  for(const conflict of conflicts){
-   const box=document.createElement('section'),title=document.createElement('p');title.textContent=`${conflict.entity.join(' / ')} — ${conflict.field==='$alive'?'Удаление или сохранение':conflict.field}: выберите вариант`;box.append(title);
-   for(const candidate of conflict.candidates){const b=document.createElement('button');b.className='secondary';b.textContent=conflict.field==='$alive'?(candidate.value?'Сохранить запись':'Удалить запись'):JSON.stringify(candidate.value);b.addEventListener('click',async()=>{b.disabled=true;try{accept(await repo.resolveSync(conflict.entity,conflict.field,candidate.value,conflict.candidates));$('#sync-status').textContent='Выбор сохранён. Синхронизируйте для передачи другим устройствам.';}catch(e){errorAt('#sync-error',e);}finally{b.disabled=false;}});box.append(b);}
+   const box=document.createElement('section'),title=document.createElement('p');title.textContent=conflictTitle(conflict);box.append(title);
+   for(const [index,candidate] of conflict.candidates.entries()){const b=document.createElement('button');b.className='secondary conflict-choice';b.textContent=`Вариант ${index+1}\n${conflictValue(conflict,candidate.value)}`;b.addEventListener('click',async()=>{b.disabled=true;try{accept(await repo.resolveSync(conflict.entity,conflict.field,candidate.value,conflict.candidates));$('#sync-status').textContent='Выбор сохранён. Синхронизируйте для передачи другим устройствам.';}catch(e){errorAt('#sync-error',e);}finally{b.disabled=false;}});box.append(b);}
    $('#sync-conflicts').append(box);
  }
  if(active.length){const p=document.createElement('p');p.textContent='Одновременно запущено несколько сессий. Выберите одну: остальные завершатся текущим временем, их записи сохранятся.';$('#sync-conflicts').append(p);for(const item of active){const b=document.createElement('button');b.className='secondary';b.textContent=`Оставить: ${item.taskTitle} (${item.started_at})`;b.addEventListener('click',()=>confirm('Оставить одну активную сессию?','Остальные активные сессии завершатся текущим временем; история сохранится.',async()=>accept(await repo.keepActive(item.taskId,item.sessionId,active)),{label:'Завершить остальные'}));$('#sync-conflicts').append(b);}}

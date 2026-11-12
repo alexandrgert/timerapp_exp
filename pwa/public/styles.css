@@ -34,3 +34,5 @@
 .page-heading #day-total{margin:8px 0 0}
 #focus-resume{padding:16px;background:white;border:1px solid var(--line);border-radius:15px;margin-top:0}
 @media(max-width:680px){.timer-panel{grid-template-columns:1fr}}
+
+#sync-conflicts .conflict-choice{display:block;width:100%;white-space:pre-line;text-align:left;overflow-wrap:anywhere;margin:8px 0}

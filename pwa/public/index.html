@@ -2,14 +2,14 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#f6f7f3"><meta name="description" content="Задачи, время и концентрация. Ваш TaskTimer работает офлайн.">
-<title>TaskTimer — задачи и время</title>
+<meta name="theme-color" content="#f6f7f3"><meta name="description" content="Задачи, время и концентрация. Ваш TaskTimer PWA работает офлайн.">
+<title>TaskTimer PWA — задачи и время</title>
 <link rel="manifest" href="/manifest.webmanifest"><link rel="icon" href="/icons/icon.svg" type="image/svg+xml"><link rel="stylesheet" href="/styles.css">
 <script type="module" src="/app.mjs"></script><script type="module" src="/pwa.mjs"></script>
 </head>
 <body>
 <div class="app-shell">
-<header class="header"><a class="brand" href="/" aria-label="TaskTimer, главная"><span class="brand-icon" aria-hidden="true">◷</span><span class="brand-name">TaskTimer</span></a><div class="header-actions"><span id="connection" class="connection"></span><a class="guide-link" href="/guide/" target="_blank" rel="noopener noreferrer" title="Инструкция — откроется в новой вкладке">Инструкция</a><button class="icon-button" id="settings-button" aria-label="Настройки и резервные копии" title="Настройки и резервные копии">⚙</button></div></header>
+<header class="header"><a class="brand" href="/" aria-label="TaskTimer PWA, главная"><span class="brand-icon" aria-hidden="true">◷</span><span class="brand-name">TaskTimer PWA</span></a><div class="header-actions"><span id="connection" class="connection"></span><a class="guide-link" href="/guide/" target="_blank" rel="noopener noreferrer" title="Инструкция — откроется в новой вкладке">Инструкция</a><button class="icon-button" id="settings-button" aria-label="Настройки и резервные копии" title="Настройки и резервные копии">⚙</button></div></header>
 <main>
 <section class="update-notice" data-pwa-notice hidden aria-labelledby="update-notice-title"><div role="status" aria-live="polite"><h2 id="update-notice-title">Доступно обновление</h2><p data-pwa-release></p><ul data-pwa-changes></ul><p data-pwa-update-error hidden></p></div><div class="button-row"><button class="primary" data-pwa-update>Обновить</button><button class="secondary" data-pwa-later>Позже</button></div></section>
 <div class="page-heading"><div><p class="eyebrow" id="today-date"></p><h1>Мои задачи</h1><p id="day-total" class="timer-secondary">Сегодня — 00:00:00</p></div><div class="button-row"><button class="secondary" data-action="focus" data-testid="start-focus">Концентрация</button><button class="primary" id="new-task" data-testid="new-task">＋ Новая задача</button></div></div>
