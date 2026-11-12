@@ -1,11 +1,12 @@
 name: Self-hosted PWA verification and package
 
-# Each invocation needs explicit approval. No push, PR, native build or deployment.
+# One approved self-host release. Do not push this branch again without new approval.
 on:
-  workflow_dispatch:
+  push:
+    branches: [release/approved-selfhost-20261112-01]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   verify-package:
@@ -52,6 +53,28 @@ jobs:
           name: tasktimer-selfhost
           path: selfhost-package/
           if-no-files-found: error
+      - name: Publish isolated self-host preview release
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const fs = require('node:fs/promises');
+            const tag = 'selfhost-preview-2026.11.12.1';
+            const release = await github.rest.repos.createRelease({
+              ...context.repo, tag_name: tag, target_commitish: context.sha,
+              name: 'TaskTimer PWA Self-host preview — 12 ноября 2026',
+              body: await fs.readFile('pwa/selfhost/release-notes-2026-11-12.md', 'utf8'),
+              draft: true, prerelease: true, make_latest: 'false'
+            });
+            for (const name of ['tasktimer-selfhost.tar.gz', 'SHA256SUMS', 'REVISION']) {
+              const data = await fs.readFile('selfhost-package/' + name);
+              await github.rest.repos.uploadReleaseAsset({
+                ...context.repo, release_id: release.data.id, name, data,
+                headers: {'content-type': name.endsWith('.gz') ? 'application/gzip' : 'text/plain', 'content-length': data.length}
+              });
+            }
+            await github.rest.repos.updateRelease({...context.repo, release_id: release.data.id,
+              draft: false, prerelease: true, make_latest: 'false'});
+            core.info('Published ' + release.data.html_url);
       - uses: actions/upload-artifact@v5
         if: always()
         with:
