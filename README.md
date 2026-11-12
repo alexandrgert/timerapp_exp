@@ -18,6 +18,14 @@
 Далее развиваем **только PWA**. Self-host дорабатывается в отдельной ветке; Android и desktop этим выпуском не обновляются.
 <!-- pwa-latest-release:end -->
 
+<!-- selfhost-preview:start -->
+## Серверный вариант PWA — preview от 12 ноября 2026
+
+[Скачать проверенный self-host релиз](https://github.com/alexandrgert/timerapp_exp/releases/tag/selfhost-preview-2026.11.12.1) · [Установка на свой сервер](https://github.com/alexandrgert/timerapp_exp/blob/pwa/selfhost-sync/pwa/selfhost/README.md)
+
+Отдельный вариант с собственным API, SQLite и ключами устройств. Проверены175общих и11серверных сценариев, настоящий Service Worker и офлайн-работа. Архив, SHA256SUMS и REVISION опубликованы. Это предварительный выпуск; установка на ваш сервер не выполнялась. GitHub Pages продолжает работать отдельно.
+<!-- selfhost-preview:end -->
+
 ## О проекте и прежних desktop/Android-версиях
 
 Экспериментальный форк **TaskTimer link B24** — песочница для UX и модели данных ([`timerapp_exp`](https://github.com/alexandrgert/timerapp_exp)).  
