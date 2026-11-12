@@ -1,6 +1,6 @@
 /** GitHub Contents transport. This module never persists credentials. */
 export const GITHUB_DATA_PATH='data/state.v2.json';
-export const MAX_GITHUB_BYTES=1_000_000;
+export const MAX_GITHUB_BYTES=20*1024*1024;
 export class GitHubSyncError extends Error {
  constructor(code,message,status=null){super(message);this.name='GitHubSyncError';this.code=code;this.status=status;}
 }
@@ -12,8 +12,8 @@ export function githubTarget(repository,branch='main'){
  if(!ref||ref.length>200||/[\s~^:?*\[\\\x00-\x1f\x7f]/.test(ref)||ref.includes('..')||ref.includes('@{')||ref.startsWith('/')||ref.endsWith('/')||ref.split('/').some(p=>!p||p.startsWith('.')||p.endsWith('.')||p.endsWith('.lock')))throw fail('INPUT','Укажите корректное имя ветки GitHub.');
  return {repository:name,branch:ref,path:GITHUB_DATA_PATH,key:`github:${name.toLowerCase()}:${ref}:${GITHUB_DATA_PATH}`};
 }
-function encode(text){const bytes=new TextEncoder().encode(text);if(bytes.length>MAX_GITHUB_BYTES)throw fail('SIZE','Файл синхронизации превышает 1 МБ. Обмен остановлен без перезаписи.');let binary='';for(let i=0;i<bytes.length;i+=8192)binary+=String.fromCharCode(...bytes.subarray(i,i+8192));return btoa(binary);}
-function decode(content){try{const binary=atob(content.replace(/\s/g,''));if(binary.length>MAX_GITHUB_BYTES)throw fail('SIZE','Файл синхронизации превышает 1 МБ.');return new TextDecoder('utf-8',{fatal:true}).decode(Uint8Array.from(binary,c=>c.charCodeAt(0)));}catch(e){if(e instanceof GitHubSyncError)throw e;throw fail('BODY','GitHub вернул повреждённое содержимое файла.');}}
+function encode(text){const bytes=new TextEncoder().encode(text);if(bytes.length>MAX_GITHUB_BYTES)throw fail('SIZE','Файл синхронизации превышает 20 МиБ. Обмен остановлен без перезаписи.');let binary='';for(let i=0;i<bytes.length;i+=8192)binary+=String.fromCharCode(...bytes.subarray(i,i+8192));return btoa(binary);}
+function decode(content){try{const binary=atob(content.replace(/\s/g,''));if(binary.length>MAX_GITHUB_BYTES)throw fail('SIZE','Файл синхронизации превышает 20 МиБ.');return new TextDecoder('utf-8',{fatal:true}).decode(Uint8Array.from(binary,c=>c.charCodeAt(0)));}catch(e){if(e instanceof GitHubSyncError)throw e;throw fail('BODY','GitHub вернул повреждённое содержимое файла.');}}
 export async function readGitHubJson(response){
  const reader=response.body?.getReader();if(!reader)throw fail('BODY','GitHub вернул пустой ответ.');
  let length=0,text='';const decoder=new TextDecoder('utf-8',{fatal:true});
@@ -43,11 +43,20 @@ export function createGitHubClient({repository,branch='main',token,fetchImpl=glo
  const b=await request(root+'/branches/'+encodeURIComponent(target.branch),{signal});if(!b.ok)throw fail('BRANCH','Ветка недоступна. Создайте приватный репозиторий с README и проверьте имя ветки.',b.status);await b.body?.cancel();
  }
  async function read({signal}={}){
- await verify({signal});const response=await request(endpoint+'?ref='+encodeURIComponent(target.branch),{signal});if(response.status===404)return null;
+ await verify({signal});const response=await request(endpoint+'?ref='+encodeURIComponent(target.branch),{signal,headers:{Accept:'application/vnd.github.object+json'}});if(response.status===404)return null;
  if(!response.ok)throw fail('HTTP',`GitHub: ошибка чтения HTTP ${response.status}.`,response.status);
  const file=await readGitHubJson(response);
- if(file.type!=='file'||file.path!==GITHUB_DATA_PATH||file.encoding!=='base64'||!validSha(file.sha)||typeof file.content!=='string')throw fail('BODY','GitHub не вернул обычный JSON-файл с версией SHA. Обмен остановлен.');
- if(file.size>MAX_GITHUB_BYTES)throw fail('SIZE','Файл синхронизации превышает 1 МБ.');
+ if(file.type!=='file'||file.path!==GITHUB_DATA_PATH||!['base64','none'].includes(file.encoding)||!validSha(file.sha)||!Number.isSafeInteger(file.size)||file.size<0||typeof file.content!=='string')throw fail('BODY','GitHub не вернул обычный JSON-файл с версией SHA. Обмен остановлен.');
+ if(file.size>MAX_GITHUB_BYTES)throw fail('SIZE','Файл синхронизации превышает 20 МиБ.');
+ if(file.encoding==='none'){
+ const raw=await request(root+'/git/blobs/'+file.sha,{signal,headers:{Accept:'application/vnd.github.raw+json'}});
+ if(!raw.ok)throw fail('HTTP',`GitHub: ошибка чтения содержимого HTTP ${raw.status}.`,raw.status);
+ const reader=raw.body?.getReader();if(!reader)throw fail('BODY','GitHub вернул пустое содержимое файла.');
+ let length=0,body='';const decoder=new TextDecoder('utf-8',{fatal:true});
+ try{while(true){const {done,value}=await reader.read();if(done)break;length+=value.byteLength;if(length>MAX_GITHUB_BYTES)throw fail('SIZE','Файл синхронизации превышает 20 МиБ.');body+=decoder.decode(value,{stream:true});}body+=decoder.decode();if(length!==file.size)throw fail('BODY','Размер файла GitHub не совпал с прочитанной версией. Обмен остановлен.');}
+ catch(e){await reader.cancel().catch(()=>{});if(e instanceof GitHubSyncError)throw e;throw fail('BODY','Не удалось прочитать содержимое GitHub. Обмен остановлен без перезаписи.');}finally{reader.releaseLock();}
+ return {body,etag:file.sha};
+ }
  return {body:decode(file.content),etag:file.sha};
  }
  return {target,label:'GitHub',read,

@@ -40,3 +40,12 @@ test('read-only check never uploads and privacy is checked again before write',a
  const f=fixture();assert.equal((await f.client.check()).exists,true);assert.equal(f.calls.some(x=>x.options.method==='PUT'),false);
  let visible=false;const client=createGitHubClient({...config,fetchImpl:async url=>url.endsWith('/private-data')?json({private:!visible}):url.includes('/branches/')?json({}):json(file('{}'))});await client.read();visible=true;await assert.rejects(client.write('{}',{etag:sha}),/приватный/);
 });
+
+test('large file uses immutable blob SHA, bounds UTF-8 body and writes same version',async()=>{
+ const body=JSON.stringify({text:'Привет'.repeat(100000)}),size=Buffer.byteLength(body);assert.ok(size>1_000_000);const calls=[];
+ const client=createGitHubClient({...config,fetchImpl:async(url,options)=>{calls.push({url,options});if(options.method==='PUT')return json({},201);if(url.endsWith('/private-data'))return json({private:true});if(url.includes('/branches/'))return json({});if(url.includes('/git/blobs/')){assert.ok(url.endsWith('/'+sha));assert.equal(options.headers.Accept,'application/vnd.github.raw+json');return new Response(body);}return json({type:'file',path:GITHUB_DATA_PATH,sha,size,encoding:'none',content:''});}});
+ const remote=await client.read();assert.deepEqual(remote,{body,etag:sha});await client.write(body,{etag:remote.etag});const payload=JSON.parse(calls.find(c=>c.options.method==='PUT').options.body);assert.equal(payload.sha,sha);assert.equal(Buffer.from(payload.content,'base64').toString(),body);
+});
+test('raw body mismatch, invalid UTF-8, failed fetch and excessive metadata never overwrite',async()=>{
+ for(const mode of ['mismatch','utf8','http','size']){let puts=0;const client=createGitHubClient({...config,fetchImpl:async(url,options)=>{if(options.method==='PUT')puts++;if(url.endsWith('/private-data'))return json({private:true});if(url.includes('/branches/'))return json({});if(url.includes('/git/blobs/'))return mode==='http'?new Response('',{status:500}):new Response(mode==='utf8'?Uint8Array.from([255]):'{}');return json({type:'file',path:GITHUB_DATA_PATH,sha,size:mode==='size'?MAX_GITHUB_BYTES+1:4,encoding:'none',content:''});}});await assert.rejects(client.read());assert.equal(puts,0);}
+});
