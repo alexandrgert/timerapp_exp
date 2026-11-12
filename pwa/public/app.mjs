@@ -131,9 +131,10 @@ function render() {
 }
 function updateDescriptionLinks(){
  for(const line of document.querySelectorAll('.task-description-line')){
- const button=line.querySelector('.description-more'),text=line.querySelector('.task-description-text');button.hidden=true;
+ const button=line.querySelector('.description-more'),text=line.querySelector('.task-description-text'),focused=document.activeElement===button;button.hidden=true;
  const task=state.tasks.find(t=>t.id===button.dataset.id);
  button.hidden=!(text.scrollWidth>text.clientWidth+1||/[\r\n]/.test(task?.description||''));
+ if(focused&&!button.hidden)button.focus({preventScroll:true});
  }
 }
 new ResizeObserver(updateDescriptionLinks).observe($('#task-list'));
