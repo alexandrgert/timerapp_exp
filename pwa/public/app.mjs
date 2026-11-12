@@ -13,6 +13,31 @@ const localDate = (value = new Date()) => { const d = new Date(value); return `$
 const localInput = value => { if (!value) return ''; const d = new Date(value); return `${localDate(d)}T${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}${d.getSeconds() ? ':'+String(d.getSeconds()).padStart(2,'0') : ''}`; };
 const clock = value => new Date(value).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});
 const dateLabel = value => new Date(value).toLocaleDateString('ru-RU',{day:'numeric',month:'short',year:'numeric'});
+const conflictFields={title:'Название',description:'Описание',result:'Результат',priority:'Приоритет',daily_priorities:'Приоритет по дням',keep_priority:'Сохранение приоритета',planned_days:'Дни в плане',status:'Состояние задачи',day:'Дата задачи',created_at:'Дата создания',completed_at:'Дата завершения',comment:'Комментарий сессии',interval:'Время сессии',bitrix_record_id:'Передача в Битрикс24',concentration:'Режим концентрации',$alive:'Удаление или сохранение'};
+const priorityLabel=value=>({1:'1 — высокий',2:'2',3:'3',4:'4 — обычный'}[value]||'Не задан');
+function conflictDate(value){if(!value)return 'Не указано';if(/^\d{4}-\d{2}-\d{2}$/.test(value))return value.split('-').reverse().join('.');const d=new Date(value);return Number.isNaN(d.getTime())?'Дата не указана':d.toLocaleString('ru-RU');}
+function conflictValue(conflict,value){
+ if(conflict.field==='$alive')return value?'Сохранить запись':'Удалить запись';
+ if(conflict.field==='daily_priorities'){
+  const dates=[...new Set(conflict.candidates.flatMap(c=>Object.keys(c.value||{})))].sort();
+  const changed=dates.filter(day=>new Set(conflict.candidates.map(c=>c.value?.[day]??null)).size>1);
+  return (changed.length?changed:dates).map(day=>`${conflictDate(day)}: ${priorityLabel(value?.[day])}`).join('\n')||'Приоритеты по дням не заданы';
+ }
+ if(conflict.field==='priority')return priorityLabel(value);
+ if(conflict.field==='planned_days')return value?.length?value.map(conflictDate).join(', '):'Нет дней в плане';
+ if(conflict.field==='interval')return value?`Начало: ${conflictDate(value.started_at)}\nОкончание: ${value.ended_at?conflictDate(value.ended_at):'Таймер работает'}`:'Время не указано';
+ if(conflict.field==='status')return ({running:'Таймер запущен',paused:'Приостановлена',completed:'Завершена'}[value]||'Не указано');
+ if(['day','created_at','completed_at'].includes(conflict.field))return conflictDate(value);
+ if(typeof value==='boolean')return value?'Включено':'Выключено';
+ if(value===null||value==='')return 'Не заполнено';
+ if(typeof value==='object')return 'Сохранить этот вариант дополнительных данных';
+ return String(value);
+}
+function conflictTitle(conflict){
+ const task=state.tasks.find(t=>t.id===conflict.entity[1]);
+ const name=task?.title||state.sync?.conflicts?.find(c=>c.entity[1]===conflict.entity[1]&&c.field==='title')?.candidates.find(c=>typeof c.value==='string')?.value;
+ return `${conflict.entity[0]==='session'?'Сессия задачи':'Задача'} «${name||'Без названия'}»: ${conflictFields[conflict.field]||'Дополнительные данные'}. На устройствах сохранены разные варианты. Выберите, какой оставить.${conflict.field==='daily_priorities'?' Показаны только различающиеся даты; остальные дни сохраняются.':''}`;
+}
 let repo, state = {tasks:[],focus:null}, selected = null, filter = 'today', editorAction, confirmAction, toastTimeout, reconciling = false;
 const pendingWrites = new Set();
 const pendingPriorityLocks = new Set();
@@ -383,31 +408,6 @@ setInterval(()=>{tick();checkReminder();},1000);
 
 let syncAbort=null, syncAutomatic=false;
 let autoSync=null;
-const conflictFields={title:'Название',description:'Описание',result:'Результат',priority:'Приоритет',daily_priorities:'Приоритет по дням',keep_priority:'Сохранение приоритета',planned_days:'Дни в плане',status:'Состояние задачи',day:'Дата задачи',created_at:'Дата создания',completed_at:'Дата завершения',comment:'Комментарий сессии',interval:'Время сессии',bitrix_record_id:'Передача в Битрикс24',concentration:'Режим концентрации',$alive:'Удаление или сохранение'};
-const priorityLabel=value=>({1:'1 — высокий',2:'2',3:'3',4:'4 — обычный'}[value]||'Не задан');
-function conflictDate(value){if(!value)return 'Не указано';if(/^\d{4}-\d{2}-\d{2}$/.test(value))return value.split('-').reverse().join('.');const d=new Date(value);return Number.isNaN(d.getTime())?'Дата не указана':d.toLocaleString('ru-RU');}
-function conflictValue(conflict,value){
- if(conflict.field==='$alive')return value?'Сохранить запись':'Удалить запись';
- if(conflict.field==='daily_priorities'){
-  const dates=[...new Set(conflict.candidates.flatMap(c=>Object.keys(c.value||{})))].sort();
-  const changed=dates.filter(day=>new Set(conflict.candidates.map(c=>c.value?.[day]??null)).size>1);
-  return (changed.length?changed:dates).map(day=>`${conflictDate(day)}: ${priorityLabel(value?.[day])}`).join('\n')||'Приоритеты по дням не заданы';
- }
- if(conflict.field==='priority')return priorityLabel(value);
- if(conflict.field==='planned_days')return value?.length?value.map(conflictDate).join(', '):'Нет дней в плане';
- if(conflict.field==='interval')return value?`Начало: ${conflictDate(value.started_at)}\nОкончание: ${value.ended_at?conflictDate(value.ended_at):'Таймер работает'}`:'Время не указано';
- if(conflict.field==='status')return ({running:'Таймер запущен',paused:'Приостановлена',completed:'Завершена'}[value]||'Не указано');
- if(['day','created_at','completed_at'].includes(conflict.field))return conflictDate(value);
- if(typeof value==='boolean')return value?'Включено':'Выключено';
- if(value===null||value==='')return 'Не заполнено';
- if(typeof value==='object')return 'Сохранить этот вариант дополнительных данных';
- return String(value);
-}
-function conflictTitle(conflict){
- const task=state.tasks.find(t=>t.id===conflict.entity[1]);
- const name=task?.title||state.sync?.conflicts?.find(c=>c.entity[1]===conflict.entity[1]&&c.field==='title')?.candidates.find(c=>typeof c.value==='string')?.value;
- return `${conflict.entity[0]==='session'?'Сессия задачи':'Задача'} «${name||'Без названия'}»: ${conflictFields[conflict.field]||'Дополнительные данные'}. На устройствах сохранены разные варианты. Выберите, какой оставить.${conflict.field==='daily_priorities'?' Показаны только различающиеся даты; остальные дни сохраняются.':''}`;
-}
 function renderSync(){
  const sync=state.sync,conflicts=sync?.conflicts||[],active=sync?.activeSessions||[];
  $('#sync-attention').hidden=!(conflicts.length||sync?.projectionError||autoSyncIssue);
@@ -486,7 +486,7 @@ async function performGithubExchange(checkOnly=false,automatic=false){
  const revision=documentRevision(result.document);if(!automatic)autoSync?.acknowledge(revision);
  try{localStorage.setItem('tasktimer-github-last-sync:'+location.pathname,JSON.stringify({key:client.target.key,at:new Date().toISOString()}));}catch{}
  $('#sync-status').textContent=(state.sync?.conflicts.length||state.sync?.projectionError?'Обмен завершён; разрешите конфликты ниже.':'Синхронизация завершена.')+' '+new Date().toLocaleString('ru-RU');
- return {revision,blockedReason:state.sync?.conflicts.length||state.sync?.projectionError?'Автообмен ждёт разрешения конфликтов в настройках.':null};
+ return {revision,blockedReason:state.sync?.conflicts.length||state.sync?.projectionError?'Обмен выполнен. Выберите варианты конфликтов в настройках.':null};
  }catch(e){if(syncAbort.signal.aborted)$('#sync-status').textContent='Обмен отменён. Уже сохранённые данные остаются на устройстве.';else{errorAt('#sync-error',e);$('#sync-status').textContent=checkOnly?'Подключение не проверено.':'Синхронизация не завершена.';}throw e;}
  finally{syncAbort=null;syncAutomatic=false;for(const id of ['sync-submit','sync-check','sync-backup','sync-forget-token'])$('#'+id).disabled=false;for(const input of $('#sync-form').querySelectorAll('input'))input.disabled=false;$('#sync-cancel').hidden=true;}
 }
@@ -510,13 +510,13 @@ function autoTarget(){return githubTarget($('#sync-form [name=repository]').valu
 function autoSettingKey(){return 'tasktimer-github-auto:'+location.pathname+':'+autoTarget().key;}
 function dataRevision(value){return value.sync?.revision||JSON.stringify(value.tasks.map(t=>{const copy={...t};delete copy.priority;return copy;}).sort((a,b)=>a.id.localeCompare(b.id)));}
 autoSync=createAutoSync({
+ pollMs:30_000,
  run:()=>githubExchange(false,true),
  eligible:()=>{
  if(!navigator.locks?.request)return 'Автообмен недоступен в этом браузере. Используйте ручную синхронизацию.';
  if(document.visibilityState!=='visible')return 'Автообмен продолжится при возвращении в приложение.';
  if(!navigator.onLine)return 'Нет сети. Изменения сохраняются на устройстве.';
  if(!tokenInput.value)return 'Введите токен для автоматической синхронизации.';
- if(state.sync?.conflicts.length||state.sync?.projectionError)return 'Автообмен ждёт разрешения конфликтов в настройках.';
  return null;
  },
  onStatus:message=>{$('#sync-auto-status').textContent=message;autoSyncIssue=/^(Автообмен приостановлен|Введите токен|Обмен отложен)/.test(message)?message:null;renderSync();}
