@@ -1,5 +1,5 @@
 {
-  "id": "/", "name": "TaskTimer", "short_name": "TaskTimer", "lang": "ru",
+  "id": "/", "name": "TaskTimer PWA", "short_name": "TaskTimer PWA", "lang": "ru",
   "start_url": "/", "scope": "/", "display": "standalone",
   "background_color": "#f5f7fb", "theme_color": "#176a53",
   "icons": [

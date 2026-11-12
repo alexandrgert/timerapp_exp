@@ -1,5 +1,10 @@
 # TaskTimer Experiment
 
+> Ветка **pwa/selfhost-sync** — серверный вариант TaskTimer PWA. [Установка и обновление](pwa/selfhost/README.md) · [Инструкция](docs/user-guide/TaskTimer-instruction.html).
+>
+> Актуализирован 12 ноября 2026: единый таймер концентрации, постоянная сортировка, счётчики, понятные конфликты и обмен состоянием таймера. Сервер использует собственные API/SQLite и ключи устройств; GitHub-токены не нужны. Исходники обновлены, новый установочный архив и развёртывание ещё не выполнялись.
+
+
 Экспериментальный форк **TaskTimer link B24** — песочница для UX и модели данных ([`timerapp_exp`](https://github.com/alexandrgert/timerapp_exp)).  
 Стабильные релизы продукта — [alexandrgert/timer-app](https://github.com/alexandrgert/timer-app).
 

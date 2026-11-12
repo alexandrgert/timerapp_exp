@@ -13,14 +13,43 @@ const localDate = (value = new Date()) => { const d = new Date(value); return `$
 const localInput = value => { if (!value) return ''; const d = new Date(value); return `${localDate(d)}T${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}${d.getSeconds() ? ':'+String(d.getSeconds()).padStart(2,'0') : ''}`; };
 const clock = value => new Date(value).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});
 const dateLabel = value => new Date(value).toLocaleDateString('ru-RU',{day:'numeric',month:'short',year:'numeric'});
+const conflictFields={title:'Название',description:'Описание',result:'Результат',priority:'Приоритет',daily_priorities:'Приоритет по дням',keep_priority:'Сохранение приоритета',planned_days:'Дни в плане',status:'Состояние задачи',day:'Дата задачи',created_at:'Дата создания',completed_at:'Дата завершения',comment:'Комментарий сессии',interval:'Время сессии',bitrix_record_id:'Передача в Битрикс24',concentration:'Режим концентрации',$alive:'Удаление или сохранение'};
+const priorityLabel=value=>({1:'1 — высокий',2:'2',3:'3',4:'4 — обычный'}[value]||'Не задан');
+function conflictDate(value){if(!value)return 'Не указано';if(/^\d{4}-\d{2}-\d{2}$/.test(value))return value.split('-').reverse().join('.');const d=new Date(value);return Number.isNaN(d.getTime())?'Дата не указана':d.toLocaleString('ru-RU');}
+function conflictValue(conflict,value){
+ if(conflict.field==='$alive')return value?'Сохранить запись':'Удалить запись';
+ if(conflict.field==='daily_priorities'){
+  const dates=[...new Set(conflict.candidates.flatMap(c=>Object.keys(c.value||{})))].sort();
+  const changed=dates.filter(day=>new Set(conflict.candidates.map(c=>c.value?.[day]??null)).size>1);
+  return (changed.length?changed:dates).map(day=>`${conflictDate(day)}: ${priorityLabel(value?.[day])}`).join('\n')||'Приоритеты по дням не заданы';
+ }
+ if(conflict.field==='priority')return priorityLabel(value);
+ if(conflict.field==='planned_days')return value?.length?value.map(conflictDate).join(', '):'Нет дней в плане';
+ if(conflict.field==='interval')return value?`Начало: ${conflictDate(value.started_at)}\nОкончание: ${value.ended_at?conflictDate(value.ended_at):'Таймер работает'}`:'Время не указано';
+ if(conflict.field==='status')return ({running:'Таймер запущен',paused:'Приостановлена',completed:'Завершена'}[value]||'Не указано');
+ if(['day','created_at','completed_at'].includes(conflict.field))return conflictDate(value);
+ if(typeof value==='boolean')return value?'Включено':'Выключено';
+ if(value===null||value==='')return 'Не заполнено';
+ if(typeof value==='object')return 'Сохранить этот вариант дополнительных данных';
+ return String(value);
+}
+function conflictTitle(conflict){
+ const task=state.tasks.find(t=>t.id===conflict.entity[1]);
+ const name=task?.title||state.sync?.conflicts?.find(c=>c.entity[1]===conflict.entity[1]&&c.field==='title')?.candidates.find(c=>typeof c.value==='string')?.value;
+ return `${conflict.entity[0]==='session'?'Сессия задачи':'Задача'} «${name||'Без названия'}»: ${conflictFields[conflict.field]||'Дополнительные данные'}. На устройствах сохранены разные варианты. Выберите, какой оставить.${conflict.field==='daily_priorities'?' Показаны только различающиеся даты; остальные дни сохраняются.':''}`;
+}
 let repo, state = {tasks:[],focus:null}, selected = null, filter = 'today', editorAction, confirmAction, toastTimeout, reconciling = false;
 const pendingWrites = new Set();
 const pendingPriorityLocks = new Set();
 let taskDrag=null, reorderBusy=false, sortMode='manual';
+const sortStorageKey='tasktimer-sort-mode:'+location.pathname;
+const validSort=value=>['manual','priority-asc','priority-desc'].includes(value);
+try{const saved=localStorage.getItem(sortStorageKey);if(validSort(saved))sortMode=saved;}catch{}
+function setSortMode(value){sortMode=value;try{localStorage.setItem(sortStorageKey,value);}catch{}}
 const attentionBaseTitle=document.title, attentionEvents=new Map(), attentionSeen=new Map();
 let attentionInterval=null,attentionPhase=true,attentionBadge=Promise.resolve(),attentionInitialized=false;
 const attentionTag=kind=>`tasktimer-attention:${location.pathname}:${kind}`;
-function paintAttention(){const event=attentionEvents.get('reminder')||attentionEvents.get('focus');document.title=event&&attentionPhase?`⚠ ${event.title} — TaskTimer`:attentionBaseTitle;}
+function paintAttention(){const event=attentionEvents.get('reminder')||attentionEvents.get('focus');document.title=event&&attentionPhase?`⚠ ${event.title} — TaskTimer PWA`:attentionBaseTitle;}
 function refreshAttention(){
  $('.brand-name').classList.toggle('needs-attention',attentionEvents.size>0);
  clearInterval(attentionInterval);attentionInterval=null;attentionPhase=true;paintAttention();
@@ -49,7 +78,7 @@ function clearAttention(kind){
 function syncReminderAttention(){
  if(!attentionInitialized){attentionInitialized=true;refreshAttention();}
  const p=state.reminder?.pending;
- if(p&&Date.now()>=Date.parse(p.dueAt)&&!state.sync?.projectionError&&!state.sync?.conflicts?.length&&(!p.deadline||Date.now()<Date.parse(p.deadline)))setAttention('reminder',{key:p.generation,title:'Продолжаете работать?',body:'Откройте TaskTimer, чтобы продолжить задачу или остановить таймер.'});
+ if(p&&Date.now()>=Date.parse(p.dueAt)&&!state.sync?.projectionError&&!state.sync?.conflicts?.length&&(!p.deadline||Date.now()<Date.parse(p.deadline)))setAttention('reminder',{key:p.generation,title:'Продолжаете работать?',body:'Откройте TaskTimer PWA, чтобы продолжить задачу или остановить таймер.'});
  else clearAttention('reminder');
 }
 function acknowledgeFocusAttention(){if(document.visibilityState==='visible'&&document.hasFocus())clearAttention('focus');}
@@ -91,7 +120,7 @@ function accept(next) {
   if (selected && !state.tasks.some(t => t.id === selected)) selected = null;
   if (previousFocus && !state.focus && new Date(previousFocus.ends_at).getTime() <= Date.now()) {
     toast(previousFocus.taskId===null?'Концентрация завершена. Можно сделать перерыв.':'Концентрация завершена. Время сохранено.');
-    setAttention('focus',{key:`${previousFocus.started_at}:${previousFocus.ends_at}`,title:'Концентрация завершена',body:'Можно сделать перерыв. Откройте TaskTimer.'});
+    setAttention('focus',{key:`${previousFocus.started_at}:${previousFocus.ends_at}`,title:'Концентрация завершена',body:'Можно сделать перерыв. Откройте TaskTimer PWA.'});
   }
   if(!$('#settings-dialog').open)loadReminderSettings();
   syncReminderAttention();refreshCloseWarning(); render(); renderSync(); document.dispatchEvent(new CustomEvent('tasktimer:state',{detail:state}));
@@ -101,6 +130,7 @@ function taskById(id) { const task = state.tasks.find(t => t.id === id); if (!ta
 function render() {
   cancelTaskDrag();
   $('#task-sort').value=sortMode;$('#task-sort').disabled=reorderBusy;
+  const focusedDescription=document.activeElement?.matches('.description-more')?document.activeElement.dataset.id:null;
   const focusedLock=document.activeElement?.matches('.priority-lock')?document.activeElement.dataset.id:null;
   for(const id of selectedTasks)if(!state.tasks.some(t=>t.id===id))selectedTasks.delete(id);
   document.querySelectorAll('[data-filter]').forEach(b => {b.classList.toggle('selected',b.dataset.filter === filter); b.setAttribute('aria-pressed',String(b.dataset.filter === filter));});
@@ -108,19 +138,28 @@ function render() {
   $('#selection-count').textContent=`Выбрано: ${selectedTasks.size}`;
   document.querySelectorAll('[data-priority-assign]').forEach(b=>b.disabled=!selectedTasks.size);
   const term=$('#search').value;
-  const tasks=visibleTasks(state,{view:filter,day:viewDay,query:term,priorities:[...priorityFilters]},new Date().toISOString());
+  const now=new Date().toISOString(), options={day:viewDay,query:term,priorities:[...priorityFilters],sort:sortMode};
+  const lists=Object.fromEntries(['today','progress','all'].map(view=>[view,visibleTasks(state,{...options,view,day:view==='today'?localDate(now):viewDay},now)]));
+  for(const view of ['today','progress','all'])$('#tab-count-'+view).textContent=`(${lists[view].length})`;
+  const completed=lists.all.filter(task=>task.status==='completed').length;
+  $('#all-task-counts').hidden=filter!=='all';
+  $('#all-task-counts').textContent=`Открытых: ${lists.all.length-completed} · Завершённых: ${completed}`;
+  const tasks=lists[filter]||visibleTasks(state,{...options,view:filter},now);
   $('#task-list').innerHTML=tasks.length?tasks.map(t=>{
     const priority=priorityFor(t,viewDay),planned=t.planned_days?.includes(viewDay),keepPriority=t.status!=='completed'&&!!t.keep_priority;
     return `<article class="task-row ${selected===t.id?'chosen':''} ${t.status==='completed'?'completed':''}" data-testid="task-row" data-task-id="${escape(t.id)}"><button type="button" class="task-drag-handle" data-drag-id="${escape(t.id)}" aria-label="Переместить: ${escape(t.title)}" title="${t.status==='completed'?'Завершённые задачи расположены по времени завершения.':'Перетащите для изменения порядка. Клавиатура: стрелки вверх и вниз.'}" ${reorderBusy||t.status==='running'||t.status==='completed'?'disabled':''}>⠿</button><input type="checkbox" data-select-task="${escape(t.id)}" aria-label="Выбрать: ${escape(t.title)}" ${selectedTasks.has(t.id)?'checked':''}><span class="task-priority"><span class="priority-badge p${priority}" title="Приоритет ${priority}">${priority}</span><button type="button" class="priority-lock" data-action="toggleKeepPriority" data-id="${escape(t.id)}" aria-label="Сохранять приоритет на следующий день: ${escape(t.title)}" aria-pressed="${keepPriority}" title="${t.status==='completed'?'Задача завершена. Сохранение приоритета отключено.':keepPriority?'Сохранение приоритета включено. Нажмите, чтобы выключить.':'Сохранение приоритета выключено. Нажмите, чтобы включить.'}" ${t.status==='completed'||pendingPriorityLocks.has(t.id)?'disabled':''}><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="${keepPriority?'M8 10V7a4 4 0 0 1 8 0v3':'M8 10V7a4 4 0 0 1 7.7-1.5'}"/><path d="M12 14v3"/></svg></button></span><div class="task-summary"><button class="task-select" data-action="select" data-id="${escape(t.id)}"><span class="task-name">${escape(t.title)}</span><span class="task-meta">${t.status==='running'?'Таймер запущен':t.status==='completed'?'Завершена':planned?'В плане':''}</span></button>${t.description?.trim()?`<div class="task-description-line"><span class="task-description-text">${escape(t.description.replace(/\s+/g,' ').trim())}</span><button type="button" class="text-button description-more" data-action="showDescription" data-id="${escape(t.id)}" aria-label="Далее: описание задачи ${escape(t.title)}" hidden>Далее</button></div>`:''}</div><div class="row-times"><span>За день: <b data-task-day="${escape(t.id)}"></b></span><span>Всего: <b data-task-time="${escape(t.id)}"></b></span></div><div class="row-actions"><button class="text-button" data-action="editTask" data-id="${escape(t.id)}">Изменить</button><button class="text-button" data-action="select" data-id="${escape(t.id)}" aria-label="История: ${escape(t.title)}">История</button>${t.status!=='completed'?`<button class="text-button" data-action="completeTask" data-id="${escape(t.id)}">Завершить</button><button class="text-button" data-action="${planned?'removeFromPlan':'addToPlan'}" data-id="${escape(t.id)}">${planned?'Из плана':'В план'}</button>`:''}<button class="text-button" data-action="deleteTask" data-id="${escape(t.id)}" aria-label="Удалить: ${escape(t.title)}">Удалить</button>${t.status!=='completed'?`<button class="task-control" data-action="${state.focus?.taskId===t.id?'stopFocus':t.status==='running'?'pauseTask':'startTask'}" data-id="${escape(t.id)}" data-testid="task-toggle" aria-label="${state.focus?.taskId===t.id?'Остановить концентрацию':t.status==='running'?'Приостановить':'Запустить'}: ${escape(t.title)}">${state.focus?.taskId===t.id?'■':t.status==='running'?'Ⅱ':'▶'}</button>`:''}</div></article>`;
   }).join(''):`<div class="empty"><h2>${state.tasks.length?'Нет задач для выбранных условий':'С чего начнём?'}</h2>${state.tasks.length?'':'<p>Добавьте задачу и запустите таймер.</p><button class="primary" data-action="create">Создать первую задачу</button>'}</div>`;
   if(focusedLock)document.querySelector(`.priority-lock[data-id="${CSS.escape(focusedLock)}"]:not(:disabled)`)?.focus({preventScroll:true});
-  updateDescriptionLinks();renderDescription();renderDetails();renderTimer();tick();
+  updateDescriptionLinks();
+  if(focusedDescription)for(const button of document.querySelectorAll('.description-more'))if(button.dataset.id===focusedDescription&&!button.hidden)button.focus({preventScroll:true});
+  renderDescription();renderDetails();renderTimer();tick();
 }
 function updateDescriptionLinks(){
  for(const line of document.querySelectorAll('.task-description-line')){
- const button=line.querySelector('.description-more'),text=line.querySelector('.task-description-text');button.hidden=true;
+ const button=line.querySelector('.description-more'),text=line.querySelector('.task-description-text'),focused=document.activeElement===button;button.hidden=true;
  const task=state.tasks.find(t=>t.id===button.dataset.id);
  button.hidden=!(text.scrollWidth>text.clientWidth+1||/[\r\n]/.test(task?.description||''));
+ if(focused&&!button.hidden)button.focus({preventScroll:true});
  }
 }
 new ResizeObserver(updateDescriptionLinks).observe($('#task-list'));
@@ -148,7 +187,7 @@ function scrollTaskDrag(){
 }
 async function moveTask(id,targetId,position,restoreFocus=false){
  if(reorderBusy)return;reorderBusy=true;render();
- try{await dispatch({type:'reorderTask',taskId:id,values:{targetId,position,view:filter,day:viewDay}});sortMode='manual';toast('Порядок сохранён');}
+ try{await dispatch({type:'reorderTask',taskId:id,values:{targetId,position,view:filter,day:viewDay,sort:sortMode,query:$('#search').value,priorities:[...priorityFilters]}});setSortMode('manual');toast('Порядок сохранён');}
  catch(e){toast(e.message);}
  finally{reorderBusy=false;render();if(restoreFocus)document.querySelector(`[data-drag-id="${CSS.escape(id)}"]`)?.focus({preventScroll:true});}
 }
@@ -179,12 +218,8 @@ function renderDetails() {
   $('#task-details').innerHTML = `<div class="detail-heading"><p class="eyebrow">${t.status === 'completed' ? 'Завершена' : 'История задачи'}</p><h2>${escape(t.title)}</h2>${t.description ? `<p>${escape(t.description)}</p>` : ''}${t.result?`<p><strong>Результат:</strong> ${escape(t.result)}</p>`:''}<div class="detail-actions"><button class="secondary" data-action="editTask" data-id="${escape(t.id)}">Изменить</button>${t.status !== 'completed' ? `<button class="secondary" data-action="focus" data-id="${escape(t.id)}">Концентрация</button><button class="secondary" data-action="completeTask" data-id="${escape(t.id)}">Завершить</button>` : ''}<button class="danger" data-action="deleteTask" data-id="${escape(t.id)}">Удалить</button></div></div><div class="detail-total"><span>Всего по задаче</span><strong data-task-time="${escape(t.id)}">${duration(totalSeconds(t,new Date().toISOString()))}</strong></div><div class="history-heading"><h3>Сессии <span class="muted">· ${t.sessions.length}</span></h3><button class="text-button" data-action="addSession" data-id="${escape(t.id)}" data-testid="add-session">＋ Добавить</button></div><div data-testid="session-list">${t.sessions.length ? [...t.sessions].sort((a,b) => new Date(b.started_at)-new Date(a.started_at)).map(s => `<article class="session" data-testid="session"><div class="session-date">${escape(dateLabel(s.started_at))}${s.ended_at && localDate(s.started_at)!==localDate(s.ended_at) ? ` — ${escape(dateLabel(s.ended_at))}` : ''}</div><div class="session-top"><span>${clock(s.started_at)} — ${s.ended_at ? clock(s.ended_at) : 'сейчас'}</span><span class="session-duration" data-session-time="${escape(s.id)}">${duration(sessionSeconds(s,new Date().toISOString()))}</span></div>${s.comment ? `<p class="session-comment">${escape(s.comment)}</p>` : ''}${s.bitrix_record_id ? '<p class="session-date">Передана в Битрикс24</p>' : ''}<div class="session-actions"><button class="text-button" data-action="editSession" data-id="${escape(t.id)}" data-session="${escape(s.id)}">Изменить</button><button class="text-button" data-action="deleteSession" data-id="${escape(t.id)}" data-session="${escape(s.id)}">Удалить</button></div></article>`).join('') : '<p class="empty">Сессий пока нет.<br>Запустите таймер или добавьте запись.</p>'}</div>`;
 }
 function renderTimer() {
- const t=timerPanelTask(state);
- $('#active-timer').innerHTML=t?`<p class="timer-label">${t.status==='running'?'Текущая задача':'Приостановлена'}</p><p class="timer-title">${escape(t.title)}</p><div class="timer-value" id="live-clock" data-testid="live-clock" data-timer-task="${escape(t.id)}"></div><p class="timer-secondary">За день: <span data-task-day="${escape(t.id)}"></span><br>Всего: <span data-task-time="${escape(t.id)}"></span></p><div class="button-row"><button class="secondary" data-action="${state.focus?.taskId===t.id?'stopFocus':t.status==='running'?'pauseTask':'startTask'}" data-id="${escape(t.id)}">${state.focus?.taskId===t.id?'Остановить концентрацию':t.status==='running'?'Ⅱ Пауза':'▶ Продолжить'}</button><button class="secondary" data-action="completeTask" data-id="${escape(t.id)}">Завершить задачу</button></div>`:`<p class="timer-label">Таймер</p><p class="timer-secondary">${state.tasks.some(t=>t.status==='paused')?'Выберите ▶ у задачи, чтобы продолжить учёт времени.':'Молодец, все задачи выполнены!'}</p>`;
- $('#focus-status').textContent=state.focus?(state.focus.calendarClosed?'Отсчёт продолжается. Учёт времени за прошлый день завершён.':'Идёт отдельная сессия концентрации'):'Готов к запуску';
- $('#focus-panel-start').hidden=!!state.focus;$('#focus-panel-stop').hidden=!state.focus;
- document.querySelectorAll('[data-focus-minutes],#panel-focus-minutes').forEach(el=>el.disabled=!!state.focus);
- document.querySelectorAll('[data-focus-minutes]').forEach(el=>el.setAttribute('aria-pressed',String(Number(el.dataset.focusMinutes)===focusMinutes)));
+ const t=state.tasks.find(t=>t.id===state.focus?.taskId)||timerPanelTask(state);
+ $('#active-timer').innerHTML=t?`<p class="timer-label">${state.focus?.taskId===t.id||t.status==='running'?'Текущая задача':'Приостановлена'}</p><p class="timer-title">${escape(t.title)}</p><div class="timer-value" id="live-clock" data-testid="live-clock" data-timer-task="${escape(t.id)}"></div><p class="timer-secondary">За день: <span data-task-day="${escape(t.id)}"></span><br>Всего: <span data-task-time="${escape(t.id)}"></span></p><div class="button-row"><button class="secondary" ${state.focus?.taskId===t.id?'id="focus-panel-stop"':''} data-action="${state.focus?.taskId===t.id?'stopFocus':t.status==='running'?'pauseTask':'startTask'}" data-id="${escape(t.id)}">${state.focus?.taskId===t.id?'Остановить концентрацию':t.status==='running'?'Ⅱ Пауза':'▶ Продолжить'}</button><button class="secondary" data-action="completeTask" data-id="${escape(t.id)}">Завершить задачу</button></div>`:`<p class="timer-label">Таймер</p><p class="timer-secondary">${state.tasks.some(t=>t.status==='paused')?'Выберите ▶ у задачи, чтобы продолжить учёт времени.':'Молодец, все задачи выполнены!'}</p>`;
  const previous=state.tasks.find(t=>t.id===state.focusResumeTaskId&&t.status!=='completed');$('#focus-resume').hidden=!previous;
  $('#focus-resume-title').textContent=previous?`Вернуться к задаче «${previous.title}»?`:'';
 }
@@ -196,8 +231,7 @@ function tick() {
  document.querySelectorAll('[data-task-time]').forEach(el=>{const t=state.tasks.find(t=>t.id===el.dataset.taskTime);if(t)el.textContent=duration(totalSeconds(t,iso));});
  document.querySelectorAll('[data-task-day]').forEach(el=>{const t=state.tasks.find(t=>t.id===el.dataset.taskDay);if(t)el.textContent=duration(secondsOnDay(t,viewDay,iso));});
  document.querySelectorAll('[data-session-time]').forEach(el=>{const s=state.tasks.find(t=>t.id===selected)?.sessions.find(s=>s.id===el.dataset.sessionTime);if(s)el.textContent=duration(sessionSeconds(s,iso));});
- const live=$('#live-clock'),timerTask=state.tasks.find(t=>t.id===live?.dataset.timerTask);if(live&&timerTask){const session=timerTask.sessions.find(s=>!s.ended_at)||timerTask.sessions.at(-1);live.textContent=duration(session?sessionSeconds(session,iso):0);}
- $('#focus-clock').textContent=duration(state.focus?(new Date(state.focus.ends_at)-now)/1000:focusMinutes*60);
+ const live=$('#live-clock'),timerTask=state.tasks.find(t=>t.id===live?.dataset.timerTask);if(live&&timerTask){const session=timerTask.sessions.find(s=>!s.ended_at)||timerTask.sessions.at(-1);live.textContent=duration(state.focus?.taskId===timerTask.id?(new Date(state.focus.ends_at)-now)/1000:session?sessionSeconds(session,iso):0);}
  const dayChanged=lastDay!==localDate();
  if(repo&&!reconciling&&(dayChanged||(state.focus&&new Date(state.focus.ends_at)<=now)||state.tasks.some(t=>t.sessions.some(s=>!s.ended_at&&localDay(s.started_at)!==localDate())))){
    reconciling=true;if(dayChanged){lastDay=localDate();if(filter==='today'){viewDay=lastDay;$('#view-day').value=viewDay;}}
@@ -275,7 +309,6 @@ document.addEventListener('click',async event=>{
     if(action==='deleteTask'){const t=taskById(id);confirm('Удалить задачу?',`«${t.title}» и все её сессии будут удалены. Отменить это действие нельзя.`,()=>dispatch({type:'deleteTask',taskId:id}));return;}
     if(action==='deleteSession'){confirm('Удалить сессию?','Запись и её время будут удалены из истории задачи.',()=>dispatch({type:'deleteSession',taskId:id,sessionId:button.dataset.session}));return;}
     if(action==='focus'){openEditor('Концентрация',`<label class="field">Длительность, минуты<input type="number" name="minutes" min="1" max="180" step="1" value="${focusMinutes}" required data-testid="focus-minutes"></label><p class="field-note">Текущая задача будет приостановлена. Время сохранится в отдельной задаче концентрации. В фоне сигнал не гарантирован.</p>`,form=>dispatch({type:'startFocus',values:{minutes:Number(form.get('minutes'))}}),'Начать');return;}
-    if(action==='startPanelFocus'){await dispatch({type:'startFocus',values:{minutes:Number($('#panel-focus-minutes').value)}});return;}
     if(action==='addToPlan'||action==='removeFromPlan'){await dispatch({type:action,taskId:id,values:{day:viewDay}});return;}
     if(action==='report'){reportView='markdown';reportSnapshot=dayReportData(state,viewDay);renderReport();$('#report-status').textContent='';$('#report-dialog').showModal();return;}
     if(action==='reportView'){reportView=button.dataset.view;renderReport();return;}
@@ -291,18 +324,18 @@ $('#new-task').addEventListener('click',()=>taskEditor());
 $('#search').addEventListener('input',render);
 $('#task-sort').addEventListener('change',async event=>{
  const sort=event.target.value;if(reorderBusy){render();return;}
- if(sort==='manual'){sortMode='manual';render();return;}
+ if(sort===sortMode){render();return;}
+ const previousSort=sortMode;
  reorderBusy=true;render();
- try{await dispatch({type:'sortTasks',values:{sort,view:filter,day:viewDay,query:$('#search').value,priorities:[...priorityFilters]}});sortMode=sort;toast('Порядок сохранён');}
+ try{await dispatch({type:'sortTasks',values:{sort:sort==='manual'?previousSort:sort,view:filter,day:viewDay,query:$('#search').value,priorities:[...priorityFilters]}});setSortMode(sort);toast(sort==='manual'?'Порядок сохранён':'Автоматическая сортировка включена');}
  catch(error){errorAt('#global-error',error);}
  finally{reorderBusy=false;render();}
 });
+window.addEventListener('storage',event=>{if(event.key===sortStorageKey||event.key===null){const value=event.newValue;sortMode=validSort(value)?value:'manual';render();}});
 $('#view-day').addEventListener('change',()=>{if(!$('#view-day').value)return;viewDay=$('#view-day').value;filter='date';render();});
 $('#task-list').addEventListener('change',event=>{const id=event.target.dataset.selectTask;if(id){if(event.target.checked)selectedTasks.add(id);else selectedTasks.delete(id);render();}});
 $('#priority-filters').addEventListener('click',event=>{const b=event.target.closest('[data-priority-filter]');if(!b)return;const p=Number(b.dataset.priorityFilter);if(priorityFilters.has(p)){if(priorityFilters.size>1)priorityFilters.delete(p);}else priorityFilters.add(p);render();});
 $('#priority-assign').addEventListener('click',async event=>{const b=event.target.closest('[data-priority-assign]');if(!b)return;try{await dispatch({type:'assignPriority',taskIds:[...selectedTasks],values:{day:viewDay,priority:Number(b.dataset.priorityAssign)}});selectedTasks.clear();render();}catch(e){errorAt('#global-error',e);}});
-document.querySelectorAll('[data-focus-minutes]').forEach(b=>b.addEventListener('click',()=>{focusMinutes=Number(b.dataset.focusMinutes);$('#panel-focus-minutes').value=focusMinutes;renderTimer();tick();}));
-$('#panel-focus-minutes').addEventListener('input',()=>{focusMinutes=Number($('#panel-focus-minutes').value);renderTimer();tick();});
 $('#report-extended').addEventListener('change',renderReport);
 document.querySelectorAll('[data-filter]').forEach(b=>b.addEventListener('click',()=>{selectedTasks.clear();filter=b.dataset.filter;if(filter==='today'){viewDay=localDate();$('#view-day').value=viewDay;}render();}));
 $('#settings-button').addEventListener('click',()=>{loadReminderSettings();$('#settings-dialog').showModal();});
@@ -383,8 +416,8 @@ function renderSync(){
  $('#sync-conflicts').replaceChildren();
  if(sync?.projectionError){const p=document.createElement('p');p.className='error';p.textContent='Новые данные сохранены в журнале, но пока не применены: '+sync.projectionError;$('#sync-conflicts').append(p);}
  for(const conflict of conflicts){
-   const box=document.createElement('section'),title=document.createElement('p');title.textContent=`${conflict.entity.join(' / ')} — ${conflict.field==='$alive'?'Удаление или сохранение':conflict.field}: выберите вариант`;box.append(title);
-   for(const candidate of conflict.candidates){const b=document.createElement('button');b.className='secondary';b.textContent=conflict.field==='$alive'?(candidate.value?'Сохранить запись':'Удалить запись'):JSON.stringify(candidate.value);b.addEventListener('click',async()=>{b.disabled=true;try{accept(await repo.resolveSync(conflict.entity,conflict.field,candidate.value,conflict.candidates));$('#sync-status').textContent='Выбор сохранён. Синхронизируйте для передачи другим устройствам.';}catch(e){errorAt('#sync-error',e);}finally{b.disabled=false;}});box.append(b);}
+   const box=document.createElement('section'),title=document.createElement('p');title.textContent=conflictTitle(conflict);box.append(title);
+   for(const [index,candidate] of conflict.candidates.entries()){const b=document.createElement('button');b.className='secondary conflict-choice';b.textContent=`Вариант ${index+1}\n${conflictValue(conflict,candidate.value)}`;b.addEventListener('click',async()=>{b.disabled=true;try{accept(await repo.resolveSync(conflict.entity,conflict.field,candidate.value,conflict.candidates));$('#sync-status').textContent='Выбор сохранён. Синхронизируйте для передачи другим устройствам.';}catch(e){errorAt('#sync-error',e);}finally{b.disabled=false;}});box.append(b);}
    $('#sync-conflicts').append(box);
  }
  if(active.length){const p=document.createElement('p');p.textContent='Одновременно запущено несколько сессий. Выберите одну: остальные завершатся текущим временем, их записи сохранятся.';$('#sync-conflicts').append(p);for(const item of active){const b=document.createElement('button');b.className='secondary';b.textContent=`Оставить: ${item.taskTitle} (${item.started_at})`;b.addEventListener('click',()=>confirm('Оставить одну активную сессию?','Остальные активные сессии завершатся текущим временем; история сохранится.',async()=>accept(await repo.keepActive(item.taskId,item.sessionId,active)),{label:'Завершить остальные'}));$('#sync-conflicts').append(b);}}
@@ -453,7 +486,7 @@ async function performGithubExchange(checkOnly=false,automatic=false){
  const revision=documentRevision(result.document);if(!automatic)autoSync?.acknowledge(revision);
  try{localStorage.setItem('tasktimer-github-last-sync:'+location.pathname,JSON.stringify({key:client.target.key,at:new Date().toISOString()}));}catch{}
  $('#sync-status').textContent=(state.sync?.conflicts.length||state.sync?.projectionError?'Обмен завершён; разрешите конфликты ниже.':'Синхронизация завершена.')+' '+new Date().toLocaleString('ru-RU');
- return {revision,blockedReason:state.sync?.conflicts.length||state.sync?.projectionError?'Автообмен ждёт разрешения конфликтов в настройках.':null};
+ return {revision,blockedReason:state.sync?.conflicts.length||state.sync?.projectionError?'Обмен выполнен. Выберите варианты конфликтов в настройках.':null};
  }catch(e){if(syncAbort.signal.aborted)$('#sync-status').textContent='Обмен отменён. Уже сохранённые данные остаются на устройстве.';else{errorAt('#sync-error',e);$('#sync-status').textContent=checkOnly?'Подключение не проверено.':'Синхронизация не завершена.';}throw e;}
  finally{syncAbort=null;syncAutomatic=false;for(const id of ['sync-submit','sync-check','sync-backup','sync-forget-token'])$('#'+id).disabled=false;for(const input of $('#sync-form').querySelectorAll('input'))input.disabled=false;$('#sync-cancel').hidden=true;}
 }
@@ -477,13 +510,13 @@ function autoTarget(){return githubTarget($('#sync-form [name=repository]').valu
 function autoSettingKey(){return 'tasktimer-github-auto:'+location.pathname+':'+autoTarget().key;}
 function dataRevision(value){return value.sync?.revision||JSON.stringify(value.tasks.map(t=>{const copy={...t};delete copy.priority;return copy;}).sort((a,b)=>a.id.localeCompare(b.id)));}
 autoSync=createAutoSync({
+ pollMs:30_000,
  run:()=>githubExchange(false,true),
  eligible:()=>{
  if(!navigator.locks?.request)return 'Автообмен недоступен в этом браузере. Используйте ручную синхронизацию.';
  if(document.visibilityState!=='visible')return 'Автообмен продолжится при возвращении в приложение.';
  if(!navigator.onLine)return 'Нет сети. Изменения сохраняются на устройстве.';
  if(!tokenInput.value)return 'Введите токен для автоматической синхронизации.';
- if(state.sync?.conflicts.length||state.sync?.projectionError)return 'Автообмен ждёт разрешения конфликтов в настройках.';
  return null;
  },
  onStatus:message=>{$('#sync-auto-status').textContent=message;autoSyncIssue=/^(Автообмен приостановлен|Введите токен|Обмен отложен)/.test(message)?message:null;renderSync();}

@@ -110,3 +110,16 @@ test('completion clears priority retention and stale updates cannot enable it ag
  assert.equal(s.tasks[0].keep_priority,false);
  s=apply(s,{type:'startTask',taskId},t2);assert.equal(s.tasks[0].keep_priority,false);
 });
+
+test('sorting and manual ordering preserve active sessions and overdue reminder/focus/calendar state',()=>{
+ let base=create();base=create(base,'Вторая');const [a,b]=base.tasks.map(t=>t.id);base=apply(base,{type:'startTask',taskId:a},t0);
+ // A stale reminder or calendar must be handled by reconcile, never by ordering.
+ for(const at of ['2026-09-30T11:00:00.000Z','2026-10-01T10:00:00.000Z']){
+ for(const command of [{type:'sortTasks',values:{sort:'priority-desc',day:'2026-09-30',view:'all'}},{type:'sortTasks',values:{sort:'priority-asc',day:'2026-09-30',view:'all'}}]){
+ const next=apply(base,command,at);assert.deepEqual(next.tasks,base.tasks);assert.deepEqual(next.reminder,base.reminder);assert.deepEqual(next.focus,base.focus);assert.equal(next.tasks[0].sessions[0].ended_at,null);
+ }
+ }
+ const third=create(base,'Третья');const c=third.tasks.at(-1).id;const moved=apply(third,{type:'reorderTask',taskId:b,values:{targetId:c,position:'after',view:'all',day:'2026-09-30',sort:'priority-desc'}},'2026-09-30T11:00:00.000Z');assert.deepEqual(moved.tasks,third.tasks);assert.deepEqual(moved.reminder,third.reminder);
+ const stopped=apply(base,{type:'reconcile'},'2026-09-30T11:00:00.000Z');assert.notEqual(stopped.tasks[0].sessions[0].ended_at,null);
+ const focus={...base,focus:{taskId:a,started_at:t0,ends_at:t1,minutes:1}};const sorted=apply(focus,{type:'sortTasks',values:{sort:'priority-desc',view:'all',day:'2026-09-30'}},t2);assert.deepEqual(sorted.focus,focus.focus);assert.deepEqual(sorted.tasks,focus.tasks);
+});

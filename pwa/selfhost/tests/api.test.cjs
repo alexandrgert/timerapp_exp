@@ -54,3 +54,11 @@ test('admin migration imports v2 causality only into an empty database',async t=
 test('missing tables in an existing schema never recreate an empty dataset',async t=>{
  const s=await running(t),damaged=path.join(s.data,'damaged');await fs.mkdir(damaged);const filename=path.join(damaged,'tasktimer.sqlite'),db=new (require('node:sqlite').DatabaseSync)(filename);db.exec('PRAGMA user_version=1; CREATE TABLE evidence(value TEXT); INSERT INTO evidence VALUES(\'preserve\');');db.close();assert.throws(()=>openStore(damaged));const check=new (require('node:sqlite').DatabaseSync)(filename);assert.equal(check.prepare('SELECT value FROM evidence').get().value,'preserve');assert.equal(check.prepare("SELECT name FROM sqlite_master WHERE name='state'").get(),undefined);check.close();
 });
+
+test('server API roundtrips a UTF-8 sync document larger than one megabyte without changing its version',async t=>{
+ const s=await running(t),{importLegacy}=await protocol(),{apply,initialState}=await import('../../public/model.mjs');let state=initialState();
+ for(let i=0;i<40;i++)state=apply(state,{type:'createTask',values:{title:'Большой документ '+i,description:'я'.repeat(15000)}});
+ const body=JSON.stringify(importLegacy(state.tasks,'large-seed'));assert.ok(Buffer.byteLength(body)>1_000_000);
+ const put=await s.request('/api/sync',{method:'PUT',headers:{...s.auth,'Content-Type':'application/json','If-None-Match':'*'},body});assert.equal(put.status,204);
+ const get=await s.request('/api/sync',{headers:s.auth});assert.equal(get.status,200);assert.equal(get.body.toString(),body);assert.equal(get.headers.etag,put.headers.etag);
+});
