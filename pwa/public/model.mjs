@@ -175,7 +175,18 @@ function applyInternal(state, command, now=new Date().toISOString(), {reconcile=
  taskFields(values,task,now); if(!task.title)fail('Введите название задачи');
  // A future plan date must not make a newly chosen priority appear reset today.
  const today=localDay(now);if(task.day>today)task.daily_priorities[today]=task.priority;
- task.planned_days=[task.day];s.tasks.push(task); return s;
+ task.planned_days=[task.day];
+ if(values.manualPlacement===true){
+  const day=calendar(values.orderDay||localDay(now)),view=values.orderView||'today';
+  const existing=visibleTasks(s,{view,day,pinRunning:false},now),all=visibleTasks(s,{view:'all',day,pinRunning:false},now);
+  const known=new Set(s.tasks.map(t=>t.id));
+  const order=[...new Set([...(s.taskOrder||[]).filter(id=>known.has(id)),...existing.map(t=>t.id),...all.map(t=>t.id)])];
+  const tasks=new Map(s.tasks.map(t=>[t.id,t])),eligible=new Set(existing.filter(t=>t.status!=='completed').map(t=>t.id)),priority=priorityFor(task,day);
+  let anchor=-1;for(let i=0;i<order.length;i++){const other=tasks.get(order[i]);if(eligible.has(other.id)&&priorityFor(other,day)===priority)anchor=i;}
+  if(anchor<0)for(let i=0;i<order.length;i++){const other=tasks.get(order[i]);if(eligible.has(other.id)&&priorityFor(other,day)<priority)anchor=i;}
+  order.splice(anchor+1,0,task.id);s.taskOrder=order;
+ }
+ s.tasks.push(task); return s;
  }
  if(command.type==='assignPriority'){
  const day=calendar(values.day);if(!Number.isInteger(values.priority)||values.priority<1||values.priority>4)fail('Приоритет должен быть от 1 до 4');

@@ -36,3 +36,5 @@
 @media(max-width:680px){.timer-panel{grid-template-columns:1fr}}
 
 #sync-conflicts .conflict-choice{display:block;width:100%;white-space:pre-line;text-align:left;overflow-wrap:anywhere;margin:8px 0}
+
+#completed-filters{margin:12px 0}.tabs{flex-wrap:wrap}@media(max-width:680px){.tabs{gap:8px}.tab{font-size:12px}#completed-filters{gap:10px}}

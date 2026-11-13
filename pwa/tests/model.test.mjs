@@ -123,3 +123,11 @@ test('sorting and manual ordering preserve active sessions and overdue reminder/
  const stopped=apply(base,{type:'reconcile'},'2026-09-30T11:00:00.000Z');assert.notEqual(stopped.tasks[0].sessions[0].ended_at,null);
  const focus={...base,focus:{taskId:a,started_at:t0,ends_at:t1,minutes:1}};const sorted=apply(focus,{type:'sortTasks',values:{sort:'priority-desc',view:'all',day:'2026-09-30'}},t2);assert.deepEqual(sorted.focus,focus.focus);assert.deepEqual(sorted.tasks,focus.tasks);
 });
+
+test('manual insertion appends within priority without rearranging existing rows or changing a running session',async()=>{
+ const {visibleTasks}=await import('../public/desktop-domain.mjs');let s=initialState();const day='2026-09-30';
+ for(const [title,priority] of [['Первый',1],['Второй',2],['Третий',2],['Четвёртый',4]])s=apply(s,{type:'createTask',values:{title,priority,day}},t0);
+ const ids=s.tasks.map(t=>t.id);s.taskOrder=[ids[1],ids[0],ids[2],ids[3]];s=apply(s,{type:'startTask',taskId:ids[0]},t0);const session=structuredClone(s.tasks[0].sessions);
+ s=apply(s,{type:'createTask',values:{title:'Новый второй',priority:2,manualPlacement:true,orderDay:day}},t1);const id=s.tasks.at(-1).id;assert.deepEqual(s.taskOrder,[ids[1],ids[0],ids[2],id,ids[3]]);assert.deepEqual(s.tasks[0].sessions,session);
+ s=apply(s,{type:'createAndStartTask',values:{title:'Новый третий',priority:3,manualPlacement:true,orderDay:day}},t2);assert.equal(s.tasks.at(-1).status,'running');assert.equal(s.taskOrder.indexOf(s.tasks.at(-1).id),4);assert.equal(visibleTasks(s,{view:'all',day})[0].title,'Новый третий');assert.deepEqual(s.taskOrder.filter(x=>ids.includes(x)),[ids[1],ids[0],ids[2],ids[3]]);
+});

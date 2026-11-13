@@ -158,3 +158,10 @@ test('future task creation preserves selected priority today and on planned date
  s=apply(validateBackup(s),{type:'reconcile'},'2026-10-20T12:00:00');assert.equal(s.tasks[0].daily_priorities[day],priority);assert.equal(s.tasks[0].priority,priority);
  }
 });
+
+test('completed list filters creation and completion local dates independently and together',async()=>{
+ const {visibleTasks,localDay}=await import('../public/desktop-domain.mjs');let s=initialState();
+ s=apply(s,{type:'createTask',values:{title:'A'}},'2026-10-01T12:00:00Z');const a=s.tasks[0].id;s=apply(s,{type:'completeTask',taskId:a},'2026-10-03T12:00:00Z');
+ s=apply(s,{type:'createTask',values:{title:'B'}},'2026-10-02T12:00:00Z');s=apply(s,{type:'completeTask',taskId:s.tasks[1].id},'2026-10-03T12:00:00Z');s=apply(s,{type:'createTask',values:{title:'Открытая'}},'2026-10-02T12:00:00Z');
+ const names=options=>visibleTasks(s,{view:'completed',...options}).map(t=>t.title);assert.deepEqual(names({}),['A','B']);assert.deepEqual(names({createdDay:'2026-10-01'}),['A']);assert.deepEqual(names({completedDay:'2026-10-03'}),['A','B']);assert.deepEqual(names({createdDay:'2026-10-02',completedDay:'2026-10-03'}),['B']);assert.deepEqual(names({completedDay:'2026-10-04'}),[]);assert.equal(localDay(s.tasks[0].created_at),'2026-10-01');
+});

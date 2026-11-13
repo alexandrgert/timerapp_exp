@@ -6,11 +6,12 @@ export function priorityFor(task,day) {const p=task.daily_priorities?.[day];retu
 const duration=(session,now)=>Math.max(0,Math.floor((Date.parse(session.ended_at??now)-Date.parse(session.started_at))/1000));
 export function secondsOnDay(task,day,now=new Date().toISOString()) {return task.sessions.filter(s=>localDay(s.started_at)===day).reduce((sum,s)=>sum+duration(s,now),0);}
 const running=task=>task.sessions.some(s=>s.ended_at===null);
-export function visibleTasks(state,{view='today',day=localDay(),query='',priorities=[],sort='manual',pinRunning=true}={},now=new Date().toISOString()){
+export function visibleTasks(state,{view='today',day=localDay(),query='',priorities=[],sort='manual',pinRunning=true,createdDay='',completedDay=''}={},now=new Date().toISOString()){
  const levels=new Set(priorities),needle=query.trim().toLocaleLowerCase();
  let tasks=state.tasks.filter(task=>{
  if(needle&&!task.title.toLocaleLowerCase().includes(needle))return false;
  if(view==='today'&&!(task.planned_days?.includes(day)&&(task.day===day||running(task)||Object.hasOwn(task.daily_priorities||{},day))))return false;
+ if(view==='completed'&&(task.status!=='completed'||(createdDay&&localDay(task.created_at)!==createdDay)||(completedDay&&(!task.completed_at||localDay(task.completed_at)!==completedDay))))return false;
  if(view==='progress'&&task.status==='completed')return false;
  if(view==='date'&&secondsOnDay(task,day,now)<=0)return false;
  return !levels.size||levels.has(priorityFor(task,day))||(view==='today'&&running(task));

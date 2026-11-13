@@ -138,9 +138,10 @@ function render() {
   $('#selection-count').textContent=`Выбрано: ${selectedTasks.size}`;
   document.querySelectorAll('[data-priority-assign]').forEach(b=>b.disabled=!selectedTasks.size);
   const term=$('#search').value;
-  const now=new Date().toISOString(), options={day:viewDay,query:term,priorities:[...priorityFilters],sort:sortMode};
-  const lists=Object.fromEntries(['today','progress','all'].map(view=>[view,visibleTasks(state,{...options,view,day:view==='today'?localDate(now):viewDay},now)]));
-  for(const view of ['today','progress','all'])$('#tab-count-'+view).textContent=`(${lists[view].length})`;
+  const now=new Date().toISOString(), options={day:viewDay,query:term,priorities:[...priorityFilters],sort:sortMode,createdDay:$('#completed-created-day').value,completedDay:$('#completed-ended-day').value};
+  const lists=Object.fromEntries(['today','progress','all','completed'].map(view=>[view,visibleTasks(state,{...options,view,day:view==='today'?localDate(now):viewDay},now)]));
+  for(const view of ['today','progress','all','completed'])$('#tab-count-'+view).textContent=`(${lists[view].length})`;
+  $('#completed-filters').hidden=filter!=='completed';
   const completed=lists.all.filter(task=>task.status==='completed').length;
   $('#all-task-counts').hidden=filter!=='all';
   $('#all-task-counts').textContent=`Открытых: ${lists.all.length-completed} · Завершённых: ${completed}`;
@@ -258,7 +259,7 @@ function taskEditor(id) {
   const t=id ? {...original,day:viewDay,priority:priorityFor(original,viewDay)} : {title:'',description:'',result:'',keep_priority:false,priority:4,day:localDate()};
   openEditor(id ? 'Изменить задачу' : 'Новая задача', `<label class="field">Название<input name="title" data-testid="task-title" required maxlength="500" value="${escape(t.title)}" autofocus autocomplete="off"></label><label class="field">Описание<textarea name="description" maxlength="20000">${escape(t.description)}</textarea></label><label class="field">Результат<textarea name="result" maxlength="20000">${escape(t.result||'')}</textarea></label><label class="check-field"><input type="checkbox" name="keep_priority" ${t.status==='completed'?'disabled':t.keep_priority?'checked':''}>Сохранять приоритет при переносе на следующий день</label><div class="field-grid"><label class="field">Дата<input name="day" type="date" required value="${escape(t.day)}"></label><label class="field">Приоритет<select name="priority">${[1,2,3,4].map(p=>`<option value="${p}" ${Number(t.priority)===p?'selected':''}>${p}${p===1?' — высокий':p===4?' — обычный':''}</option>`).join('')}</select></label></div>`,async (form,force=false,startNow=false)=>{
     const fields={title:form.get('title'),description:form.get('description'),result:form.get('result'),keep_priority:form.has('keep_priority'),priority:Number(form.get('priority')),day:form.get('day')};
-    const values=id ? Object.fromEntries(Object.entries(fields).filter(([key,value])=>value!==t[key])) : fields;
+    const values=id ? Object.fromEntries(Object.entries(fields).filter(([key,value])=>value!==t[key])) : {...fields,manualPlacement:sortMode==='manual',orderDay:localDate(),orderView:['all','progress'].includes(filter)?filter:'today'};
     if(id && 'day' in values)values.priority=fields.priority;
     const expected=id&&!force?Object.fromEntries(Object.keys(values).filter(key=>key!=='priority').map(key=>[key,original[key]])):undefined;
     if(expected && ('priority' in values || 'day' in values))expected.daily_priorities=original.daily_priorities;
@@ -332,6 +333,7 @@ $('#task-sort').addEventListener('change',async event=>{
  finally{reorderBusy=false;render();}
 });
 window.addEventListener('storage',event=>{if(event.key===sortStorageKey||event.key===null){const value=event.newValue;sortMode=validSort(value)?value:'manual';render();}});
+for(const id of ['completed-created-day','completed-ended-day'])$('#'+id).addEventListener('change',()=>{selectedTasks.clear();render();});
 $('#view-day').addEventListener('change',()=>{if(!$('#view-day').value)return;viewDay=$('#view-day').value;filter='date';render();});
 $('#task-list').addEventListener('change',event=>{const id=event.target.dataset.selectTask;if(id){if(event.target.checked)selectedTasks.add(id);else selectedTasks.delete(id);render();}});
 $('#priority-filters').addEventListener('click',event=>{const b=event.target.closest('[data-priority-filter]');if(!b)return;const p=Number(b.dataset.priorityFilter);if(priorityFilters.has(p)){if(priorityFilters.size>1)priorityFilters.delete(p);}else priorityFilters.add(p);render();});

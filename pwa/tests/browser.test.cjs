@@ -452,15 +452,16 @@ test('priority sort saves editable order, manual switch and reload retain it on 
 test('failed priority sort or manual move preserves saved order and selector until successful retry',async()=>{
  const {context,page}=await setup();try{
  for(const title of ['Первый','Второй']){await create(page,title);await closeDetails(page);}
+ await page.evaluate(async()=>{const{openRepository}=await import('/repository.mjs');const r=await openRepository();try{const t=(await r.read()).tasks.find(t=>t.title==='Первый');await r.dispatch({type:'updateTask',taskId:t.id,values:{priority:1}});}finally{r.close();}});
  const names=()=>page.locator('.task-name').allTextContents(),before=await names();
  const failNextPut=()=>page.evaluate(()=>{const original=IDBObjectStore.prototype.put;IDBObjectStore.prototype.put=function(...args){IDBObjectStore.prototype.put=original;throw new DOMException('Нет места','QuotaExceededError');};});
  await failNextPut();await page.locator('#task-sort').selectOption('priority-desc');await page.locator('#global-error').waitFor({state:'visible'});
  assert.deepEqual(await names(),before);assert.equal(await page.locator('#task-sort').inputValue(),'manual');assert.equal(await page.locator('#task-sort').isEnabled(),true);
  await page.locator('#task-sort').selectOption('priority-desc');await page.waitForFunction(()=>document.querySelector('#task-sort').value==='priority-desc'&&!document.querySelector('#task-sort').disabled);
- const order=(await read(page)).taskOrder;
+ const order=(await read(page)).taskOrder,sorted=await names();
  await failNextPut();await page.locator('.task-drag-handle').first().focus();await page.keyboard.press('ArrowDown');await page.locator('#toast').filter({hasText:'Нет места'}).waitFor();
- assert.deepEqual((await read(page)).taskOrder,order);assert.deepEqual(await names(),before);assert.equal(await page.locator('#task-sort').inputValue(),'priority-desc');
- await page.locator('.task-drag-handle').first().focus();await page.keyboard.press('ArrowDown');await page.waitForFunction(()=>document.querySelector('#task-sort').value==='manual');assert.deepEqual(await names(),[...before].reverse());
+ assert.deepEqual((await read(page)).taskOrder,order);assert.deepEqual(await names(),sorted);assert.equal(await page.locator('#task-sort').inputValue(),'priority-desc');
+ await page.locator('.task-drag-handle').first().focus();await page.keyboard.press('ArrowDown');await page.waitForFunction(()=>document.querySelector('#task-sort').value==='manual');assert.deepEqual(await names(),[...sorted].reverse());
  }finally{await context.close();}
 });
 
@@ -562,5 +563,16 @@ test('sync conflict explains task and differing daily priorities without IDs or 
  const id=await page.evaluate(async()=>{const{openRepository}=await import('/repository.mjs'),{changeEntity,mergeDocuments}=await import('/sync-protocol.mjs');const r=await openRepository();try{let s=await r.dispatch({type:'createTask',values:{title:'Приоритет для клиента'}});const id=s.tasks[0].id;await r.enableSync();const base=(await r.exportBackup()).syncDocument,a=changeEntity(base,'phone',['task',id],{daily_priorities:{'2026-11-11':2,'2026-11-12':2}}),b=changeEntity(base,'computer',['task',id],{daily_priorities:{'2026-11-11':2,'2026-11-12':1}});await r.mergeSync(mergeDocuments(a,b));return id;}finally{r.close();}});
  await reload(page);await page.locator('#task-list .task-row').waitFor();assert.equal(await page.locator('#global-error').isVisible(),false);await page.locator('#settings-button').click();await page.locator('.conflict-choice').first().waitFor();const text=await page.locator('#sync-conflicts').textContent();assert.ok(text.includes('Приоритет для клиента'));assert.ok(text.includes('Приоритет по дням'));assert.ok(text.includes('12.11.2026: 2'));assert.ok(text.includes('12.11.2026: 1 — высокий'));assert.ok(!text.includes('11.11.2026'));assert.ok(!text.includes(id));assert.ok(!text.includes('daily_priorities'));assert.ok(!text.includes('{'));
  await page.locator('.conflict-choice').filter({hasText:'1 — высокий'}).click();await page.waitForFunction(()=>!document.querySelector('.conflict-choice'));const state=await read(page);assert.equal(state.sync.conflicts.length,0);assert.equal(state.tasks[0].daily_priorities['2026-11-12'],1);assert.equal(state.tasks[0].daily_priorities['2026-11-11'],2);
+ }finally{await context.close();}
+});
+
+test('manual create inserts after same priority; completed tab has independent date filters and mobile layout',async()=>{
+ const{context,page}=await setup();try{
+ await page.evaluate(async()=>{const{openRepository}=await import('/repository.mjs');const r=await openRepository();try{for(const [title,priority] of [['Первая',1],['Вторая',2],['Четвёртая',4]])await r.dispatch({type:'createTask',values:{title,priority}});}finally{r.close();}});
+ await page.waitForFunction(()=>document.querySelectorAll('.task-row').length===3);await page.getByTestId('new-task').click();await page.getByTestId('task-title').fill('Новая вторая');await page.locator('#editor-form [name=priority]').selectOption('2');await page.getByTestId('save').click();await page.locator('#editor-dialog').waitFor({state:'hidden'});assert.deepEqual(await page.locator('.task-name').allTextContents(),['Первая','Вторая','Новая вторая','Четвёртая']);if(process.env.TASKTIMER_LIST_SCREENSHOT_DIR){await page.setViewportSize({width:1440,height:1000});await page.locator('h1').click();await page.screenshot({path:path.join(process.env.TASKTIMER_LIST_SCREENSHOT_DIR,'17-list-counts.png'),fullPage:true});}
+ await page.evaluate(async()=>{const{openRepository}=await import('/repository.mjs');const r=await openRepository();try{const task=(await r.read()).tasks.find(t=>t.title==='Новая вторая');await r.dispatch({type:'completeTask',taskId:task.id});}finally{r.close();}});
+ await page.getByRole('button',{name:'Завершённые',exact:true}).click();await page.waitForFunction(()=>document.querySelectorAll('.task-row').length===1);assert.equal(await page.locator('#completed-filters').isVisible(),true);await page.locator('#completed-created-day').fill('2000-01-01');await page.waitForFunction(()=>!document.querySelector('.task-row'));await page.locator('#completed-created-day').fill('');await page.waitForFunction(()=>document.querySelectorAll('.task-row').length===1);await page.locator('#completed-ended-day').fill('2000-01-01');await page.waitForFunction(()=>!document.querySelector('.task-row'));await page.locator('#completed-ended-day').fill('');await page.waitForFunction(()=>document.querySelectorAll('.task-row').length===1);
+ if(process.env.TASKTIMER_LIST_SCREENSHOT_DIR){await page.setViewportSize({width:1440,height:1000});await page.locator('h1').click();await page.screenshot({path:path.join(process.env.TASKTIMER_LIST_SCREENSHOT_DIR,'18-completed.png'),fullPage:true});}
+ await page.setViewportSize({width:320,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await reload(page);await page.getByRole('button',{name:'Завершённые',exact:true}).click();await page.locator('.task-row').waitFor();assert.equal(await page.locator('.task-name').textContent(),'Новая вторая');
  }finally{await context.close();}
 });
