@@ -591,3 +591,14 @@ test('server backup destination persists and uploads separate JSON with no token
  await reload(page);await page.getByRole('button',{name:'Настройки и резервные копии'}).click();assert.equal(await page.locator('#backup-storage').inputValue(),'server');
  }finally{await context.close();}
 });
+test('folder picker stays isolated from due automatic downloads and reports browser cancellation',async()=>{
+ const{context,page}=await setup();let downloads=0;page.on('download',()=>downloads++);
+ try{
+ await page.evaluate(()=>{window.pickerCalls=0;window.showDirectoryPicker=()=>{window.pickerCalls++;return new Promise((resolve,reject)=>{window.cancelBackupPicker=()=>reject(new DOMException('Browser dismissed picker','AbortError'));});};});
+ // Installer feature detection runs on load, so expose the mock before the next load too.
+ await context.addInitScript(()=>{window.pickerCalls=0;window.showDirectoryPicker=()=>{window.pickerCalls++;return new Promise((resolve,reject)=>{window.cancelBackupPicker=()=>reject(new DOMException('Browser dismissed picker','AbortError'));});};});
+ await reload(page);await page.getByRole('button',{name:'Настройки и резервные копии'}).click();await page.clock.install({time:new Date()});await page.clock.pauseAt(new Date(Date.now()+1000));await page.locator('#backup-auto-enabled').check();await page.locator('#backup-auto-minutes').fill('1');await page.locator('#backup-auto-save').click();await page.getByText(/Автокопии включены/).waitFor();
+ await page.locator('#backup-choose-folder').click();await page.clock.fastForward(61000);await page.evaluate(()=>{window.dispatchEvent(new Event('focus'));document.dispatchEvent(new Event('visibilitychange'));});await page.waitForTimeout(100);assert.equal(downloads,0,'pending native picker must not compete with auto download');assert.equal(await page.evaluate(()=>window.pickerCalls),1);assert.equal(await page.locator('#backup-choose-folder').isDisabled(),true);
+ await page.evaluate(()=>window.cancelBackupPicker());await page.locator('#backup-auto-status').filter({hasText:'Выбор папки не завершён'}).waitFor();assert.equal(await page.locator('#backup-choose-folder').isDisabled(),false);const downloading=page.waitForEvent('download');await page.clock.fastForward(11000);await downloading;assert.equal(downloads,1);assert.equal(await page.locator('#backup-storage').inputValue(),'device');
+ }finally{await context.close();}
+});

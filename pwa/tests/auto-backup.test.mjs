@@ -16,3 +16,9 @@ test('folder writer requires granted permission and closes or aborts a writable 
  let granted=false,closed=0,aborted=0,text='',fail=false;const directory={queryPermission:async()=>granted?'granted':'prompt',getFileHandle:async(name,options)=>{assert.ok(name.endsWith('.json'));assert.equal(options.create,true);return{createWritable:async()=>({write:async value=>{text=value;if(fail)throw Error('Disk full');},close:async()=>closed++,abort:async()=>aborted++})};}};
  await assert.rejects(writeBackupFile(directory,'copy.json','{}'),/Разрешите/);assert.equal(text,'');granted=true;await writeBackupFile(directory,'copy.json','{"tasks":[]}');assert.equal(closed,1);fail=true;await assert.rejects(writeBackupFile(directory,'copy2.json','{}'),/Не удалось/);assert.equal(aborted,1);
 });
+test('pending picker defers due backups including lock waits and does not acknowledge deferred writes',async()=>{
+ let paused=true,config={enabled:true,minutes:1,destination:'downloads',nextAt:0},calls=0,defer=true,status=[];
+ const scheduler=createBackupScheduler({read:()=>config,write:v=>config=v,now:()=>60000,paused:()=>paused,lock:fn=>fn(),save:async()=>{calls++;return defer?false:undefined;},status:v=>status.push(v)});
+ await scheduler.tick();assert.equal(calls,0);paused=false;await scheduler.tick();assert.equal(calls,1);assert.equal(config.lastAt,undefined);assert.deepEqual(status,[]);defer=false;await scheduler.tick();assert.equal(config.lastAt,60000);
+ const waiting=createBackupScheduler({read:()=>({...config,nextAt:0}),write:()=>assert.fail('must not acknowledge'),now:()=>60000,paused:()=>paused,lock:async fn=>{paused=true;await fn();},save:()=>assert.fail('must not save while picker open')});await waiting.tick();
+});
