@@ -60,6 +60,16 @@ export function createGitHubClient({repository,branch='main',token,fetchImpl=glo
  return {body:decode(file.content),etag:file.sha};
  }
  return {target,label:'GitHub',read,
+ async saveBackup(name,body,{signal}={}){
+ if(!/^tasktimer-\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}-\d{3}\.json$/.test(name)||typeof body!=='string')throw fail('INPUT','Некорректное имя резервной копии.');
+ const content=encode(body);await verify({signal});
+ // A unique path per device/write; never update an existing archive or the sync file.
+ const filename=name.replace(/\.json$/, '-'+crypto.randomUUID()+'.json');
+ const response=await request(root+'/contents/backups/'+filename,{method:'PUT',signal,headers:{'Content-Type':'application/json'},body:JSON.stringify({message:'Save dated JSON backup',branch:target.branch,content})});
+ await response.body?.cancel();
+ if(response.status!==201)throw fail('BACKUP',`GitHub не подтвердил создание копии (HTTP ${response.status}). Проверьте доступ и сеть.`,response.status);
+ return {path:'backups/'+filename};
+ },
  async check(options){const remote=await read(options);return {exists:!!remote,remote};},
  async write(body,{etag,create=false,signal}={}){
  if(typeof body!=='string'||(create?etag!=null:!validSha(etag)))throw fail('SHA','Для записи нужна версия SHA прочитанного файла или явное создание нового файла.');

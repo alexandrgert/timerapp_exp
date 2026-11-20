@@ -49,3 +49,15 @@ test('large file uses immutable blob SHA, bounds UTF-8 body and writes same vers
 test('raw body mismatch, invalid UTF-8, failed fetch and excessive metadata never overwrite',async()=>{
  for(const mode of ['mismatch','utf8','http','size']){let puts=0;const client=createGitHubClient({...config,fetchImpl:async(url,options)=>{if(options.method==='PUT')puts++;if(url.endsWith('/private-data'))return json({private:true});if(url.includes('/branches/'))return json({});if(url.includes('/git/blobs/'))return mode==='http'?new Response('',{status:500}):new Response(mode==='utf8'?Uint8Array.from([255]):'{}');return json({type:'file',path:GITHUB_DATA_PATH,sha,size:mode==='size'?MAX_GITHUB_BYTES+1:4,encoding:'none',content:''});}});await assert.rejects(client.read());assert.equal(puts,0);}
 });
+test('dated archives create unique private files without reading or overwriting sync state',async()=>{
+ const {client,calls}=fixture({putStatus:201});const name='tasktimer-2026-11-20_12-00-00-001.json';
+ const result=await client.saveBackup(name,'{"text":"Копия"}');
+ assert.match(result.path,/^backups\/tasktimer-.*-[a-f0-9-]{36}\.json$/);
+ const put=calls.find(c=>c.options.method==='PUT'),body=JSON.parse(put.options.body);
+ assert.equal(body.sha,undefined);assert.equal(body.branch,config.branch);assert.equal(Buffer.from(body.content,'base64').toString(),'{"text":"Копия"}');
+ assert.ok(!calls.some(c=>c.url.includes('/contents/data/')));
+ await client.saveBackup(name,'{}');assert.notEqual(calls.filter(c=>c.options.method==='PUT')[1].url,put.url);
+ for(const options of [{metadata:{private:false}},{branchStatus:404}]){const f=fixture(options);await assert.rejects(f.client.saveBackup(name,'{}'));assert.equal(f.calls.some(c=>c.options.method==='PUT'),false);}
+ for(const status of [200,409,422,500]){const f=fixture({putStatus:status});await assert.rejects(f.client.saveBackup(name,'{}'));assert.equal(f.calls.filter(c=>c.options.method==='PUT').length,1);}
+ await assert.rejects(client.saveBackup('../state.json','{}'));
+});

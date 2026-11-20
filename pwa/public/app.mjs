@@ -1,3 +1,4 @@
+import {backupFilename,installAutoBackup} from './auto-backup.mjs';
 import {installVoiceInterface,addVoiceButtons} from './voice-ui.mjs';
 import { createGitHubClient, githubTarget } from './github-client.mjs';
 import { createAutoSync } from './auto-sync.mjs';
@@ -285,7 +286,7 @@ function sessionEditor(taskId,sessionId) {
   });
 }
 function confirm(title,message,action,{label='Удалить',backup=false}={}) { $('#confirm-title').textContent=title;$('#confirm-text').textContent=message;$('#confirm-submit').textContent=label;$('#confirm-error').hidden=true;$('#confirm-export').hidden=!backup;confirmAction=action;$('#confirm-dialog').showModal(); }
-async function exportBackup() { if(!repo)throw new Error('Хранилище недоступно.'); const current=await repo.exportBackup();delete current.sync;const blob=new Blob([JSON.stringify(current,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`tasktimer-${localDate()}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),10000);toast('Резервная копия подготовлена.'); }
+async function exportBackup() { if(!repo)throw new Error('Хранилище недоступно.'); const current=await repo.exportBackup();delete current.sync;const blob=new Blob([JSON.stringify(current,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=backupFilename();a.click();setTimeout(()=>URL.revokeObjectURL(url),10000);toast('Резервная копия подготовлена.'); }
 document.addEventListener('click',async event=>{
   const button=event.target.closest('button');if(!button)return;
   if(button.classList.contains('close-dialog')){if(!button.closest('dialog').dataset.busy)button.closest('dialog').close();return;}
@@ -407,6 +408,7 @@ window.addEventListener('tasktimer:before-update', event => {
  event.detail.waitUntil((async () => { if (!repo) throw new Error('Хранилище недоступно. Обновление отменено.'); await Promise.all([...pendingWrites]); await repo.read(); })());
 });
 setInterval(()=>{tick();checkReminder();},1000);
+if(repo)installAutoBackup({serverTarget:()=>{const form=$('#sync-form');const c=createGitHubClient({repository:form.querySelector('[name=repository]').value,branch:form.querySelector('[name=branch]').value,token:form.querySelector('[name=token]').value});return {repository:c.target.repository,branch:c.target.branch};},saveServer:async(name,text,config)=>{const form=$('#sync-form');const client=createGitHubClient({repository:form.querySelector('[name=repository]').value,branch:form.querySelector('[name=branch]').value,token:form.querySelector('[name=token]').value});if(client.target.repository.toLowerCase()!==config.serverTarget?.repository?.toLowerCase()||client.target.branch!==config.serverTarget?.branch)throw new Error('Репозиторий изменён. Сохраните настройки автокопий для нового места хранения.');if(!client.saveBackup)throw new Error('Серверные копии требуют версии с поддержкой архивов.');await client.saveBackup(name,text,{signal:AbortSignal.timeout(60000)});},exportData:async()=>{const backup=await repo.exportBackup();delete backup.sync;return backup;},download:(text,name)=>{const url=URL.createObjectURL(new Blob([text],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),10000);}});
 
 let syncAbort=null, syncAutomatic=false;
 let autoSync=null;
